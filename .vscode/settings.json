@@ -1,0 +1,9 @@
+{
+	"rust-analyzer.cargo.extraEnv": {
+		"PATH": "${workspaceFolder}/vendor/vulkan/1.4.335.0/x86_64/bin:${env:PATH}",
+		"VULKAN_SDK": "${workspaceFolder}/vendor/vulkan/1.4.335.0/x86_64",
+		"LD_LIBRARY_PATH": "${workspaceFolder}/vendor/vulkan/1.4.335.0/x86_64/lib",
+		"VK_ADD_LAYER_PATH": "${workspaceFolder}/vendor/vulkan/1.4.335.0/x86_64/share/vulkan/explicit_layer.d",
+		"PKG_CONFIG_PATH": "${workspaceFolder}/vendor/vulkan/1.4.335.0/x86_64/share/pkgconfig:${workspaceFolder}/vendor/vulkan/1.4.335.0/x86_64/lib/pkgconfig"
+	}
+}

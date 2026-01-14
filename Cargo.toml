@@ -1,0 +1,12 @@
+[package]
+name = "voxels2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+glam = "0.30.10"
+shader-slang = "0.1.0"
+slang_struct = { version = "0.0.2", features = ["glam"] }
+vulkano = "0.35.2"
+winit = "0.30.12"
