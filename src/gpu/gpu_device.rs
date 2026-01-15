@@ -1,9 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo};
+use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo};
 
-use crate::gpu::{GpuPhysicalDevice, GpuQueueFamilyIndex, GpuQueueFamilyIntent};
+use crate::gpu::{GpuPhysicalDevice, GpuQueue, GpuQueueFamilyIndex, GpuQueueFamilyIntent};
 
 pub struct GpuDeviceBuilder {
     physical_device: Arc<GpuPhysicalDevice>,
@@ -77,12 +77,12 @@ impl GpuDeviceBuilder {
             },
         )?;
 
-        let mut created_queues = vec![];
+        let mut created_queues = Vec::with_capacity(queue_items.len());
         for (index, _, intents) in queue_items {
             let queue = queues
                 .next()
                 .ok_or_else(|| anyhow!("no queue found for family index: {:?}", index))?;
-            created_queues.push((index, intents, queue));
+            created_queues.push(GpuQueue::new(intents, index, queue));
         }
 
         Ok(Arc::new(GpuDevice::new(
@@ -96,14 +96,14 @@ impl GpuDeviceBuilder {
 pub struct GpuDevice {
     device: Arc<Device>,
     physical_device: Arc<GpuPhysicalDevice>,
-    queues: Vec<(GpuQueueFamilyIndex, Vec<GpuQueueFamilyIntent>, Arc<Queue>)>,
+    queues: Vec<GpuQueue>,
 }
 
 impl GpuDevice {
     fn new(
         device: Arc<Device>,
         physical_device: Arc<GpuPhysicalDevice>,
-        queues: Vec<(GpuQueueFamilyIndex, Vec<GpuQueueFamilyIntent>, Arc<Queue>)>,
+        queues: Vec<GpuQueue>,
     ) -> Self {
         Self {
             device,
@@ -120,14 +120,7 @@ impl GpuDevice {
         &self.device
     }
 
-    // TODO: until we add GpuQueue
-    pub fn get_first_vk_queue(&self, intent: GpuQueueFamilyIntent) -> Option<&Arc<Queue>> {
-        self.queues.iter().find_map(|(_, intents, queue)| {
-            if intents.contains(&intent) {
-                Some(queue)
-            } else {
-                None
-            }
-        })
+    pub fn get_queue(&self, intent: GpuQueueFamilyIntent) -> Option<&GpuQueue> {
+        self.queues.iter().find(|queue| queue.supports(intent))
     }
 }

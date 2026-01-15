@@ -8,7 +8,7 @@ use vulkano::{
         AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassBeginInfo,
         SubpassEndInfo,
     },
-    device::{DeviceExtensions, Queue},
+    device::DeviceExtensions,
     image::ImageUsage,
     image::view::ImageView,
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
@@ -21,7 +21,7 @@ use vulkano::{
 use winit::{dpi::PhysicalSize, raw_window_handle::HasDisplayHandle, window::Window};
 
 use crate::gpu::{
-    GpuDevice, GpuDeviceBuilder, GpuInstance, GpuPhysicalDeviceProfile, GpuQueueFamilyIntent,
+    GpuDevice, GpuDeviceBuilder, GpuInstance, GpuPhysicalDeviceProfile, GpuQueue, GpuQueueFamilyIntent,
 };
 
 pub struct Renderer {
@@ -29,7 +29,7 @@ pub struct Renderer {
     instance: Option<GpuInstance>,
     surface: Option<Arc<Surface>>,
     device: Option<Arc<GpuDevice>>,
-    queue: Option<Arc<Queue>>,
+    queue: Option<GpuQueue>,
     swapchain: Option<Arc<Swapchain>>,
     render_pass: Option<Arc<RenderPass>>,
     framebuffers: Vec<Arc<Framebuffer>>,
@@ -100,7 +100,7 @@ impl Renderer {
             .create_queue(GpuQueueFamilyIntent::Present)?
             .build()?;
         let queue = device
-            .get_first_vk_queue(GpuQueueFamilyIntent::Graphics)
+            .get_queue(GpuQueueFamilyIntent::Graphics)
             .context("missing graphics queue")?
             .clone();
 
@@ -144,7 +144,8 @@ impl Renderer {
             Some(swapchain) => swapchain.clone(),
             None => return Ok(()),
         };
-        let queue = self.queue.as_ref().context("missing queue")?.clone();
+        let queue = self.queue.as_ref().context("missing queue")?;
+        let vk_queue = queue.get_vk_queue().clone();
         let command_buffer_allocator = self
             .command_buffer_allocator
             .as_ref()
@@ -173,7 +174,7 @@ impl Renderer {
 
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             command_buffer_allocator,
-            queue.queue_family_index(),
+            queue.family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )?;
 
@@ -192,9 +193,9 @@ impl Renderer {
             .take()
             .unwrap_or_else(|| Box::new(sync::now(vk_device.clone())))
             .join(acquire_future)
-            .then_execute(queue.clone(), command_buffer)?
+            .then_execute(vk_queue.clone(), command_buffer)?
             .then_swapchain_present(
-                queue,
+                vk_queue,
                 SwapchainPresentInfo::swapchain_image_index(swapchain, image_index),
             )
             .then_signal_fence_and_flush();
