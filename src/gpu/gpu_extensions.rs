@@ -71,7 +71,7 @@ impl GpuExtensions {
             })
     }
 
-    pub fn support_for(
+    pub(crate) fn support_for(
         self: &Arc<Self>,
         instance: &Instance,
         physical_device: vk::PhysicalDevice,
@@ -96,7 +96,7 @@ impl GpuExtensions {
         Ok(GpuExtensionSupport::new(self.clone(), support))
     }
 
-    pub fn with_ptrs<T>(&self, f: impl FnOnce(&[*const i8]) -> T) -> T {
+    pub(crate) fn with_ptrs<T>(&self, f: impl FnOnce(&[*const i8]) -> T) -> T {
         let ptrs = self
             .names
             .iter()
