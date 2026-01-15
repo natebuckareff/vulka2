@@ -16,6 +16,37 @@ pub enum GpuPhysicalDeviceProfile {
     CanPresentTo(vk::SurfaceKHR),
 }
 
+pub struct GpuInstanceOptions {
+    pub application_name: String,
+    pub validation_layers: Vec<CString>,
+    pub extra_extensions: Vec<vk::ExtensionName>,
+}
+
+impl GpuInstanceOptions {
+    pub fn new(application_name: String) -> Self {
+        Self {
+            application_name,
+            validation_layers: Vec::new(),
+            extra_extensions: Vec::new(),
+        }
+    }
+
+    pub fn with_validation(mut self) -> Result<Self> {
+        self.validation_layers = vec![CString::new("VK_LAYER_KHRONOS_validation")?];
+        Ok(self)
+    }
+
+    pub fn validation_layers(mut self, layers: Vec<CString>) -> Self {
+        self.validation_layers = layers;
+        self
+    }
+
+    pub fn extra_extensions(mut self, extensions: Vec<vk::ExtensionName>) -> Self {
+        self.extra_extensions = extensions;
+        self
+    }
+}
+
 enum MatchType {
     NoMatch,
     MatchNoCap,
@@ -30,12 +61,22 @@ impl GpuInstance {
     pub fn new(
         window: &impl HasWindowHandle,
         entry: &Entry,
-        application_name: String,
+        options: GpuInstanceOptions,
     ) -> Result<Arc<Self>> {
-        let app_name = CString::new(application_name)
+        let app_name = CString::new(options.application_name)
             .map_err(|err| anyhow!("invalid application name: {err}"))?;
+
         let extensions = get_required_instance_extensions(window);
-        let extension_names: Vec<*const i8> = extensions.iter().map(|ext| ext.as_ptr()).collect();
+        let mut extension_names: Vec<*const i8> =
+            extensions.iter().map(|ext| ext.as_ptr()).collect();
+
+        extension_names.extend(options.extra_extensions.iter().map(|ext| ext.as_ptr()));
+
+        let layer_names: Vec<*const i8> = options
+            .validation_layers
+            .iter()
+            .map(|layer| layer.as_ptr())
+            .collect();
 
         let app_info = vk::ApplicationInfo::builder()
             .application_name(app_name.as_bytes_with_nul())
@@ -46,7 +87,8 @@ impl GpuInstance {
 
         let instance_info = vk::InstanceCreateInfo::builder()
             .application_info(&app_info)
-            .enabled_extension_names(&extension_names);
+            .enabled_extension_names(&extension_names)
+            .enabled_layer_names(&layer_names);
 
         let instance = unsafe { entry.create_instance(&instance_info, None) }
             .context("failed to create Vulkan instance")?;

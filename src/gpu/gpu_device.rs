@@ -6,9 +6,60 @@ use vulkanalia::vk;
 
 use crate::gpu::{GpuPhysicalDevice, GpuQueue, GpuQueueFamilyIndex, GpuQueueFamilyIntent};
 
+#[derive(Clone)]
+pub struct DescriptorIndexingFeatures {
+    pub runtime_descriptor_array: bool,
+    pub descriptor_binding_partially_bound: bool,
+    pub descriptor_binding_variable_descriptor_count: bool,
+    pub descriptor_binding_update_unused_while_pending: bool,
+    pub shader_sampled_image_array_non_uniform_indexing: bool,
+    pub shader_storage_buffer_array_non_uniform_indexing: bool,
+    pub shader_storage_image_array_non_uniform_indexing: bool,
+}
+
+impl Default for DescriptorIndexingFeatures {
+    fn default() -> Self {
+        Self {
+            runtime_descriptor_array: true,
+            descriptor_binding_partially_bound: true,
+            descriptor_binding_variable_descriptor_count: true,
+            descriptor_binding_update_unused_while_pending: true,
+            shader_sampled_image_array_non_uniform_indexing: true,
+            shader_storage_buffer_array_non_uniform_indexing: true,
+            shader_storage_image_array_non_uniform_indexing: true,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct GpuDeviceFeatures {
+    pub dynamic_rendering: bool,
+    pub synchronization2: bool,
+    pub buffer_device_address: bool,
+    pub descriptor_indexing: DescriptorIndexingFeatures,
+}
+
+impl Default for GpuDeviceFeatures {
+    fn default() -> Self {
+        Self {
+            dynamic_rendering: true,
+            synchronization2: true,
+            buffer_device_address: true,
+            descriptor_indexing: DescriptorIndexingFeatures::default(),
+        }
+    }
+}
+
+impl GpuDeviceFeatures {
+    pub fn vulkan13_default() -> Self {
+        Self::default()
+    }
+}
+
 pub struct GpuDeviceBuilder {
     physical_device: Arc<GpuPhysicalDevice>,
     enabled_extensions: Option<Vec<vk::ExtensionName>>,
+    features: GpuDeviceFeatures,
     queues: HashMap<GpuQueueFamilyIndex, QueueRequest>,
 }
 
@@ -22,12 +73,18 @@ impl GpuDeviceBuilder {
         Self {
             physical_device,
             enabled_extensions: None,
+            features: GpuDeviceFeatures::default(),
             queues: HashMap::new(),
         }
     }
 
     pub fn enabled_extensions(mut self, extensions: Vec<vk::ExtensionName>) -> Self {
         self.enabled_extensions = Some(extensions);
+        self
+    }
+
+    pub fn features(mut self, features: GpuDeviceFeatures) -> Self {
+        self.features = features;
         self
     }
 
@@ -86,9 +143,56 @@ impl GpuDeviceBuilder {
             })
             .collect::<Vec<_>>();
 
+        let mut v13_features = vk::PhysicalDeviceVulkan13Features::builder()
+            .dynamic_rendering(self.features.dynamic_rendering)
+            .synchronization2(self.features.synchronization2);
+
+        let mut buffer_device_address_features =
+            vk::PhysicalDeviceBufferDeviceAddressFeatures::builder()
+                .buffer_device_address(self.features.buffer_device_address);
+
+        let mut descriptor_indexing_features =
+            vk::PhysicalDeviceDescriptorIndexingFeatures::builder()
+                .runtime_descriptor_array(
+                    self.features.descriptor_indexing.runtime_descriptor_array,
+                )
+                .descriptor_binding_partially_bound(
+                    self.features
+                        .descriptor_indexing
+                        .descriptor_binding_partially_bound,
+                )
+                .descriptor_binding_variable_descriptor_count(
+                    self.features
+                        .descriptor_indexing
+                        .descriptor_binding_variable_descriptor_count,
+                )
+                .descriptor_binding_update_unused_while_pending(
+                    self.features
+                        .descriptor_indexing
+                        .descriptor_binding_update_unused_while_pending,
+                )
+                .shader_sampled_image_array_non_uniform_indexing(
+                    self.features
+                        .descriptor_indexing
+                        .shader_sampled_image_array_non_uniform_indexing,
+                )
+                .shader_storage_buffer_array_non_uniform_indexing(
+                    self.features
+                        .descriptor_indexing
+                        .shader_storage_buffer_array_non_uniform_indexing,
+                )
+                .shader_storage_image_array_non_uniform_indexing(
+                    self.features
+                        .descriptor_indexing
+                        .shader_storage_image_array_non_uniform_indexing,
+                );
+
         let device_info = vk::DeviceCreateInfo::builder()
             .enabled_extension_names(&extension_names)
-            .queue_create_infos(&queue_create_infos);
+            .queue_create_infos(&queue_create_infos)
+            .push_next(&mut v13_features)
+            .push_next(&mut buffer_device_address_features)
+            .push_next(&mut descriptor_indexing_features);
 
         let instance = self.physical_device.get_vk_instance();
         let device = unsafe {
@@ -121,11 +225,7 @@ pub struct GpuDevice {
 }
 
 impl GpuDevice {
-    fn new(
-        device: Device,
-        physical_device: Arc<GpuPhysicalDevice>,
-        queues: Vec<GpuQueue>,
-    ) -> Self {
+    fn new(device: Device, physical_device: Arc<GpuPhysicalDevice>, queues: Vec<GpuQueue>) -> Self {
         Self {
             device,
             physical_device,
