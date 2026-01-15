@@ -8,10 +8,9 @@ use vulkano::{
         AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassBeginInfo,
         SubpassEndInfo,
     },
-    device::{Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags},
+    device::{DeviceExtensions, Queue},
     image::ImageUsage,
     image::view::ImageView,
-    instance::{Instance, InstanceCreateInfo, InstanceExtensions},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
     swapchain::{
         PresentMode, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo,
@@ -19,13 +18,17 @@ use vulkano::{
     },
     sync::{self, GpuFuture},
 };
-use winit::{dpi::PhysicalSize, window::Window};
+use winit::{dpi::PhysicalSize, raw_window_handle::HasDisplayHandle, window::Window};
+
+use crate::gpu::{
+    GpuDevice, GpuDeviceBuilder, GpuInstance, GpuPhysicalDeviceProfile, GpuQueueFamilyIntent,
+};
 
 pub struct Renderer {
     library: Arc<VulkanLibrary>,
-    instance: Option<Arc<Instance>>,
+    instance: Option<GpuInstance>,
     surface: Option<Arc<Surface>>,
-    device: Option<Arc<Device>>,
+    device: Option<Arc<GpuDevice>>,
     queue: Option<Arc<Queue>>,
     swapchain: Option<Arc<Swapchain>>,
     render_pass: Option<Arc<RenderPass>>,
@@ -54,59 +57,52 @@ impl Renderer {
             previous_frame_end: None,
         };
 
-        let required_extensions =
-            Surface::required_extensions(&window).context("failed to query surface extensions")?;
-        let instance = Instance::new(
-            renderer.library.clone(),
-            InstanceCreateInfo {
-                application_name: Some("voxels2".to_string()),
-                max_api_version: Some(vulkano::Version::V1_3),
-                enabled_extensions: InstanceExtensions {
-                    khr_get_surface_capabilities2: true,
-                    ..required_extensions
-                },
-                ..Default::default()
-            },
-        )?;
+        let event_loop = window.display_handle()?;
+        let instance =
+            GpuInstance::new(&event_loop, renderer.library.clone(), "voxels2".to_string())?;
 
-        let surface = Surface::from_window(instance.clone(), window.clone())
+        instance.for_each_physical_device(|(_, physical_device)| {
+            let properties = physical_device.properties();
+            println!("device name: {:?}", properties.device_name);
+            println!("device api version: {:?}", physical_device.api_version());
+        })?;
+
+        let surface = Surface::from_window(instance.get_vk_instance().clone(), window.clone())
             .context("failed to create window surface")?;
 
-        let (physical_device, queue_family_index) = instance
-            .enumerate_physical_devices()?
-            .filter_map(|physical_device| {
-                let queue_family_index = physical_device
-                    .queue_family_properties()
-                    .iter()
-                    .enumerate()
-                    .find(|(index, queue_family)| {
-                        queue_family.queue_flags.contains(QueueFlags::GRAPHICS)
-                            && physical_device
-                                .surface_support(*index as u32, &surface)
-                                .unwrap_or(false)
-                    })
-                    .map(|(index, _)| index as u32);
-
-                queue_family_index.map(|index| (physical_device, index))
-            })
-            .next()
+        let physical_device = instance
+            .find_physical_device(&[
+                GpuPhysicalDeviceProfile::DiscreteGpu,
+                GpuPhysicalDeviceProfile::HasGraphicsQueue,
+                GpuPhysicalDeviceProfile::CanPresentTo(surface.clone()),
+            ])?
             .ok_or_else(|| anyhow!("no suitable physical device found"))?;
 
-        let (device, mut queues) = Device::new(
-            physical_device,
-            DeviceCreateInfo {
-                enabled_extensions: DeviceExtensions {
-                    khr_swapchain: true,
-                    ..DeviceExtensions::empty()
-                },
-                queue_create_infos: vec![QueueCreateInfo {
-                    queue_family_index,
-                    ..Default::default()
-                }],
-                ..Default::default()
-            },
-        )?;
-        let queue = queues.next().context("failed to create graphics queue")?;
+        let graphics_index = physical_device
+            .get_queue_family(GpuQueueFamilyIntent::Graphics)
+            .context("missing graphics queue family")?;
+        let present_index = physical_device
+            .get_queue_family(GpuQueueFamilyIntent::Present)
+            .context("missing present queue family")?;
+
+        if graphics_index != present_index {
+            return Err(anyhow!(
+                "graphics and present queues must be the same family"
+            ));
+        }
+
+        let device = GpuDeviceBuilder::new(physical_device)
+            .enabled_extensions(DeviceExtensions {
+                khr_swapchain: true,
+                ..DeviceExtensions::empty()
+            })
+            .create_queue(GpuQueueFamilyIntent::Graphics)?
+            .create_queue(GpuQueueFamilyIntent::Present)?
+            .build()?;
+        let queue = device
+            .get_first_vk_queue(GpuQueueFamilyIntent::Graphics)
+            .context("missing graphics queue")?
+            .clone();
 
         renderer.window_size = window.inner_size().into();
         renderer.instance = Some(instance);
@@ -114,10 +110,10 @@ impl Renderer {
         renderer.device = Some(device.clone());
         renderer.queue = Some(queue);
         renderer.command_buffer_allocator = Some(Arc::new(StandardCommandBufferAllocator::new(
-            device.clone(),
+            device.get_vk_device().clone(),
             Default::default(),
         )));
-        renderer.previous_frame_end = Some(Box::new(sync::now(device)));
+        renderer.previous_frame_end = Some(Box::new(sync::now(device.get_vk_device().clone())));
         renderer.recreate_swapchain = true;
 
         renderer.recreate_swapchain_if_needed()?;
@@ -189,10 +185,12 @@ impl Renderer {
 
         let command_buffer = command_buffer_builder.build()?;
 
+        let vk_device = device.get_vk_device().clone();
+
         let future = self
             .previous_frame_end
             .take()
-            .unwrap_or_else(|| Box::new(sync::now(device.clone())))
+            .unwrap_or_else(|| Box::new(sync::now(vk_device.clone())))
             .join(acquire_future)
             .then_execute(queue.clone(), command_buffer)?
             .then_swapchain_present(
@@ -207,7 +205,7 @@ impl Renderer {
             }
             Err(vulkano::Validated::Error(vulkano::VulkanError::OutOfDate)) => {
                 self.recreate_swapchain = true;
-                self.previous_frame_end = Some(Box::new(sync::now(device)));
+                self.previous_frame_end = Some(Box::new(sync::now(vk_device)));
             }
             Err(err) => return Err(anyhow!(err)),
         }
@@ -221,17 +219,19 @@ impl Renderer {
         }
 
         let device = self.device.as_ref().context("missing device")?.clone();
+        let vk_device = device.get_vk_device().clone();
         let surface = self.surface.as_ref().context("missing surface")?.clone();
         let physical_device = device.physical_device().clone();
+        let vk_physical_device = physical_device.get_vk_physical_device().clone();
 
         if self.window_size[0] == 0 || self.window_size[1] == 0 {
             return Ok(());
         }
 
         let surface_info = SurfaceInfo::default();
-        let caps = physical_device.surface_capabilities(&surface, surface_info.clone())?;
-        let formats = physical_device.surface_formats(&surface, surface_info.clone())?;
-        let present_modes = physical_device.surface_present_modes(&surface, surface_info)?;
+        let caps = vk_physical_device.surface_capabilities(&surface, surface_info.clone())?;
+        let formats = vk_physical_device.surface_formats(&surface, surface_info.clone())?;
+        let present_modes = vk_physical_device.surface_present_modes(&surface, surface_info)?;
 
         let (image_format, image_color_space) = formats
             .first()
@@ -280,7 +280,7 @@ impl Renderer {
             })?
         } else {
             Swapchain::new(
-                device.clone(),
+                vk_device.clone(),
                 surface,
                 SwapchainCreateInfo {
                     min_image_count,
@@ -296,7 +296,7 @@ impl Renderer {
         };
 
         let render_pass = vulkano::single_pass_renderpass!(
-            device.clone(),
+            vk_device.clone(),
             attachments: {
                 color: {
                     format: image_format,
