@@ -7,7 +7,9 @@ use anyhow::{Result, anyhow};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk;
 
-use crate::gpu::{GpuPhysicalDevice, GpuQueue, GpuQueueFamilyIndex, GpuQueueFamilyIntent};
+use crate::gpu::{
+    GpuExtensions, GpuPhysicalDevice, GpuQueue, GpuQueueFamilyIndex, GpuQueueFamilyIntent,
+};
 
 #[derive(Clone)]
 pub struct DescriptorIndexingFeatures {
@@ -61,7 +63,7 @@ impl GpuDeviceFeatures {
 
 pub struct GpuDeviceBuilder {
     physical_device: Arc<GpuPhysicalDevice>,
-    enabled_extensions: Option<Vec<vk::ExtensionName>>,
+    enabled_extensions: Arc<GpuExtensions>,
     features: GpuDeviceFeatures,
     requested_intents: HashSet<GpuQueueFamilyIntent>,
 }
@@ -75,14 +77,14 @@ impl GpuDeviceBuilder {
     pub fn new(physical_device: Arc<GpuPhysicalDevice>) -> Self {
         Self {
             physical_device,
-            enabled_extensions: None,
+            enabled_extensions: GpuExtensions::empty(),
             features: GpuDeviceFeatures::default(),
             requested_intents: HashSet::new(),
         }
     }
 
-    pub fn enabled_extensions(mut self, extensions: Vec<vk::ExtensionName>) -> Self {
-        self.enabled_extensions = Some(extensions);
+    pub fn enabled_extensions(mut self, extensions: Arc<GpuExtensions>) -> Self {
+        self.enabled_extensions = extensions;
         self
     }
 
@@ -100,6 +102,23 @@ impl GpuDeviceBuilder {
     pub fn build(self) -> Result<Arc<GpuDevice>> {
         if self.requested_intents.is_empty() {
             return Err(anyhow!("no queues requested"));
+        }
+
+        let instance = self.physical_device.get_vk_instance();
+        let physical_device = self.physical_device.get_vk_physical_device();
+        let extension_support = self
+            .enabled_extensions
+            .support_for(instance, physical_device)?;
+        let missing = extension_support.missing_extension_names();
+        if !missing.is_empty() {
+            let properties = unsafe { instance.get_physical_device_properties(physical_device) };
+            let device_name =
+                unsafe { std::ffi::CStr::from_ptr(properties.device_name.as_ptr()) }
+                    .to_string_lossy();
+            return Err(anyhow!(
+                "device {device_name} missing extensions: {}",
+                missing.join(", ")
+            ));
         }
 
         let grouped = self.physical_device.get_grouped_queue_families();
@@ -166,13 +185,6 @@ impl GpuDeviceBuilder {
 
         queue_items.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let extension_names = self
-            .enabled_extensions
-            .unwrap_or_default()
-            .iter()
-            .map(|ext| ext.as_ptr())
-            .collect::<Vec<_>>();
-
         let queue_create_infos = queue_items
             .iter()
             .map(|(index, request)| {
@@ -227,21 +239,22 @@ impl GpuDeviceBuilder {
                         .shader_storage_image_array_non_uniform_indexing,
                 );
 
-        let device_info = vk::DeviceCreateInfo::builder()
-            .enabled_extension_names(&extension_names)
-            .queue_create_infos(&queue_create_infos)
-            .push_next(&mut v13_features)
-            .push_next(&mut buffer_device_address_features)
-            .push_next(&mut descriptor_indexing_features);
+        let device = self.enabled_extensions.with_ptrs(|extension_names| {
+            let device_info = vk::DeviceCreateInfo::builder()
+                .enabled_extension_names(extension_names)
+                .queue_create_infos(&queue_create_infos)
+                .push_next(&mut v13_features)
+                .push_next(&mut buffer_device_address_features)
+                .push_next(&mut descriptor_indexing_features);
 
-        let instance = self.physical_device.get_vk_instance();
-        let device = unsafe {
-            instance.create_device(
-                self.physical_device.get_vk_physical_device(),
-                &device_info,
-                None,
-            )
-        }
+            unsafe {
+                instance.create_device(
+                    self.physical_device.get_vk_physical_device(),
+                    &device_info,
+                    None,
+                )
+            }
+        })
         .map_err(|err| anyhow!("failed to create Vulkan device: {err}"))?;
 
         let mut created_queues = Vec::with_capacity(queue_items.len());

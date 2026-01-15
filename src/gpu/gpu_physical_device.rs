@@ -4,7 +4,7 @@ use std::sync::Arc;
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk;
 
-use crate::gpu::GpuInstance;
+use crate::gpu::{GpuExtensionHandle, GpuExtensionSupport, GpuInstance};
 pub type GpuQueueFamilyIndex = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -22,6 +22,7 @@ pub struct GpuPhysicalDevice {
     instance: Arc<GpuInstance>,
     physical_device: vk::PhysicalDevice,
     caps: Vec<GpuPhysicalDeviceCaps>,
+    extension_support: GpuExtensionSupport,
 }
 
 impl GpuPhysicalDevice {
@@ -29,11 +30,13 @@ impl GpuPhysicalDevice {
         instance: Arc<GpuInstance>,
         physical_device: vk::PhysicalDevice,
         caps: Vec<GpuPhysicalDeviceCaps>,
+        extension_support: GpuExtensionSupport,
     ) -> Self {
         Self {
             instance,
             physical_device,
             caps,
+            extension_support,
         }
     }
 
@@ -47,6 +50,14 @@ impl GpuPhysicalDevice {
 
     pub fn get_vk_physical_device(&self) -> vk::PhysicalDevice {
         self.physical_device
+    }
+
+    pub fn extension_support(&self) -> &GpuExtensionSupport {
+        &self.extension_support
+    }
+
+    pub fn supports_extension(&self, extension: &GpuExtensionHandle) -> bool {
+        self.extension_support.is_supported(extension)
     }
 
     // TODO

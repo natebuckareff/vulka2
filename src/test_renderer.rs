@@ -2,20 +2,27 @@ use std::ffi::CStr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
+use crate::gpu::{
+    GpuDeviceBuilder, GpuDeviceFeatures, GpuExtensionHandle, GpuExtensions, GpuInstance,
+    GpuInstanceOptions, GpuPhysicalDevice, GpuPhysicalDeviceProfile, GpuQueueFamilyIntent,
+};
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk;
 use vulkanalia::vk::{KhrSurfaceExtensionInstanceCommands, KhrSwapchainExtensionDeviceCommands};
-use vulkanalia::window::{create_surface, get_required_instance_extensions};
+use vulkanalia::window::create_surface;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 pub struct Renderer {
-    instance: Instance,
+    gpu_instance: Arc<GpuInstance>,
     surface: vk::SurfaceKHR,
     physical_device: vk::PhysicalDevice,
-    device: Device,
-    queue: vk::Queue,
+    gpu_device: Arc<crate::gpu::GpuDevice>,
+    graphics_queue: vk::Queue,
+    present_queue: vk::Queue,
+    graphics_queue_family: u32,
+    present_queue_family: u32,
     swapchain: Option<vk::SwapchainKHR>,
     swapchain_format: Option<vk::Format>,
     swapchain_color_space: Option<vk::ColorSpaceKHR>,
@@ -40,49 +47,61 @@ impl Renderer {
         let entry = unsafe { Entry::new(loader) }
             .map_err(|err| anyhow!("failed to create Vulkan entry: {}", err))?;
 
-        let app_info = vk::ApplicationInfo::builder()
-            .application_name(b"voxels2\0")
-            .application_version(0)
-            .engine_name(b"voxels2\0")
-            .engine_version(0)
-            .api_version(vk::make_version(1, 3, 0));
+        let instance_options = GpuInstanceOptions::new("voxels2".to_string());
+        let gpu_instance = GpuInstance::new(window.as_ref(), &entry, instance_options)?;
 
-        let extensions = get_required_instance_extensions(window.as_ref());
-        let extension_names: Vec<*const i8> = extensions.iter().map(|ext| ext.as_ptr()).collect();
+        Self::log_physical_devices(gpu_instance.get_vk_instance())?;
 
-        let instance_info = vk::InstanceCreateInfo::builder()
-            .application_info(&app_info)
-            .enabled_extension_names(&extension_names);
+        let surface = unsafe {
+            create_surface(
+                gpu_instance.get_vk_instance(),
+                window.as_ref(),
+                window.as_ref(),
+            )
+        }
+        .context("failed to create window surface")?;
 
-        let instance = unsafe { entry.create_instance(&instance_info, None) }
-            .context("failed to create Vulkan instance")?;
+        let device_extensions = GpuExtensions::builder()
+            .add(vk::KHR_SWAPCHAIN_EXTENSION.name)
+            .build();
+        let swapchain_extension = device_extensions
+            .handle(vk::KHR_SWAPCHAIN_EXTENSION.name)
+            .ok_or_else(|| anyhow!("missing swapchain extension handle"))?;
 
-        Self::log_physical_devices(&instance)?;
+        let (physical_device, gpu_physical_device) =
+            Self::pick_physical_device(&gpu_instance, surface, swapchain_extension.clone())?;
+        if !gpu_physical_device.supports_extension(&swapchain_extension) {
+            Self::print_extension_support(&gpu_instance, surface)?;
+            return Err(anyhow!(
+                "required device extension not supported: VK_KHR_swapchain"
+            ));
+        }
 
-        let surface = unsafe { create_surface(&instance, window.as_ref(), window.as_ref()) }
-            .context("failed to create window surface")?;
+        let gpu_device = GpuDeviceBuilder::new(gpu_physical_device)
+            .enabled_extensions(device_extensions)
+            .features(GpuDeviceFeatures::vulkan13_default())
+            .create_queue(GpuQueueFamilyIntent::Graphics)?
+            .create_queue(GpuQueueFamilyIntent::Present)?
+            .build()?;
 
-        let (physical_device, queue_family_index) = Self::pick_physical_device(&instance, surface)?;
+        let graphics_queue = gpu_device
+            .get_queue(GpuQueueFamilyIntent::Graphics)
+            .ok_or_else(|| anyhow!("missing graphics queue"))?;
+        let present_queue = gpu_device
+            .get_queue(GpuQueueFamilyIntent::Present)
+            .ok_or_else(|| anyhow!("missing present queue"))?;
 
-        let queue_priorities = [1.0_f32];
-        let queue_info = [vk::DeviceQueueCreateInfo::builder()
-            .queue_family_index(queue_family_index)
-            .queue_priorities(&queue_priorities)];
-
-        let device_extensions = [vk::KHR_SWAPCHAIN_EXTENSION.name.as_ptr()];
-        let device_info = vk::DeviceCreateInfo::builder()
-            .queue_create_infos(&queue_info)
-            .enabled_extension_names(&device_extensions);
-
-        let device = unsafe { instance.create_device(physical_device, &device_info, None) }
-            .context("failed to create Vulkan device")?;
-        let queue = unsafe { device.get_device_queue(queue_family_index, 0) };
+        let graphics_queue_family = graphics_queue.family_index();
+        let present_queue_family = present_queue.family_index();
+        let graphics_queue = graphics_queue.get_vk_queue();
+        let present_queue = present_queue.get_vk_queue();
 
         let command_pool = unsafe {
-            device
+            gpu_device
+                .get_vk_device()
                 .create_command_pool(
                     &vk::CommandPoolCreateInfo::builder()
-                        .queue_family_index(queue_family_index)
+                        .queue_family_index(graphics_queue_family)
                         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER),
                     None,
                 )
@@ -91,30 +110,36 @@ impl Renderer {
 
         let semaphore_info = vk::SemaphoreCreateInfo::builder();
         let image_available_semaphore = unsafe {
-            device
+            gpu_device
+                .get_vk_device()
                 .create_semaphore(&semaphore_info, None)
                 .context("failed to create acquire semaphore")?
         };
         let render_finished_semaphore = unsafe {
-            device
+            gpu_device
+                .get_vk_device()
                 .create_semaphore(&semaphore_info, None)
                 .context("failed to create present semaphore")?
         };
 
         let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
         let in_flight_fence = unsafe {
-            device
+            gpu_device
+                .get_vk_device()
                 .create_fence(&fence_info, None)
                 .context("failed to create fence")?
         };
 
         let window_size = window.inner_size();
         let mut renderer = Self {
-            instance,
+            gpu_instance,
             surface,
             physical_device,
-            device,
-            queue,
+            gpu_device,
+            graphics_queue,
+            present_queue,
+            graphics_queue_family,
+            present_queue_family,
             swapchain: None,
             swapchain_format: None,
             swapchain_color_space: None,
@@ -156,21 +181,26 @@ impl Renderer {
         };
 
         unsafe {
-            self.device
+            self.gpu_device
+                .get_vk_device()
                 .wait_for_fences(&[self.in_flight_fence], true, u64::MAX)
                 .context("failed to wait for in-flight fence")?;
-            self.device
+            self.gpu_device
+                .get_vk_device()
                 .reset_fences(&[self.in_flight_fence])
                 .context("failed to reset in-flight fence")?;
         }
 
         let (image_index, acquire_status) = unsafe {
-            match self.device.acquire_next_image_khr(
-                swapchain,
-                u64::MAX,
-                self.image_available_semaphore,
-                vk::Fence::null(),
-            ) {
+            match self
+                .gpu_device
+                .get_vk_device()
+                .acquire_next_image_khr(
+                    swapchain,
+                    u64::MAX,
+                    self.image_available_semaphore,
+                    vk::Fence::null(),
+                ) {
                 Ok(result) => result,
                 Err(vk::ErrorCode::OUT_OF_DATE_KHR) => {
                     self.recreate_swapchain = true;
@@ -200,8 +230,9 @@ impl Renderer {
             .signal_semaphores(&signal_semaphores)];
 
         unsafe {
-            self.device
-                .queue_submit(self.queue, &submit_info, self.in_flight_fence)
+            self.gpu_device
+                .get_vk_device()
+                .queue_submit(self.graphics_queue, &submit_info, self.in_flight_fence)
                 .context("failed to submit command buffer")?;
         }
 
@@ -213,7 +244,11 @@ impl Renderer {
             .swapchains(&present_swapchains)
             .image_indices(&present_indices);
 
-        let present_result = unsafe { self.device.queue_present_khr(self.queue, &present_info) };
+        let present_result = unsafe {
+            self.gpu_device
+                .get_vk_device()
+                .queue_present_khr(self.present_queue, &present_info)
+        };
 
         match present_result {
             Ok(status) => {
@@ -240,7 +275,8 @@ impl Renderer {
         }
 
         unsafe {
-            self.device
+            self.gpu_device
+                .get_vk_device()
                 .device_wait_idle()
                 .context("failed waiting for device idle")?;
         }
@@ -253,7 +289,9 @@ impl Renderer {
 
         if let Some(old_swapchain) = old_swapchain {
             unsafe {
-                self.device.destroy_swapchain_khr(old_swapchain, None);
+                self.gpu_device
+                    .get_vk_device()
+                    .destroy_swapchain_khr(old_swapchain, None);
             }
         }
 
@@ -287,17 +325,20 @@ impl Renderer {
         vk::Extent2D,
     )> {
         let capabilities = unsafe {
-            self.instance
+            self.gpu_instance
+                .get_vk_instance()
                 .get_physical_device_surface_capabilities_khr(self.physical_device, self.surface)
                 .context("failed to query surface capabilities")?
         };
         let formats = unsafe {
-            self.instance
+            self.gpu_instance
+                .get_vk_instance()
                 .get_physical_device_surface_formats_khr(self.physical_device, self.surface)
                 .context("failed to query surface formats")?
         };
         let present_modes = unsafe {
-            self.instance
+            self.gpu_instance
+                .get_vk_instance()
                 .get_physical_device_surface_present_modes_khr(self.physical_device, self.surface)
                 .context("failed to query present modes")?
         };
@@ -347,7 +388,14 @@ impl Renderer {
                 .context("no present modes available")?
         };
 
-        let swapchain_info = vk::SwapchainCreateInfoKHR::builder()
+        let sharing_mode = if self.graphics_queue_family != self.present_queue_family {
+            vk::SharingMode::CONCURRENT
+        } else {
+            vk::SharingMode::EXCLUSIVE
+        };
+        let queue_family_indices = [self.graphics_queue_family, self.present_queue_family];
+
+        let mut swapchain_info = vk::SwapchainCreateInfoKHR::builder()
             .surface(self.surface)
             .min_image_count(min_image_count)
             .image_format(image_format)
@@ -355,21 +403,26 @@ impl Renderer {
             .image_extent(extent)
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
-            .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .image_sharing_mode(sharing_mode)
             .pre_transform(capabilities.current_transform)
             .composite_alpha(composite_alpha)
             .present_mode(present_mode)
             .clipped(true)
             .old_swapchain(old_swapchain);
+        if sharing_mode == vk::SharingMode::CONCURRENT {
+            swapchain_info = swapchain_info.queue_family_indices(&queue_family_indices);
+        }
 
         let swapchain = unsafe {
-            self.device
+            self.gpu_device
+                .get_vk_device()
                 .create_swapchain_khr(&swapchain_info, None)
                 .context("failed to create swapchain")?
         };
 
         let images = unsafe {
-            self.device
+            self.gpu_device
+                .get_vk_device()
                 .get_swapchain_images_khr(swapchain)
                 .context("failed to get swapchain images")?
         };
@@ -414,7 +467,8 @@ impl Renderer {
             .dependencies(&dependencies);
 
         let render_pass = unsafe {
-            self.device
+            self.gpu_device
+                .get_vk_device()
                 .create_render_pass(&render_pass_info, None)
                 .context("failed to create render pass")?
         };
@@ -442,7 +496,8 @@ impl Renderer {
                 });
 
             let view = unsafe {
-                self.device
+                self.gpu_device
+                    .get_vk_device()
                     .create_image_view(&info, None)
                     .context("failed to create image view")?
             };
@@ -469,7 +524,8 @@ impl Renderer {
                 .layers(1);
 
             let framebuffer = unsafe {
-                self.device
+                self.gpu_device
+                    .get_vk_device()
                     .create_framebuffer(&info, None)
                     .context("failed to create framebuffer")?
             };
@@ -487,7 +543,8 @@ impl Renderer {
     ) -> Result<Vec<vk::CommandBuffer>> {
         if !self.command_buffers.is_empty() {
             unsafe {
-                self.device
+                self.gpu_device
+                    .get_vk_device()
                     .free_command_buffers(self.command_pool, &self.command_buffers);
             }
         }
@@ -498,7 +555,8 @@ impl Renderer {
             .command_buffer_count(framebuffers.len() as u32);
 
         let command_buffers = unsafe {
-            self.device
+            self.gpu_device
+                .get_vk_device()
                 .allocate_command_buffers(&alloc_info)
                 .context("failed to allocate command buffers")?
         };
@@ -506,7 +564,8 @@ impl Renderer {
         for (command_buffer, &framebuffer) in command_buffers.iter().zip(framebuffers.iter()) {
             let begin_info = vk::CommandBufferBeginInfo::builder();
             unsafe {
-                self.device
+                self.gpu_device
+                    .get_vk_device()
                     .begin_command_buffer(*command_buffer, &begin_info)
                     .context("failed to begin command buffer")?;
             }
@@ -527,13 +586,16 @@ impl Renderer {
                 .clear_values(&clear_values);
 
             unsafe {
-                self.device.cmd_begin_render_pass(
+                self.gpu_device.get_vk_device().cmd_begin_render_pass(
                     *command_buffer,
                     &render_pass_info,
                     vk::SubpassContents::INLINE,
                 );
-                self.device.cmd_end_render_pass(*command_buffer);
-                self.device
+                self.gpu_device
+                    .get_vk_device()
+                    .cmd_end_render_pass(*command_buffer);
+                self.gpu_device
+                    .get_vk_device()
                     .end_command_buffer(*command_buffer)
                     .context("failed to end command buffer")?;
             }
@@ -545,20 +607,27 @@ impl Renderer {
     fn cleanup_swapchain_resources(&mut self) -> Result<()> {
         unsafe {
             if !self.command_buffers.is_empty() {
-                self.device
+                self.gpu_device
+                    .get_vk_device()
                     .free_command_buffers(self.command_pool, &self.command_buffers);
             }
 
             for framebuffer in self.framebuffers.drain(..) {
-                self.device.destroy_framebuffer(framebuffer, None);
+                self.gpu_device
+                    .get_vk_device()
+                    .destroy_framebuffer(framebuffer, None);
             }
 
             for view in self.swapchain_image_views.drain(..) {
-                self.device.destroy_image_view(view, None);
+                self.gpu_device
+                    .get_vk_device()
+                    .destroy_image_view(view, None);
             }
 
             if let Some(render_pass) = self.render_pass.take() {
-                self.device.destroy_render_pass(render_pass, None);
+                self.gpu_device
+                    .get_vk_device()
+                    .destroy_render_pass(render_pass, None);
             }
         }
 
@@ -571,49 +640,65 @@ impl Renderer {
     }
 
     fn pick_physical_device(
-        instance: &Instance,
+        instance: &Arc<GpuInstance>,
         surface: vk::SurfaceKHR,
-    ) -> Result<(vk::PhysicalDevice, u32)> {
-        let devices = unsafe { instance.enumerate_physical_devices() }
-            .context("failed to enumerate physical devices")?;
-        let mut selected: Option<(vk::PhysicalDevice, u32, u32)> = None;
-
-        for device in devices {
-            let properties = unsafe { instance.get_physical_device_properties(device) };
-            let queue_families =
-                unsafe { instance.get_physical_device_queue_family_properties(device) };
-
-            for (index, family) in queue_families.iter().enumerate() {
-                if !family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
-                    continue;
-                }
-
-                let supports_present = unsafe {
-                    instance
-                        .get_physical_device_surface_support_khr(device, index as u32, surface)
-                        .context("failed to query surface support")?
-                };
-
-                if !supports_present {
-                    continue;
-                }
-
-                let score = if properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
-                    2
+        swapchain_extension: GpuExtensionHandle,
+    ) -> Result<(vk::PhysicalDevice, Arc<GpuPhysicalDevice>)> {
+        let profiles = [
+            GpuPhysicalDeviceProfile::DiscreteGpu,
+            GpuPhysicalDeviceProfile::HasGraphicsQueue,
+            GpuPhysicalDeviceProfile::CanPresentTo(surface),
+            GpuPhysicalDeviceProfile::RequiresDeviceExtension(swapchain_extension.clone()),
+        ];
+        let selected = instance.find_physical_device(&profiles)?;
+        let selected = match selected {
+            Some(device) => device,
+            None => {
+                let fallback_profiles = [
+                    GpuPhysicalDeviceProfile::HasGraphicsQueue,
+                    GpuPhysicalDeviceProfile::CanPresentTo(surface),
+                    GpuPhysicalDeviceProfile::RequiresDeviceExtension(swapchain_extension),
+                ];
+                if let Some(device) = instance.find_physical_device(&fallback_profiles)? {
+                    device
                 } else {
-                    1
-                };
-
-                match selected {
-                    Some((_, _, best_score)) if best_score >= score => {}
-                    _ => selected = Some((device, index as u32, score)),
+                    Self::print_extension_support(instance, surface)?;
+                    return Err(anyhow!("no suitable physical device found"));
                 }
             }
-        }
+        };
 
-        selected
-            .map(|(device, index, _)| (device, index))
-            .ok_or_else(|| anyhow!("no suitable physical device found"))
+        Ok((selected.get_vk_physical_device(), selected))
+    }
+
+    fn print_extension_support(instance: &Arc<GpuInstance>, surface: vk::SurfaceKHR) -> Result<()> {
+        let profiles = [
+            GpuPhysicalDeviceProfile::HasGraphicsQueue,
+            GpuPhysicalDeviceProfile::CanPresentTo(surface),
+            GpuPhysicalDeviceProfile::RequiresDeviceExtension({
+                let extensions = GpuExtensions::builder()
+                    .add(vk::KHR_SWAPCHAIN_EXTENSION.name)
+                    .build();
+                extensions
+                    .handle(vk::KHR_SWAPCHAIN_EXTENSION.name)
+                    .ok_or_else(|| anyhow!("missing swapchain extension handle"))?
+            }),
+        ];
+        let devices = instance.get_all_physical_devices(&profiles)?;
+        for device in devices {
+            let properties = unsafe {
+                instance
+                    .get_vk_instance()
+                    .get_physical_device_properties(device.get_vk_physical_device())
+            };
+            let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }.to_string_lossy();
+            println!("device name: {name}");
+            for (extension, supported) in device.extension_support().iter() {
+                let extension_name = extension.to_string_lossy();
+                println!("  extension {extension_name}: {supported}");
+            }
+        }
+        Ok(())
     }
 
     fn log_physical_devices(instance: &Instance) -> Result<()> {
@@ -635,22 +720,30 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
-            let _ = self.device.device_wait_idle();
+            let _ = self.gpu_device.get_vk_device().device_wait_idle();
             let _ = self.cleanup_swapchain_resources();
 
             if let Some(swapchain) = self.swapchain.take() {
-                self.device.destroy_swapchain_khr(swapchain, None);
+                self.gpu_device
+                    .get_vk_device()
+                    .destroy_swapchain_khr(swapchain, None);
             }
 
-            self.device
+            self.gpu_device
+                .get_vk_device()
                 .destroy_semaphore(self.image_available_semaphore, None);
-            self.device
+            self.gpu_device
+                .get_vk_device()
                 .destroy_semaphore(self.render_finished_semaphore, None);
-            self.device.destroy_fence(self.in_flight_fence, None);
-            self.device.destroy_command_pool(self.command_pool, None);
-            self.instance.destroy_surface_khr(self.surface, None);
-            self.device.destroy_device(None);
-            self.instance.destroy_instance(None);
+            self.gpu_device
+                .get_vk_device()
+                .destroy_fence(self.in_flight_fence, None);
+            self.gpu_device
+                .get_vk_device()
+                .destroy_command_pool(self.command_pool, None);
+            self.gpu_instance
+                .get_vk_instance()
+                .destroy_surface_khr(self.surface, None);
         }
     }
 }

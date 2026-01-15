@@ -8,18 +8,22 @@ use vulkanalia::vk::KhrSurfaceExtensionInstanceCommands;
 use vulkanalia::window::get_required_instance_extensions;
 use winit::raw_window_handle::HasWindowHandle;
 
-use crate::gpu::{GpuPhysicalDevice, GpuPhysicalDeviceCaps};
+use crate::gpu::{
+    GpuExtensionHandle, GpuExtensionSupport, GpuExtensions, GpuPhysicalDevice,
+    GpuPhysicalDeviceCaps,
+};
 
 pub enum GpuPhysicalDeviceProfile {
     DiscreteGpu,
     HasGraphicsQueue,
     CanPresentTo(vk::SurfaceKHR),
+    RequiresDeviceExtension(GpuExtensionHandle),
 }
 
 pub struct GpuInstanceOptions {
     pub application_name: String,
     pub validation_layers: Vec<CString>,
-    pub extra_extensions: Vec<vk::ExtensionName>,
+    pub extra_extensions: Arc<GpuExtensions>,
 }
 
 impl GpuInstanceOptions {
@@ -27,7 +31,7 @@ impl GpuInstanceOptions {
         Self {
             application_name,
             validation_layers: Vec::new(),
-            extra_extensions: Vec::new(),
+            extra_extensions: GpuExtensions::empty(),
         }
     }
 
@@ -41,7 +45,7 @@ impl GpuInstanceOptions {
         self
     }
 
-    pub fn extra_extensions(mut self, extensions: Vec<vk::ExtensionName>) -> Self {
+    pub fn extra_extensions(mut self, extensions: Arc<GpuExtensions>) -> Self {
         self.extra_extensions = extensions;
         self
     }
@@ -66,11 +70,15 @@ impl GpuInstance {
         let app_name = CString::new(options.application_name)
             .map_err(|err| anyhow!("invalid application name: {err}"))?;
 
-        let extensions = get_required_instance_extensions(window);
-        let mut extension_names: Vec<*const i8> =
-            extensions.iter().map(|ext| ext.as_ptr()).collect();
-
-        extension_names.extend(options.extra_extensions.iter().map(|ext| ext.as_ptr()));
+        let required_extensions = get_required_instance_extensions(window);
+        let mut extension_builder = GpuExtensions::builder();
+        for extension in required_extensions {
+            extension_builder = extension_builder.add(**extension);
+        }
+        for extension in options.extra_extensions.iter_names() {
+            extension_builder = extension_builder.add(extension);
+        }
+        let extensions = extension_builder.build();
 
         let layer_names: Vec<*const i8> = options
             .validation_layers
@@ -85,13 +93,15 @@ impl GpuInstance {
             .engine_version(0)
             .api_version(vk::make_version(1, 3, 0));
 
-        let instance_info = vk::InstanceCreateInfo::builder()
-            .application_info(&app_info)
-            .enabled_extension_names(&extension_names)
-            .enabled_layer_names(&layer_names);
+        let instance = extensions.with_ptrs(|extension_names| {
+            let instance_info = vk::InstanceCreateInfo::builder()
+                .application_info(&app_info)
+                .enabled_extension_names(extension_names)
+                .enabled_layer_names(&layer_names);
 
-        let instance = unsafe { entry.create_instance(&instance_info, None) }
-            .context("failed to create Vulkan instance")?;
+            unsafe { entry.create_instance(&instance_info, None) }
+        })
+        .context("failed to create Vulkan instance")?;
 
         Ok(Arc::new(Self { instance }))
     }
@@ -112,6 +122,7 @@ impl GpuInstance {
 
     fn match_profile(
         instance: &Instance,
+        extension_support: &GpuExtensionSupport,
         profile: &GpuPhysicalDeviceProfile,
         item: &(usize, vk::PhysicalDevice),
     ) -> MatchType {
@@ -180,6 +191,13 @@ impl GpuInstance {
                     MatchType::MatchWithCaps(caps)
                 }
             }
+            GpuPhysicalDeviceProfile::RequiresDeviceExtension(extension) => {
+                if extension_support.is_supported(extension) {
+                    MatchType::MatchNoCap
+                } else {
+                    MatchType::NoMatch
+                }
+            }
         }
     }
 
@@ -187,31 +205,91 @@ impl GpuInstance {
         self: &Arc<Self>,
         profiles: &[GpuPhysicalDeviceProfile],
     ) -> Result<Option<Arc<GpuPhysicalDevice>>> {
+        let requested_extensions = Self::requested_device_extensions(profiles)?;
         let devices = unsafe { self.instance.enumerate_physical_devices() }
             .context("failed to enumerate physical devices")?;
         let instance = self.clone();
-        let found_and_created = devices
-            .into_iter()
-            .enumerate()
-            .find_map(|item| {
-                let mut caps = vec![];
-                for profile in profiles {
-                    match Self::match_profile(&self.instance, profile, &item) {
-                        MatchType::NoMatch => return None,
-                        MatchType::MatchNoCap => {}
-                        MatchType::MatchWithCaps(found_caps) => caps.extend(found_caps),
+
+        for item in devices.into_iter().enumerate() {
+            let mut caps = vec![];
+            let extension_support =
+                requested_extensions.support_for(&self.instance, item.1)?;
+            let mut matched = true;
+            for profile in profiles {
+                match Self::match_profile(&self.instance, &extension_support, profile, &item) {
+                    MatchType::NoMatch => {
+                        matched = false;
+                        break;
                     }
+                    MatchType::MatchNoCap => {}
+                    MatchType::MatchWithCaps(found_caps) => caps.extend(found_caps),
                 }
-                Some((item.1, caps))
-            })
-            .map(|(physical_device, caps)| {
-                Arc::new(GpuPhysicalDevice::new(
+            }
+            if matched {
+                return Ok(Some(Arc::new(GpuPhysicalDevice::new(
                     instance.clone(),
-                    physical_device,
+                    item.1,
                     caps,
-                ))
-            });
-        Ok(found_and_created)
+                    extension_support,
+                ))));
+            }
+        }
+
+        Ok(None)
+    }
+
+    pub fn get_all_physical_devices(
+        self: &Arc<Self>,
+        profiles: &[GpuPhysicalDeviceProfile],
+    ) -> Result<Vec<Arc<GpuPhysicalDevice>>> {
+        let requested_extensions = Self::requested_device_extensions(profiles)?;
+        let devices = unsafe { self.instance.enumerate_physical_devices() }
+            .context("failed to enumerate physical devices")?;
+        let instance = self.clone();
+        let mut results = Vec::with_capacity(devices.len());
+
+        for (index, physical_device) in devices.into_iter().enumerate() {
+            let mut caps = vec![];
+            let extension_support =
+                requested_extensions.support_for(&self.instance, physical_device)?;
+            let item = (index, physical_device);
+            for profile in profiles {
+                match Self::match_profile(&self.instance, &extension_support, profile, &item) {
+                    MatchType::NoMatch => {}
+                    MatchType::MatchNoCap => {}
+                    MatchType::MatchWithCaps(found_caps) => caps.extend(found_caps),
+                }
+            }
+
+            results.push(Arc::new(GpuPhysicalDevice::new(
+                instance.clone(),
+                physical_device,
+                caps,
+                extension_support,
+            )));
+        }
+
+        Ok(results)
+    }
+
+    fn requested_device_extensions(
+        profiles: &[GpuPhysicalDeviceProfile],
+    ) -> Result<Arc<GpuExtensions>> {
+        let mut extensions: Option<Arc<GpuExtensions>> = None;
+        for profile in profiles {
+            if let GpuPhysicalDeviceProfile::RequiresDeviceExtension(extension) = profile {
+                if let Some(existing) = &extensions {
+                    if !Arc::ptr_eq(existing, extension.extensions()) {
+                        return Err(anyhow!(
+                            "device extension profiles must use the same GpuExtensions set"
+                        ));
+                    }
+                } else {
+                    extensions = Some(extension.extensions().clone());
+                }
+            }
+        }
+        Ok(extensions.unwrap_or_else(GpuExtensions::empty))
     }
 }
 
