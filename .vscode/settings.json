@@ -1,4 +1,5 @@
 {
+	"editor.tabSize": 4,
 	"rust-analyzer.cargo.extraEnv": {
 		"PATH": "${workspaceFolder}/vendor/vulkan/1.4.335.0/x86_64/bin:${env:PATH}",
 		"VULKAN_SDK": "${workspaceFolder}/vendor/vulkan/1.4.335.0/x86_64",
