@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use vulkano::device::physical::PhysicalDevice;
+use vulkanalia::prelude::v1_0::*;
+use vulkanalia::vk;
 
+use crate::gpu::GpuInstance;
 pub type GpuQueueFamilyIndex = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -17,20 +19,34 @@ pub enum GpuPhysicalDeviceCaps {
 }
 
 pub struct GpuPhysicalDevice {
-    physical_device: Arc<PhysicalDevice>,
+    instance: Arc<GpuInstance>,
+    physical_device: vk::PhysicalDevice,
     caps: Vec<GpuPhysicalDeviceCaps>,
 }
 
 impl GpuPhysicalDevice {
-    pub fn new(physical_device: Arc<PhysicalDevice>, caps: Vec<GpuPhysicalDeviceCaps>) -> Self {
+    pub fn new(
+        instance: Arc<GpuInstance>,
+        physical_device: vk::PhysicalDevice,
+        caps: Vec<GpuPhysicalDeviceCaps>,
+    ) -> Self {
         Self {
+            instance,
             physical_device,
             caps,
         }
     }
 
-    pub fn get_vk_physical_device(&self) -> &Arc<PhysicalDevice> {
-        &self.physical_device
+    pub fn get_vk_instance(&self) -> &Instance {
+        self.instance.get_vk_instance()
+    }
+
+    pub fn instance(&self) -> &Arc<GpuInstance> {
+        &self.instance
+    }
+
+    pub fn get_vk_physical_device(&self) -> vk::PhysicalDevice {
+        self.physical_device
     }
 
     // TODO

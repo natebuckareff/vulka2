@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use vulkano::device::Queue;
+use vulkanalia::vk;
 
 use crate::gpu::{GpuQueueFamilyIndex, GpuQueueFamilyIntent};
 
@@ -8,14 +6,14 @@ use crate::gpu::{GpuQueueFamilyIndex, GpuQueueFamilyIntent};
 pub struct GpuQueue {
     intents: Vec<GpuQueueFamilyIntent>,
     family_index: GpuQueueFamilyIndex,
-    queue: Arc<Queue>,
+    queue: vk::Queue,
 }
 
 impl GpuQueue {
     pub fn new(
         intents: Vec<GpuQueueFamilyIntent>,
         family_index: GpuQueueFamilyIndex,
-        queue: Arc<Queue>,
+        queue: vk::Queue,
     ) -> Self {
         Self {
             intents,
@@ -32,7 +30,7 @@ impl GpuQueue {
         self.family_index
     }
 
-    pub fn get_vk_queue(&self) -> &Arc<Queue> {
-        &self.queue
+    pub fn get_vk_queue(&self) -> vk::Queue {
+        self.queue
     }
 }
