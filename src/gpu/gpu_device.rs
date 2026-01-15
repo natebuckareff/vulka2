@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::{Result, anyhow};
 use vulkanalia::prelude::v1_0::*;
@@ -60,7 +63,7 @@ pub struct GpuDeviceBuilder {
     physical_device: Arc<GpuPhysicalDevice>,
     enabled_extensions: Option<Vec<vk::ExtensionName>>,
     features: GpuDeviceFeatures,
-    queues: HashMap<GpuQueueFamilyIndex, QueueRequest>,
+    requested_intents: HashSet<GpuQueueFamilyIntent>,
 }
 
 struct QueueRequest {
@@ -74,7 +77,7 @@ impl GpuDeviceBuilder {
             physical_device,
             enabled_extensions: None,
             features: GpuDeviceFeatures::default(),
-            queues: HashMap::new(),
+            requested_intents: HashSet::new(),
         }
     }
 
@@ -89,37 +92,74 @@ impl GpuDeviceBuilder {
     }
 
     pub fn create_queue(mut self, intent: GpuQueueFamilyIntent) -> Result<Self> {
-        let queue_family_index = self
-            .physical_device
-            .get_queue_family(intent)
-            .ok_or_else(|| anyhow!("queue family not found for usage: {:?}", intent))?;
-
-        use std::collections::hash_map::Entry;
-        match self.queues.entry(queue_family_index) {
-            Entry::Occupied(mut entry) => {
-                let intents = &mut entry.get_mut().intents;
-                if !intents.contains(&intent) {
-                    intents.push(intent);
-                }
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(QueueRequest {
-                    priorities: vec![1.0],
-                    intents: vec![intent],
-                });
-            }
-        }
+        self.requested_intents.insert(intent);
 
         Ok(self)
     }
 
     pub fn build(self) -> Result<Arc<GpuDevice>> {
-        if self.queues.is_empty() {
+        if self.requested_intents.is_empty() {
             return Err(anyhow!("no queues requested"));
         }
 
-        let mut queue_items = self
-            .queues
+        let grouped = self.physical_device.get_grouped_queue_families();
+        let mut queue_requests: HashMap<GpuQueueFamilyIndex, QueueRequest> = HashMap::new();
+
+        let mut insert_intent = |index: GpuQueueFamilyIndex, intent: GpuQueueFamilyIntent| {
+            queue_requests
+                .entry(index)
+                .and_modify(|request| {
+                    if !request.intents.contains(&intent) {
+                        request.intents.push(intent);
+                    }
+                })
+                .or_insert_with(|| QueueRequest {
+                    priorities: vec![1.0],
+                    intents: vec![intent],
+                });
+        };
+
+        let pick_family = |intent: GpuQueueFamilyIntent| -> Result<GpuQueueFamilyIndex> {
+            grouped
+                .get(&intent)
+                .and_then(|families| families.iter().min().copied())
+                .ok_or_else(|| anyhow!("queue family not found for usage: {:?}", intent))
+        };
+
+        let needs_graphics = self.requested_intents.contains(&GpuQueueFamilyIntent::Graphics);
+        let needs_present = self.requested_intents.contains(&GpuQueueFamilyIntent::Present);
+
+        if needs_graphics && needs_present {
+            let graphics_families = grouped
+                .get(&GpuQueueFamilyIntent::Graphics)
+                .ok_or_else(|| anyhow!("queue family not found for usage: {:?}", GpuQueueFamilyIntent::Graphics))?;
+            let present_families = grouped
+                .get(&GpuQueueFamilyIntent::Present)
+                .ok_or_else(|| anyhow!("queue family not found for usage: {:?}", GpuQueueFamilyIntent::Present))?;
+
+            let shared = graphics_families
+                .iter()
+                .filter(|index| present_families.contains(index))
+                .min()
+                .copied();
+
+            if let Some(index) = shared {
+                insert_intent(index, GpuQueueFamilyIntent::Graphics);
+                insert_intent(index, GpuQueueFamilyIntent::Present);
+            } else {
+                let graphics_index = pick_family(GpuQueueFamilyIntent::Graphics)?;
+                let present_index = pick_family(GpuQueueFamilyIntent::Present)?;
+                insert_intent(graphics_index, GpuQueueFamilyIntent::Graphics);
+                insert_intent(present_index, GpuQueueFamilyIntent::Present);
+            }
+        } else {
+            for intent in self.requested_intents.iter().copied() {
+                let index = pick_family(intent)?;
+                insert_intent(index, intent);
+            }
+        }
+
+        let mut queue_items = queue_requests
             .into_iter()
             .map(|(index, request)| (index, request))
             .collect::<Vec<_>>();

@@ -50,7 +50,7 @@ impl GpuInstanceOptions {
 enum MatchType {
     NoMatch,
     MatchNoCap,
-    MatchWithCaps(GpuPhysicalDeviceCaps),
+    MatchWithCaps(Vec<GpuPhysicalDeviceCaps>),
 }
 
 pub struct GpuInstance {
@@ -130,30 +130,32 @@ impl GpuInstance {
                 let queue_families = unsafe {
                     instance.get_physical_device_queue_family_properties(*physical_device)
                 };
-                let queue_family_index =
-                    queue_families
-                        .iter()
-                        .enumerate()
-                        .find_map(|(index, queue_family)| {
-                            let index = index as u32;
-                            if queue_family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
-                                Some(index)
-                            } else {
-                                None
-                            }
-                        });
+                let caps = queue_families
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, queue_family)| {
+                        if queue_family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+                            Some(GpuPhysicalDeviceCaps::Graphics(index as u32))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
-                match queue_family_index {
-                    Some(index) => MatchType::MatchWithCaps(GpuPhysicalDeviceCaps::Graphics(index)),
-                    None => MatchType::NoMatch,
+                if caps.is_empty() {
+                    MatchType::NoMatch
+                } else {
+                    MatchType::MatchWithCaps(caps)
                 }
             }
             GpuPhysicalDeviceProfile::CanPresentTo(surface) => {
                 let queue_families = unsafe {
                     instance.get_physical_device_queue_family_properties(*physical_device)
                 };
-                let queue_family_index =
-                    queue_families.iter().enumerate().find_map(|(index, _)| {
+                let caps = queue_families
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, _)| {
                         let index = index as u32;
                         let supports_surface = unsafe {
                             instance
@@ -164,12 +166,18 @@ impl GpuInstance {
                                 )
                                 .unwrap_or(false)
                         };
-                        if supports_surface { Some(index) } else { None }
-                    });
+                        if supports_surface {
+                            Some(GpuPhysicalDeviceCaps::Present(index))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
-                match queue_family_index {
-                    Some(index) => MatchType::MatchWithCaps(GpuPhysicalDeviceCaps::Present(index)),
-                    None => MatchType::NoMatch,
+                if caps.is_empty() {
+                    MatchType::NoMatch
+                } else {
+                    MatchType::MatchWithCaps(caps)
                 }
             }
         }
@@ -191,7 +199,7 @@ impl GpuInstance {
                     match Self::match_profile(&self.instance, profile, &item) {
                         MatchType::NoMatch => return None,
                         MatchType::MatchNoCap => {}
-                        MatchType::MatchWithCaps(cap) => caps.push(cap),
+                        MatchType::MatchWithCaps(found_caps) => caps.extend(found_caps),
                     }
                 }
                 Some((item.1, caps))
