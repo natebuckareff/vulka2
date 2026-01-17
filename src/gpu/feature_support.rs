@@ -1,7 +1,5 @@
-use std::cell::OnceCell;
-
 use vulkanalia::prelude::v1_3::*;
-use vulkanalia::vk::{self, Cast};
+use vulkanalia::vk;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum GpuDeviceFeatureV2 {
