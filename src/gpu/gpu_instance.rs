@@ -13,11 +13,16 @@ use crate::gpu::{
     GpuPhysicalDeviceCaps,
 };
 
-pub enum GpuPhysicalDeviceProfile {
-    DiscreteGpu,
-    HasGraphicsQueue,
-    CanPresentTo(vk::SurfaceKHR),
-    RequiresDeviceExtension(GpuExtensionHandle),
+pub enum GpuPhysicalDeviceProfile<'a> {
+    IsDiscreteGpu,
+    HasDeviceExtension(GpuExtensionHandle),
+    SupportsSurface(vk::SurfaceKHR),
+    HasQueue(&'a [GpuQueueProfile]),
+}
+
+pub enum GpuQueueProfile {
+    HasGraphics,
+    CanPresent,
 }
 
 pub struct GpuInstanceOptions {
@@ -123,12 +128,13 @@ impl GpuInstance {
     fn match_profile(
         instance: &Instance,
         extension_support: &GpuExtensionSupport,
-        profile: &GpuPhysicalDeviceProfile,
+        surface: Option<vk::SurfaceKHR>,
+        profile: &GpuPhysicalDeviceProfile<'_>,
         item: &(usize, vk::PhysicalDevice),
-    ) -> MatchType {
+    ) -> Result<MatchType> {
         let (_, physical_device) = item;
-        match profile {
-            GpuPhysicalDeviceProfile::DiscreteGpu => {
+        let matches = match profile {
+            GpuPhysicalDeviceProfile::IsDiscreteGpu => {
                 let properties =
                     unsafe { instance.get_physical_device_properties(*physical_device) };
                 if properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
@@ -137,74 +143,115 @@ impl GpuInstance {
                     MatchType::NoMatch
                 }
             }
-            GpuPhysicalDeviceProfile::HasGraphicsQueue => {
-                let queue_families = unsafe {
-                    instance.get_physical_device_queue_family_properties(*physical_device)
-                };
-                let caps = queue_families
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, queue_family)| {
-                        if queue_family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
-                            Some(GpuPhysicalDeviceCaps::Graphics(index as u32))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                if caps.is_empty() {
-                    MatchType::NoMatch
-                } else {
-                    MatchType::MatchWithCaps(caps)
-                }
-            }
-            GpuPhysicalDeviceProfile::CanPresentTo(surface) => {
-                let queue_families = unsafe {
-                    instance.get_physical_device_queue_family_properties(*physical_device)
-                };
-                let caps = queue_families
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, _)| {
-                        let index = index as u32;
-                        let supports_surface = unsafe {
-                            instance
-                                .get_physical_device_surface_support_khr(
-                                    *physical_device,
-                                    index,
-                                    *surface,
-                                )
-                                .unwrap_or(false)
-                        };
-                        if supports_surface {
-                            Some(GpuPhysicalDeviceCaps::Present(index))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                if caps.is_empty() {
-                    MatchType::NoMatch
-                } else {
-                    MatchType::MatchWithCaps(caps)
-                }
-            }
-            GpuPhysicalDeviceProfile::RequiresDeviceExtension(extension) => {
+            GpuPhysicalDeviceProfile::HasDeviceExtension(extension) => {
                 if extension_support.is_supported(extension) {
                     MatchType::MatchNoCap
                 } else {
                     MatchType::NoMatch
                 }
             }
-        }
+            GpuPhysicalDeviceProfile::SupportsSurface(surface) => {
+                // TODO: Move surface capability checks to GpuSurface/GpuSwapchain once implemented.
+                let formats = unsafe {
+                    instance.get_physical_device_surface_formats_khr(
+                        *physical_device,
+                        *surface,
+                    )
+                }
+                .unwrap_or_default();
+                let present_modes = unsafe {
+                    instance.get_physical_device_surface_present_modes_khr(
+                        *physical_device,
+                        *surface,
+                    )
+                }
+                .unwrap_or_default();
+
+                if formats.is_empty() || present_modes.is_empty() {
+                    MatchType::NoMatch
+                } else {
+                    MatchType::MatchNoCap
+                }
+            }
+            GpuPhysicalDeviceProfile::HasQueue(queue_profiles) => {
+                if queue_profiles.is_empty() {
+                    return Err(anyhow!("queue profiles cannot be empty"));
+                }
+                let needs_surface = queue_profiles
+                    .iter()
+                    .any(|profile| matches!(profile, GpuQueueProfile::CanPresent));
+                let surface = if needs_surface {
+                    surface.ok_or_else(|| {
+                        anyhow!("queue profiles with CanPresent require SupportsSurface")
+                    })?
+                } else {
+                    vk::SurfaceKHR::null()
+                };
+
+                let queue_families = unsafe {
+                    instance.get_physical_device_queue_family_properties(*physical_device)
+                };
+                let mut caps = Vec::new();
+
+                for (index, queue_family) in queue_families.iter().enumerate() {
+                    let index = index as u32;
+                    let mut matches_all = true;
+                    for profile in *queue_profiles {
+                        match profile {
+                            GpuQueueProfile::HasGraphics => {
+                                if !queue_family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+                                    matches_all = false;
+                                    break;
+                                }
+                            }
+                            GpuQueueProfile::CanPresent => {
+                                let supports_surface = unsafe {
+                                    instance
+                                        .get_physical_device_surface_support_khr(
+                                            *physical_device,
+                                            index,
+                                            surface,
+                                        )
+                                        .unwrap_or(false)
+                                };
+                                if !supports_surface {
+                                    matches_all = false;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if matches_all {
+                        for profile in *queue_profiles {
+                            match profile {
+                                GpuQueueProfile::HasGraphics => {
+                                    caps.push(GpuPhysicalDeviceCaps::Graphics(index));
+                                }
+                                GpuQueueProfile::CanPresent => {
+                                    caps.push(GpuPhysicalDeviceCaps::Present(index));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if caps.is_empty() {
+                    MatchType::NoMatch
+                } else {
+                    MatchType::MatchWithCaps(caps)
+                }
+            }
+        };
+
+        Ok(matches)
     }
 
     pub fn find_physical_device(
         self: &Arc<Self>,
-        profiles: &[GpuPhysicalDeviceProfile],
+        profiles: &[GpuPhysicalDeviceProfile<'_>],
     ) -> Result<Option<Arc<GpuPhysicalDevice>>> {
+        let surface = Self::requested_surface(profiles)?;
         let requested_extensions = Self::requested_device_extensions(profiles)?;
         let devices = unsafe { self.instance.enumerate_physical_devices() }
             .context("failed to enumerate physical devices")?;
@@ -216,7 +263,13 @@ impl GpuInstance {
                 requested_extensions.support_for(&self.instance, item.1)?;
             let mut matched = true;
             for profile in profiles {
-                match Self::match_profile(&self.instance, &extension_support, profile, &item) {
+                match Self::match_profile(
+                    &self.instance,
+                    &extension_support,
+                    surface,
+                    profile,
+                    &item,
+                )? {
                     MatchType::NoMatch => {
                         matched = false;
                         break;
@@ -240,8 +293,9 @@ impl GpuInstance {
 
     pub fn get_all_physical_devices(
         self: &Arc<Self>,
-        profiles: &[GpuPhysicalDeviceProfile],
+        profiles: &[GpuPhysicalDeviceProfile<'_>],
     ) -> Result<Vec<Arc<GpuPhysicalDevice>>> {
+        let surface = Self::requested_surface(profiles)?;
         let requested_extensions = Self::requested_device_extensions(profiles)?;
         let devices = unsafe { self.instance.enumerate_physical_devices() }
             .context("failed to enumerate physical devices")?;
@@ -254,7 +308,13 @@ impl GpuInstance {
                 requested_extensions.support_for(&self.instance, physical_device)?;
             let item = (index, physical_device);
             for profile in profiles {
-                match Self::match_profile(&self.instance, &extension_support, profile, &item) {
+                match Self::match_profile(
+                    &self.instance,
+                    &extension_support,
+                    surface,
+                    profile,
+                    &item,
+                )? {
                     MatchType::NoMatch => {}
                     MatchType::MatchNoCap => {}
                     MatchType::MatchWithCaps(found_caps) => caps.extend(found_caps),
@@ -273,11 +333,11 @@ impl GpuInstance {
     }
 
     fn requested_device_extensions(
-        profiles: &[GpuPhysicalDeviceProfile],
+        profiles: &[GpuPhysicalDeviceProfile<'_>],
     ) -> Result<Arc<GpuExtensions>> {
         let mut extensions: Option<Arc<GpuExtensions>> = None;
         for profile in profiles {
-            if let GpuPhysicalDeviceProfile::RequiresDeviceExtension(extension) = profile {
+            if let GpuPhysicalDeviceProfile::HasDeviceExtension(extension) = profile {
                 if let Some(existing) = &extensions {
                     if !Arc::ptr_eq(existing, extension.extensions()) {
                         return Err(anyhow!(
@@ -290,6 +350,26 @@ impl GpuInstance {
             }
         }
         Ok(extensions.unwrap_or_else(GpuExtensions::empty))
+    }
+
+    fn requested_surface(
+        profiles: &[GpuPhysicalDeviceProfile<'_>],
+    ) -> Result<Option<vk::SurfaceKHR>> {
+        let mut surface = None;
+        for profile in profiles {
+            if let GpuPhysicalDeviceProfile::SupportsSurface(requested) = profile {
+                if let Some(existing) = surface {
+                    if existing != *requested {
+                        return Err(anyhow!(
+                            "surface profiles must use the same vk::SurfaceKHR"
+                        ));
+                    }
+                } else {
+                    surface = Some(*requested);
+                }
+            }
+        }
+        Ok(surface)
     }
 }
 

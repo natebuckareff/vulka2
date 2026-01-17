@@ -1,63 +1,26 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk;
 
 use crate::gpu::{
-    GpuExtensions, GpuPhysicalDevice, GpuQueue, GpuQueueFamilyIndex, GpuQueueFamilyIntent,
+    GpuDeviceFeatures, GpuExtensions, GpuPhysicalDevice, GpuQueue, GpuQueueFamilyIndex,
+    GpuQueueFamilyIntent,
 };
 
-#[derive(Clone)]
-pub struct DescriptorIndexingFeatures {
-    pub runtime_descriptor_array: bool,
-    pub descriptor_binding_partially_bound: bool,
-    pub descriptor_binding_variable_descriptor_count: bool,
-    pub descriptor_binding_update_unused_while_pending: bool,
-    pub shader_sampled_image_array_non_uniform_indexing: bool,
-    pub shader_storage_buffer_array_non_uniform_indexing: bool,
-    pub shader_storage_image_array_non_uniform_indexing: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueSelectionPolicy {
+    PreferShared,
+    PreferSeparate,
+    RequireShared,
+    RequireSeparate,
 }
 
-impl Default for DescriptorIndexingFeatures {
+impl Default for QueueSelectionPolicy {
     fn default() -> Self {
-        Self {
-            runtime_descriptor_array: true,
-            descriptor_binding_partially_bound: true,
-            descriptor_binding_variable_descriptor_count: true,
-            descriptor_binding_update_unused_while_pending: true,
-            shader_sampled_image_array_non_uniform_indexing: true,
-            shader_storage_buffer_array_non_uniform_indexing: true,
-            shader_storage_image_array_non_uniform_indexing: true,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct GpuDeviceFeatures {
-    pub dynamic_rendering: bool,
-    pub synchronization2: bool,
-    pub buffer_device_address: bool,
-    pub descriptor_indexing: DescriptorIndexingFeatures,
-}
-
-impl Default for GpuDeviceFeatures {
-    fn default() -> Self {
-        Self {
-            dynamic_rendering: true,
-            synchronization2: true,
-            buffer_device_address: true,
-            descriptor_indexing: DescriptorIndexingFeatures::default(),
-        }
-    }
-}
-
-impl GpuDeviceFeatures {
-    pub fn vulkan13_default() -> Self {
-        Self::default()
+        Self::PreferShared
     }
 }
 
@@ -66,6 +29,7 @@ pub struct GpuDeviceBuilder {
     enabled_extensions: Arc<GpuExtensions>,
     features: GpuDeviceFeatures,
     requested_intents: HashSet<GpuQueueFamilyIntent>,
+    queue_selection_policy: QueueSelectionPolicy,
 }
 
 struct QueueRequest {
@@ -80,6 +44,7 @@ impl GpuDeviceBuilder {
             enabled_extensions: GpuExtensions::empty(),
             features: GpuDeviceFeatures::default(),
             requested_intents: HashSet::new(),
+            queue_selection_policy: QueueSelectionPolicy::default(),
         }
     }
 
@@ -99,6 +64,11 @@ impl GpuDeviceBuilder {
         Ok(self)
     }
 
+    pub fn queue_selection_policy(mut self, policy: QueueSelectionPolicy) -> Self {
+        self.queue_selection_policy = policy;
+        self
+    }
+
     pub fn build(self) -> Result<Arc<GpuDevice>> {
         if self.requested_intents.is_empty() {
             return Err(anyhow!("no queues requested"));
@@ -112,9 +82,8 @@ impl GpuDeviceBuilder {
         let missing = extension_support.missing_extension_names();
         if !missing.is_empty() {
             let properties = unsafe { instance.get_physical_device_properties(physical_device) };
-            let device_name =
-                unsafe { std::ffi::CStr::from_ptr(properties.device_name.as_ptr()) }
-                    .to_string_lossy();
+            let device_name = unsafe { std::ffi::CStr::from_ptr(properties.device_name.as_ptr()) }
+                .to_string_lossy();
             return Err(anyhow!(
                 "device {device_name} missing extensions: {}",
                 missing.join(", ")
@@ -145,31 +114,112 @@ impl GpuDeviceBuilder {
                 .ok_or_else(|| anyhow!("queue family not found for usage: {:?}", intent))
         };
 
-        let needs_graphics = self.requested_intents.contains(&GpuQueueFamilyIntent::Graphics);
-        let needs_present = self.requested_intents.contains(&GpuQueueFamilyIntent::Present);
+        let needs_graphics = self
+            .requested_intents
+            .contains(&GpuQueueFamilyIntent::Graphics);
+        let needs_present = self
+            .requested_intents
+            .contains(&GpuQueueFamilyIntent::Present);
 
         if needs_graphics && needs_present {
-            let graphics_families = grouped
-                .get(&GpuQueueFamilyIntent::Graphics)
-                .ok_or_else(|| anyhow!("queue family not found for usage: {:?}", GpuQueueFamilyIntent::Graphics))?;
-            let present_families = grouped
-                .get(&GpuQueueFamilyIntent::Present)
-                .ok_or_else(|| anyhow!("queue family not found for usage: {:?}", GpuQueueFamilyIntent::Present))?;
+            let graphics_families =
+                grouped
+                    .get(&GpuQueueFamilyIntent::Graphics)
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "queue family not found for usage: {:?}",
+                            GpuQueueFamilyIntent::Graphics
+                        )
+                    })?;
+            let present_families =
+                grouped.get(&GpuQueueFamilyIntent::Present).ok_or_else(|| {
+                    anyhow!(
+                        "queue family not found for usage: {:?}",
+                        GpuQueueFamilyIntent::Present
+                    )
+                })?;
 
             let shared = graphics_families
                 .iter()
                 .filter(|index| present_families.contains(index))
                 .min()
                 .copied();
+            let distinct = {
+                let mut graphics_sorted = graphics_families.iter().copied().collect::<Vec<_>>();
+                let mut present_sorted = present_families.iter().copied().collect::<Vec<_>>();
+                graphics_sorted.sort_unstable();
+                present_sorted.sort_unstable();
 
-            if let Some(index) = shared {
-                insert_intent(index, GpuQueueFamilyIntent::Graphics);
-                insert_intent(index, GpuQueueFamilyIntent::Present);
-            } else {
-                let graphics_index = pick_family(GpuQueueFamilyIntent::Graphics)?;
-                let present_index = pick_family(GpuQueueFamilyIntent::Present)?;
-                insert_intent(graphics_index, GpuQueueFamilyIntent::Graphics);
-                insert_intent(present_index, GpuQueueFamilyIntent::Present);
+                if graphics_sorted.is_empty() || present_sorted.is_empty() {
+                    None
+                } else {
+                    let graphics_min = graphics_sorted[0];
+                    let present_min = present_sorted[0];
+                    if graphics_min != present_min {
+                        Some((graphics_min, present_min))
+                    } else if let Some(present_alt) = present_sorted
+                        .iter()
+                        .copied()
+                        .find(|index| *index != graphics_min)
+                    {
+                        Some((graphics_min, present_alt))
+                    } else if let Some(graphics_alt) = graphics_sorted
+                        .iter()
+                        .copied()
+                        .find(|index| *index != present_min)
+                    {
+                        Some((graphics_alt, present_min))
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            match self.queue_selection_policy {
+                QueueSelectionPolicy::PreferShared => {
+                    if let Some(index) = shared {
+                        insert_intent(index, GpuQueueFamilyIntent::Graphics);
+                        insert_intent(index, GpuQueueFamilyIntent::Present);
+                    } else {
+                        let graphics_index = pick_family(GpuQueueFamilyIntent::Graphics)?;
+                        let present_index = pick_family(GpuQueueFamilyIntent::Present)?;
+                        insert_intent(graphics_index, GpuQueueFamilyIntent::Graphics);
+                        insert_intent(present_index, GpuQueueFamilyIntent::Present);
+                    }
+                }
+                QueueSelectionPolicy::PreferSeparate => {
+                    if let Some((graphics_index, present_index)) = distinct {
+                        insert_intent(graphics_index, GpuQueueFamilyIntent::Graphics);
+                        insert_intent(present_index, GpuQueueFamilyIntent::Present);
+                    } else if let Some(index) = shared {
+                        insert_intent(index, GpuQueueFamilyIntent::Graphics);
+                        insert_intent(index, GpuQueueFamilyIntent::Present);
+                    } else {
+                        return Err(anyhow!(
+                            "queue selection policy could not find graphics/present families"
+                        ));
+                    }
+                }
+                QueueSelectionPolicy::RequireShared => {
+                    if let Some(index) = shared {
+                        insert_intent(index, GpuQueueFamilyIntent::Graphics);
+                        insert_intent(index, GpuQueueFamilyIntent::Present);
+                    } else {
+                        return Err(anyhow!(
+                            "queue selection policy requires a shared graphics/present family"
+                        ));
+                    }
+                }
+                QueueSelectionPolicy::RequireSeparate => {
+                    if let Some((graphics_index, present_index)) = distinct {
+                        insert_intent(graphics_index, GpuQueueFamilyIntent::Graphics);
+                        insert_intent(present_index, GpuQueueFamilyIntent::Present);
+                    } else {
+                        return Err(anyhow!(
+                            "queue selection policy requires distinct graphics/present families"
+                        ));
+                    }
+                }
             }
         } else {
             for intent in self.requested_intents.iter().copied() {
@@ -239,23 +289,25 @@ impl GpuDeviceBuilder {
                         .shader_storage_image_array_non_uniform_indexing,
                 );
 
-        let device = self.enabled_extensions.with_ptrs(|extension_names| {
-            let device_info = vk::DeviceCreateInfo::builder()
-                .enabled_extension_names(extension_names)
-                .queue_create_infos(&queue_create_infos)
-                .push_next(&mut v13_features)
-                .push_next(&mut buffer_device_address_features)
-                .push_next(&mut descriptor_indexing_features);
+        let device = self
+            .enabled_extensions
+            .with_ptrs(|extension_names| {
+                let device_info = vk::DeviceCreateInfo::builder()
+                    .enabled_extension_names(extension_names)
+                    .queue_create_infos(&queue_create_infos)
+                    .push_next(&mut v13_features)
+                    .push_next(&mut buffer_device_address_features)
+                    .push_next(&mut descriptor_indexing_features);
 
-            unsafe {
-                instance.create_device(
-                    self.physical_device.get_vk_physical_device(),
-                    &device_info,
-                    None,
-                )
-            }
-        })
-        .map_err(|err| anyhow!("failed to create Vulkan device: {err}"))?;
+                unsafe {
+                    instance.create_device(
+                        self.physical_device.get_vk_physical_device(),
+                        &device_info,
+                        None,
+                    )
+                }
+            })
+            .map_err(|err| anyhow!("failed to create Vulkan device: {err}"))?;
 
         let mut created_queues = Vec::with_capacity(queue_items.len());
         for (index, request) in queue_items {

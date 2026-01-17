@@ -5,6 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use crate::gpu::{
     GpuDeviceBuilder, GpuDeviceFeatures, GpuExtensionHandle, GpuExtensions, GpuInstance,
     GpuInstanceOptions, GpuPhysicalDevice, GpuPhysicalDeviceProfile, GpuQueueFamilyIntent,
+    GpuQueueProfile,
 };
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_0::*;
@@ -645,19 +646,25 @@ impl Renderer {
         swapchain_extension: GpuExtensionHandle,
     ) -> Result<(vk::PhysicalDevice, Arc<GpuPhysicalDevice>)> {
         let profiles = [
-            GpuPhysicalDeviceProfile::DiscreteGpu,
-            GpuPhysicalDeviceProfile::HasGraphicsQueue,
-            GpuPhysicalDeviceProfile::CanPresentTo(surface),
-            GpuPhysicalDeviceProfile::RequiresDeviceExtension(swapchain_extension.clone()),
+            GpuPhysicalDeviceProfile::IsDiscreteGpu,
+            GpuPhysicalDeviceProfile::SupportsSurface(surface),
+            GpuPhysicalDeviceProfile::HasQueue(&[
+                GpuQueueProfile::HasGraphics,
+                GpuQueueProfile::CanPresent,
+            ]),
+            GpuPhysicalDeviceProfile::HasDeviceExtension(swapchain_extension.clone()),
         ];
         let selected = instance.find_physical_device(&profiles)?;
         let selected = match selected {
             Some(device) => device,
             None => {
                 let fallback_profiles = [
-                    GpuPhysicalDeviceProfile::HasGraphicsQueue,
-                    GpuPhysicalDeviceProfile::CanPresentTo(surface),
-                    GpuPhysicalDeviceProfile::RequiresDeviceExtension(swapchain_extension),
+                    GpuPhysicalDeviceProfile::SupportsSurface(surface),
+                    GpuPhysicalDeviceProfile::HasQueue(&[
+                        GpuQueueProfile::HasGraphics,
+                        GpuQueueProfile::CanPresent,
+                    ]),
+                    GpuPhysicalDeviceProfile::HasDeviceExtension(swapchain_extension),
                 ];
                 if let Some(device) = instance.find_physical_device(&fallback_profiles)? {
                     device
@@ -673,9 +680,12 @@ impl Renderer {
 
     fn print_extension_support(instance: &Arc<GpuInstance>, surface: vk::SurfaceKHR) -> Result<()> {
         let profiles = [
-            GpuPhysicalDeviceProfile::HasGraphicsQueue,
-            GpuPhysicalDeviceProfile::CanPresentTo(surface),
-            GpuPhysicalDeviceProfile::RequiresDeviceExtension({
+            GpuPhysicalDeviceProfile::SupportsSurface(surface),
+            GpuPhysicalDeviceProfile::HasQueue(&[
+                GpuQueueProfile::HasGraphics,
+                GpuQueueProfile::CanPresent,
+            ]),
+            GpuPhysicalDeviceProfile::HasDeviceExtension({
                 let extensions = GpuExtensions::builder()
                     .add(vk::KHR_SWAPCHAIN_EXTENSION.name)
                     .build();
