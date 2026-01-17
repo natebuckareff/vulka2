@@ -55,19 +55,19 @@ impl<'a> GpuInstanceBuilder<'a> {
         Ok(self)
     }
 
-    pub fn require_extension(mut self, extension: vk::Extension) -> Result<Self> {
-        if self.extensions_required.contains(&extension.name) {
+    pub fn require_extension(mut self, extension: vk::ExtensionName) -> Result<Self> {
+        if self.extensions_required.contains(&extension) {
             return Ok(self);
         }
-        self.extensions_required.push(extension.name);
+        self.extensions_required.push(extension);
         Ok(self)
     }
 
-    pub fn optional_extension(mut self, extension: vk::Extension) -> Result<Self> {
-        if self.extensions_optional.contains(&extension.name) {
+    pub fn optional_extension(mut self, extension: vk::ExtensionName) -> Result<Self> {
+        if self.extensions_optional.contains(&extension) {
             return Ok(self);
         }
-        self.extensions_optional.push(extension.name);
+        self.extensions_optional.push(extension);
         Ok(self)
     }
 
