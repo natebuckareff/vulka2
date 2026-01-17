@@ -28,6 +28,13 @@ impl WindowedApp {
         }
     }
 
+    fn exit(&mut self, event_loop: &ActiveEventLoop) {
+        // Ensure Vulkan surface/device cleanup happens before dropping the window handle.
+        self.renderer.take();
+        self.window.take();
+        event_loop.exit();
+    }
+
     pub fn create_window(event_loop: &ActiveEventLoop) -> Result<Arc<Window>> {
         let attributes = Window::default_attributes()
             .with_title("floating: voxels2")
@@ -68,7 +75,7 @@ impl ApplicationHandler for WindowedApp {
         match event {
             WindowEvent::CloseRequested => {
                 println!("close requested; stopping event loop");
-                event_loop.exit();
+                self.exit(event_loop);
             }
             WindowEvent::Resized(size) => {
                 if size.width > 0 && size.height > 0 {
@@ -86,7 +93,7 @@ impl ApplicationHandler for WindowedApp {
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state == ElementState::Pressed {
                     if matches!(event.logical_key, Key::Named(NamedKey::Escape)) {
-                        event_loop.exit();
+                        self.exit(event_loop);
                     }
                 }
             }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use vulkanalia::prelude::v1_3::*;
@@ -13,14 +13,29 @@ pub struct GpuQueue {
     queue: vk::Queue,
 }
 
+impl GpuQueue {
+    pub fn family_index(&self) -> u32 {
+        self.family_index
+    }
+
+    pub fn queue_index(&self) -> u32 {
+        self.queue_index
+    }
+
+    pub fn get_vk_queue(&self) -> vk::Queue {
+        self.queue
+    }
+}
+
 pub struct GpuDevice {
+    instance: Arc<GpuInstance>,
     profile: GpuDeviceProfile,
     device: Device,
     queues: HashMap<usize, GpuQueue>,
 }
 
 impl GpuDevice {
-    fn new(instance: &GpuInstance, mut profile: GpuDeviceProfile) -> Result<Self> {
+    pub fn new(instance: Arc<GpuInstance>, mut profile: GpuDeviceProfile) -> Result<Self> {
         let mut queues_to_create: HashMap<u32, (Vec<usize>, Vec<f32>)> = HashMap::new();
         for selection in profile.iter_queue_families() {
             use std::collections::hash_map::Entry;
@@ -77,6 +92,7 @@ impl GpuDevice {
         }
 
         Ok(Self {
+            instance,
             profile,
             device,
             queues,
