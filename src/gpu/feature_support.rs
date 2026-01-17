@@ -2,7 +2,7 @@ use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum GpuDeviceFeatureV2 {
+pub enum GpuDeviceFeature {
     Vulkan12(GpuDeviceFeatureV12),
     Vulkan13(GpuDeviceFeatureV13),
 }
@@ -23,14 +23,14 @@ pub enum GpuDeviceFeatureV13 {
 
 #[derive(Default)]
 pub(crate) struct DeviceFeatureArray {
-    features: Vec<GpuDeviceFeatureV2>,
+    features: Vec<GpuDeviceFeature>,
     vulkan12: Option<Box<vk::PhysicalDeviceVulkan12Features>>,
     vulkan13: Option<Box<vk::PhysicalDeviceVulkan13Features>>,
     features2: Option<Box<vk::PhysicalDeviceFeatures2>>,
 }
 
-impl From<Vec<GpuDeviceFeatureV2>> for DeviceFeatureArray {
-    fn from(features: Vec<GpuDeviceFeatureV2>) -> Self {
+impl From<Vec<GpuDeviceFeature>> for DeviceFeatureArray {
+    fn from(features: Vec<GpuDeviceFeature>) -> Self {
         Self {
             features,
             vulkan12: None,
@@ -41,7 +41,7 @@ impl From<Vec<GpuDeviceFeatureV2>> for DeviceFeatureArray {
 }
 
 impl DeviceFeatureArray {
-    pub(crate) fn contains(&self, feature: &GpuDeviceFeatureV2) -> bool {
+    pub(crate) fn contains(&self, feature: &GpuDeviceFeature) -> bool {
         self.features.contains(feature)
     }
 
@@ -53,14 +53,14 @@ impl DeviceFeatureArray {
         self.features.is_empty()
     }
 
-    pub(crate) fn push(&mut self, feature: GpuDeviceFeatureV2) {
+    pub(crate) fn push(&mut self, feature: GpuDeviceFeature) {
         self.features.push(feature);
     }
 
-    fn get_vulkan12(features: &Vec<GpuDeviceFeatureV2>) -> vk::PhysicalDeviceVulkan12Features {
+    fn get_vulkan12(features: &Vec<GpuDeviceFeature>) -> vk::PhysicalDeviceVulkan12Features {
         let mut vulkan12 = vk::PhysicalDeviceVulkan12Features::default();
         for feature in features.iter() {
-            use GpuDeviceFeatureV2::*;
+            use GpuDeviceFeature::*;
             match feature {
                 Vulkan12(feature) => {
                     *set_v12(&mut vulkan12, *feature) = vk::TRUE;
@@ -71,10 +71,10 @@ impl DeviceFeatureArray {
         vulkan12
     }
 
-    fn get_vulkan13(features: &Vec<GpuDeviceFeatureV2>) -> vk::PhysicalDeviceVulkan13Features {
+    fn get_vulkan13(features: &Vec<GpuDeviceFeature>) -> vk::PhysicalDeviceVulkan13Features {
         let mut vulkan13 = vk::PhysicalDeviceVulkan13Features::default();
         for feature in features.iter() {
-            use GpuDeviceFeatureV2::*;
+            use GpuDeviceFeature::*;
             match feature {
                 Vulkan13(feature) => {
                     *set_v13(&mut vulkan13, *feature) = vk::TRUE;
@@ -107,11 +107,11 @@ impl DeviceFeatureArray {
         self.features2.as_mut().unwrap()
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &GpuDeviceFeatureV2> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &GpuDeviceFeature> {
         self.features.iter()
     }
 
-    pub(crate) fn into_iter(self) -> impl Iterator<Item = GpuDeviceFeatureV2> {
+    pub(crate) fn into_iter(self) -> impl Iterator<Item = GpuDeviceFeature> {
         self.features.into_iter()
     }
 }
@@ -143,7 +143,7 @@ impl FeatureSupport {
         };
 
         for feature in request.into_iter() {
-            use GpuDeviceFeatureV2::*;
+            use GpuDeviceFeature::*;
             let supported = match feature {
                 Vulkan12(feature) => *set_v12(&mut vulkan12, feature) == vk::TRUE,
                 Vulkan13(feature) => *set_v13(&mut vulkan13, feature) == vk::TRUE,

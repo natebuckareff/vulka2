@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use vulkanalia::prelude::v1_3::*;
 
-use crate::gpu::{GpuDeviceProfile, GpuInstanceV2};
+use crate::gpu::{GpuDeviceProfile, GpuInstance};
 
-pub struct GpuQueueV2 {
+pub struct GpuQueue {
     request_index: usize,
     priority: f32,
     family_index: u32,
@@ -13,14 +13,14 @@ pub struct GpuQueueV2 {
     queue: vk::Queue,
 }
 
-pub struct GpuDeviceV2 {
+pub struct GpuDevice {
     profile: GpuDeviceProfile,
     device: Device,
-    queues: HashMap<usize, GpuQueueV2>,
+    queues: HashMap<usize, GpuQueue>,
 }
 
-impl GpuDeviceV2 {
-    fn new(instance: &GpuInstanceV2, mut profile: GpuDeviceProfile) -> Result<Self> {
+impl GpuDevice {
+    fn new(instance: &GpuInstance, mut profile: GpuDeviceProfile) -> Result<Self> {
         let mut queues_to_create: HashMap<u32, (Vec<usize>, Vec<f32>)> = HashMap::new();
         for selection in profile.iter_queue_families() {
             use std::collections::hash_map::Entry;
@@ -65,7 +65,7 @@ impl GpuDeviceV2 {
                 let queue = unsafe { device.get_device_queue(queue_family_index, queue_index) };
                 queues.insert(
                     requests[i],
-                    GpuQueueV2 {
+                    GpuQueue {
                         request_index: requests[i],
                         priority: *priority,
                         family_index: queue_family_index,
@@ -87,12 +87,12 @@ impl GpuDeviceV2 {
         &self.device
     }
 
-    pub fn get_queue(&self, request: usize) -> Option<&GpuQueueV2> {
+    pub fn get_queue(&self, request: usize) -> Option<&GpuQueue> {
         self.queues.get(&request)
     }
 }
 
-impl Drop for GpuDeviceV2 {
+impl Drop for GpuDevice {
     fn drop(&mut self) {
         unsafe {
             self.device.destroy_device(None);

@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use vulkanalia::prelude::v1_3::*;
 
 use crate::gpu::{
-    ExtensionNameArray, ExtensionSupport, GpuDeviceFeatureV2, GpuDeviceProfile,
+    ExtensionNameArray, ExtensionSupport, GpuDeviceFeature, GpuDeviceProfile,
     GpuDeviceProfileRejection, GpuDeviceProfileResult,
 };
 
@@ -13,8 +13,8 @@ pub enum GpuDeviceRequest<'a> {
     IsDiscrete,
     RequiredExtension(vk::ExtensionName),
     OptionalExtension(vk::ExtensionName),
-    RequiredFeature(GpuDeviceFeatureV2),
-    OptionalFeature(GpuDeviceFeatureV2),
+    RequiredFeature(GpuDeviceFeature),
+    OptionalFeature(GpuDeviceFeature),
     HasQueue(GpuQueueProfile<'a>),
 }
 
@@ -87,7 +87,7 @@ impl<'a> GpuInstanceBuilder<'a> {
         Ok(self)
     }
 
-    pub fn build(self) -> Result<Arc<GpuInstanceV2>> {
+    pub fn build(self) -> Result<Arc<GpuInstance>> {
         let mut exts =
             ExtensionSupport::from_instance_extensions(self.entry, self.extensions_required)?;
 
@@ -109,8 +109,7 @@ impl<'a> GpuInstanceBuilder<'a> {
         let extensions = ExtensionNameArray::from(exts.supported);
         let layers = ExtensionNameArray::from(layers.supported);
 
-        let instance =
-            GpuInstanceV2::create(self.entry, self.application_name, extensions, layers)?;
+        let instance = GpuInstance::create(self.entry, self.application_name, extensions, layers)?;
 
         Ok(Arc::new(instance))
     }
@@ -121,11 +120,11 @@ pub enum GpuFindDeviceProfileResult {
     Rejected(Vec<GpuDeviceProfileRejection>),
 }
 
-pub struct GpuInstanceV2 {
+pub struct GpuInstance {
     instance: Instance,
 }
 
-impl GpuInstanceV2 {
+impl GpuInstance {
     pub fn build(entry: &'_ Entry) -> GpuInstanceBuilder<'_> {
         GpuInstanceBuilder::new(entry)
     }
@@ -192,7 +191,7 @@ impl GpuInstanceV2 {
     }
 }
 
-impl Drop for GpuInstanceV2 {
+impl Drop for GpuInstance {
     fn drop(&mut self) {
         unsafe {
             self.instance.destroy_instance(None);
