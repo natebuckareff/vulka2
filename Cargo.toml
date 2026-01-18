@@ -5,10 +5,11 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.100"
-glam = "0.30.10"
+bytemuck = { version = "1.24.0", features = ["derive"] }
+glam = { version = "0.30.10", features = ["bytemuck"] }
 image = { version = "0.25.9", default-features = false, features = ["png"] }
 shader-slang = "0.1.0"
-slang_struct = { version = "0.0.2", features = ["glam"] }
+slang_struct = { version = "0.0.2", features = ["glam", "bytemuck"] }
 vulkanalia = { version = "0.34.0", features = ["libloading", "window"] }
 vulkanalia-vma = "0.8.0"
 winit = "0.30.12"

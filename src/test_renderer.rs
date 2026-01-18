@@ -538,12 +538,7 @@ impl Renderer {
             _pad1: 0,
             _pad2: 0,
         };
-        let push_constants_bytes = unsafe {
-            std::slice::from_raw_parts(
-                (&push_constants as *const PushConstants) as *const u8,
-                std::mem::size_of::<PushConstants>(),
-            )
-        };
+        let push_constants_bytes = bytemuck::bytes_of(&push_constants);
 
         let viewport = vk::Viewport {
             x: 0.0,
