@@ -1,11 +1,11 @@
 use std::ffi::CStr;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
 use crate::gpu::{
-    GpuDevice, GpuDeviceProfile, GpuDeviceRequest, GpuFindDeviceProfileResult, GpuInstance,
-    GpuQueueProfile, GpuQueueRequest,
+    GpuDevice, GpuDeviceProfile, GpuDeviceRequest, GpuDeviceRequestBuilder,
+    GpuFindDeviceProfileResult, GpuInstance, GpuQueueProfile, GpuQueueRequest,
 };
+use anyhow::{Context, Result, anyhow};
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
@@ -44,17 +44,18 @@ impl Renderer {
     pub fn new(window: Arc<Window>) -> Result<Self> {
         let loader =
             unsafe { LibloadingLoader::new(LIBRARY) }.context("failed to load Vulkan loader")?;
+
         let entry = unsafe { Entry::new(loader) }
             .map_err(|err| anyhow!("failed to create Vulkan entry: {}", err))?;
 
-        let mut instance_builder =
-            GpuInstance::build(&entry).application_name("voxels2".to_string())?;
-        let validation_layer = vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
-        instance_builder = instance_builder.require_layer(validation_layer)?;
-        for extension in get_required_instance_extensions(window.as_ref()) {
-            instance_builder = instance_builder.require_extension(**extension)?;
-        }
-        let gpu_instance = instance_builder.build()?;
+        const VK_LAYER_KHRONOS_VALIDATION: vk::ExtensionName =
+            vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
+
+        let gpu_instance = GpuInstance::build(&entry)
+            .application_name("voxels2".to_string())?
+            .require_layer(VK_LAYER_KHRONOS_VALIDATION)?
+            .require_extensions(&get_required_instance_extensions(&window))?
+            .build()?;
 
         Self::log_physical_devices(gpu_instance.get_vk_instance())?;
 
@@ -67,19 +68,28 @@ impl Renderer {
         }
         .context("failed to create window surface")?;
 
-        let queue_requests = [
-            GpuQueueRequest::HasGraphics,
-            GpuQueueRequest::CanPresentTo(surface),
-        ];
-        let (device_profile, queue_request_index) =
-            Self::pick_device_profile(&gpu_instance, &queue_requests)?;
-        let physical_device = device_profile.physical_device();
+        let requests = GpuDeviceRequestBuilder::new()
+            .is_discrete()
+            .minimum_api_version(vk::make_version(1, 3, 0))
+            .required_extension(vk::KHR_SWAPCHAIN_EXTENSION.name)
+            .has_queue(
+                "main",
+                GpuQueueProfile {
+                    priority: 1.0,
+                    requests: vec![
+                        GpuQueueRequest::HasGraphics,
+                        GpuQueueRequest::CanPresentTo(surface),
+                    ],
+                },
+            );
 
-        let gpu_device = Arc::new(GpuDevice::new(gpu_instance.clone(), device_profile)?);
+        let profile = gpu_instance.find_device_profile(&requests)?.ok()?;
+        let physical_device = profile.physical_device();
+        let gpu_device = GpuDevice::new(gpu_instance.clone(), profile)?;
 
         let main_queue = gpu_device
-            .get_queue(queue_request_index)
-            .ok_or_else(|| anyhow!("missing graphics/present queue"))?;
+            .get_queue(requests.queue_request_index("main")?)
+            .context("missing graphics/present queue")?;
 
         let graphics_queue_family = main_queue.family_index();
         let present_queue_family = main_queue.family_index();
@@ -175,15 +185,12 @@ impl Renderer {
         }
 
         let (image_index, acquire_status) = unsafe {
-            match self
-                .gpu_device
-                .get_vk_device()
-                .acquire_next_image_khr(
-                    swapchain,
-                    u64::MAX,
-                    self.image_available_semaphore,
-                    vk::Fence::null(),
-                ) {
+            match self.gpu_device.get_vk_device().acquire_next_image_khr(
+                swapchain,
+                u64::MAX,
+                self.image_available_semaphore,
+                vk::Fence::null(),
+            ) {
                 Ok(result) => result,
                 Err(vk::ErrorCode::OUT_OF_DATE_KHR) => {
                     self.recreate_swapchain = true;
@@ -649,56 +656,16 @@ impl Renderer {
         Ok(semaphores)
     }
 
-    fn build_device_requests<'a>(
-        queue_requests: &'a [GpuQueueRequest],
-        prefer_discrete: bool,
-    ) -> (Vec<GpuDeviceRequest<'a>>, usize) {
-        let mut requests = Vec::new();
-        requests.push(GpuDeviceRequest::MinimumApiVersion(vk::make_version(1, 3, 0)));
-        if prefer_discrete {
-            requests.push(GpuDeviceRequest::IsDiscrete);
-        }
-        requests.push(GpuDeviceRequest::RequiredExtension(
-            vk::KHR_SWAPCHAIN_EXTENSION.name,
-        ));
-        let queue_request_index = requests.len();
-        requests.push(GpuDeviceRequest::HasQueue(GpuQueueProfile {
-            priority: 1.0,
-            requests: queue_requests,
-        }));
-        (requests, queue_request_index)
-    }
-
-    fn pick_device_profile<'a>(
-        instance: &Arc<GpuInstance>,
-        queue_requests: &'a [GpuQueueRequest],
-    ) -> Result<(GpuDeviceProfile, usize)> {
-        let (requests, queue_request_index) =
-            Self::build_device_requests(queue_requests, true);
-        match instance.find_device_profile(&requests)? {
-            GpuFindDeviceProfileResult::Fulfilled(profile) => {
-                return Ok((profile, queue_request_index));
-            }
-            GpuFindDeviceProfileResult::Rejected(_) => {}
-        }
-
-        let (requests, queue_request_index) =
-            Self::build_device_requests(queue_requests, false);
-        match instance.find_device_profile(&requests)? {
-            GpuFindDeviceProfileResult::Fulfilled(profile) => Ok((profile, queue_request_index)),
-            GpuFindDeviceProfileResult::Rejected(_) => {
-                Self::print_extension_support(instance)?;
-                Err(anyhow!("no suitable physical device found"))
-            }
-        }
-    }
-
     fn print_extension_support(instance: &Arc<GpuInstance>) -> Result<()> {
         let devices = unsafe { instance.get_vk_instance().enumerate_physical_devices() }
             .context("failed to enumerate physical devices")?;
 
         for device in devices {
-            let properties = unsafe { instance.get_vk_instance().get_physical_device_properties(device) };
+            let properties = unsafe {
+                instance
+                    .get_vk_instance()
+                    .get_physical_device_properties(device)
+            };
             let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }.to_string_lossy();
             println!("device name: {name}");
 

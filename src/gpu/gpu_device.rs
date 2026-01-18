@@ -35,7 +35,7 @@ pub struct GpuDevice {
 }
 
 impl GpuDevice {
-    pub fn new(instance: Arc<GpuInstance>, mut profile: GpuDeviceProfile) -> Result<Self> {
+    pub fn new(instance: Arc<GpuInstance>, mut profile: GpuDeviceProfile) -> Result<Arc<Self>> {
         let mut queues_to_create: HashMap<u32, (Vec<usize>, Vec<f32>)> = HashMap::new();
         for selection in profile.iter_queue_families() {
             use std::collections::hash_map::Entry;
@@ -91,12 +91,12 @@ impl GpuDevice {
             }
         }
 
-        Ok(Self {
+        Ok(Arc::new(Self {
             instance,
             profile,
             device,
             queues,
-        })
+        }))
     }
 
     pub(crate) fn get_vk_device(&self) -> &Device {

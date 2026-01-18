@@ -46,7 +46,7 @@ impl GpuDeviceProfile {
     pub(crate) fn new(
         instance: &Instance,
         physical_device: vk::PhysicalDevice,
-        requests: &[GpuDeviceRequest<'_>],
+        requests: &[GpuDeviceRequest],
     ) -> Result<GpuDeviceProfileResult> {
         use GpuDeviceProfileRejection::*;
         use GpuDeviceProfileResult::*;
@@ -274,7 +274,7 @@ impl PhysicalDeviceInfo {
     fn extensions_support(
         &self,
         instance: &Instance,
-        profiles: &[GpuDeviceRequest<'_>],
+        profiles: &[GpuDeviceRequest],
     ) -> Result<&ExtensionSupport> {
         self.extension_support.get_or_try_init(|| {
             let mut extensions = ExtensionNameArray::default();
@@ -293,7 +293,7 @@ impl PhysicalDeviceInfo {
     fn features_support(
         &self,
         instance: &Instance,
-        profiles: &[GpuDeviceRequest<'_>],
+        profiles: &[GpuDeviceRequest],
     ) -> &FeatureSupport {
         self.features_support.get_or_init(|| {
             let mut features = DeviceFeatureArray::default();

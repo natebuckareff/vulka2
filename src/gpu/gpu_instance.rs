@@ -4,29 +4,9 @@ use anyhow::{Context, Result};
 use vulkanalia::prelude::v1_3::*;
 
 use crate::gpu::{
-    ExtensionNameArray, ExtensionSupport, GpuDeviceFeature, GpuDeviceProfile,
-    GpuDeviceProfileRejection, GpuDeviceProfileResult,
+    ExtensionNameArray, ExtensionSupport, GpuDeviceProfile, GpuDeviceProfileRejection,
+    GpuDeviceProfileResult, GpuDeviceRequestBuilder,
 };
-
-pub enum GpuDeviceRequest<'a> {
-    MinimumApiVersion(u32),
-    IsDiscrete,
-    RequiredExtension(vk::ExtensionName),
-    OptionalExtension(vk::ExtensionName),
-    RequiredFeature(GpuDeviceFeature),
-    OptionalFeature(GpuDeviceFeature),
-    HasQueue(GpuQueueProfile<'a>),
-}
-
-pub struct GpuQueueProfile<'a> {
-    pub priority: f32,
-    pub requests: &'a [GpuQueueRequest],
-}
-
-pub enum GpuQueueRequest {
-    HasGraphics,
-    CanPresentTo(vk::SurfaceKHR),
-}
 
 pub struct GpuInstanceBuilder<'a> {
     entry: &'a Entry,
@@ -60,6 +40,13 @@ impl<'a> GpuInstanceBuilder<'a> {
             return Ok(self);
         }
         self.extensions_required.push(extension);
+        Ok(self)
+    }
+
+    pub fn require_extensions(mut self, extensions: &[&vk::ExtensionName]) -> Result<Self> {
+        for extension in extensions {
+            self = self.require_extension(**extension)?;
+        }
         Ok(self)
     }
 
@@ -120,6 +107,18 @@ pub enum GpuFindDeviceProfileResult {
     Rejected(Vec<GpuDeviceProfileRejection>),
 }
 
+impl GpuFindDeviceProfileResult {
+    pub fn ok(self) -> Result<GpuDeviceProfile> {
+        match self {
+            GpuFindDeviceProfileResult::Fulfilled(profile) => Ok(profile),
+            GpuFindDeviceProfileResult::Rejected(rejections) => Err(anyhow::anyhow!(
+                "not suitable physical device found: rejections={}",
+                rejections.len()
+            )),
+        }
+    }
+}
+
 pub struct GpuInstance {
     instance: Instance,
 }
@@ -163,8 +162,9 @@ impl GpuInstance {
 
     pub fn find_device_profile(
         self: &Arc<Self>,
-        requests: &[GpuDeviceRequest<'_>],
+        requests_builder: &GpuDeviceRequestBuilder,
     ) -> Result<GpuFindDeviceProfileResult> {
+        let requests = requests_builder.requests();
         let mut scored = vec![];
         let mut mismatches = vec![];
         let physical_devices = unsafe {
