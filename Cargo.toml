@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.100"
 glam = "0.30.10"
+image = { version = "0.25.9", default-features = false, features = ["png"] }
 shader-slang = "0.1.0"
 slang_struct = { version = "0.0.2", features = ["glam"] }
 vulkanalia = { version = "0.34.0", features = ["libloading", "window"] }
