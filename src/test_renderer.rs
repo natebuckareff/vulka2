@@ -2,8 +2,8 @@ use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::gpu::{
-    GpuDevice, GpuDeviceProfile, GpuDeviceRequest, GpuDeviceRequestBuilder,
-    GpuFindDeviceProfileResult, GpuInstance, GpuQueueProfile, GpuQueueRequest,
+    GpuDevice, GpuDeviceFeatureV12, GpuDeviceFeatureV13, GpuDeviceRequestBuilder, GpuInstance,
+    GpuQueueProfile, GpuQueueRequest,
 };
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
@@ -81,7 +81,13 @@ impl Renderer {
                         GpuQueueRequest::CanPresentTo(surface),
                     ],
                 },
-            );
+            )
+            .required_feature_vk12(GpuDeviceFeatureV12::BufferDeviceAddress)
+            .required_feature_vk12(GpuDeviceFeatureV12::DescriptorBindingVariableDescriptorCount)
+            .required_feature_vk12(GpuDeviceFeatureV12::DescriptorIndexing)
+            .required_feature_vk12(GpuDeviceFeatureV12::RuntimeDescriptorArray)
+            .required_feature_vk13(GpuDeviceFeatureV13::DynamicRendering)
+            .required_feature_vk13(GpuDeviceFeatureV13::Synchronization2);
 
         let profile = gpu_instance.find_device_profile(&requests)?.ok()?;
         let physical_device = profile.physical_device();
@@ -654,34 +660,6 @@ impl Renderer {
             semaphores.push(semaphore);
         }
         Ok(semaphores)
-    }
-
-    fn print_extension_support(instance: &Arc<GpuInstance>) -> Result<()> {
-        let devices = unsafe { instance.get_vk_instance().enumerate_physical_devices() }
-            .context("failed to enumerate physical devices")?;
-
-        for device in devices {
-            let properties = unsafe {
-                instance
-                    .get_vk_instance()
-                    .get_physical_device_properties(device)
-            };
-            let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }.to_string_lossy();
-            println!("device name: {name}");
-
-            let extensions = unsafe {
-                instance
-                    .get_vk_instance()
-                    .enumerate_device_extension_properties(device, None)
-                    .context("failed to enumerate device extensions")?
-            };
-            let supports_swapchain = extensions
-                .iter()
-                .any(|extension| extension.extension_name == vk::KHR_SWAPCHAIN_EXTENSION.name);
-            println!("  extension VK_KHR_swapchain: {supports_swapchain}");
-        }
-
-        Ok(())
     }
 
     fn log_physical_devices(instance: &Instance) -> Result<()> {
