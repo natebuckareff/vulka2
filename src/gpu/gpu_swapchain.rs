@@ -86,6 +86,14 @@ impl GpuSwapchain {
         &self.image_views
     }
 
+    pub fn image(&self, index: usize) -> Option<vk::Image> {
+        self.images.get(index).copied()
+    }
+
+    pub fn image_view(&self, index: usize) -> Option<vk::ImageView> {
+        self.image_views.get(index).copied()
+    }
+
     pub fn image_count(&self) -> usize {
         self.images.len()
     }

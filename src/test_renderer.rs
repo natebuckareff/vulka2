@@ -18,10 +18,9 @@ pub struct Renderer {
     gpu_device: Arc<GpuDevice>,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
-    render_pass: Option<vk::RenderPass>,
-    framebuffers: Vec<vk::Framebuffer>,
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
+    image_layouts: Vec<vk::ImageLayout>,
     image_available_semaphore: vk::Semaphore,
     render_finished_semaphores: Vec<vk::Semaphore>,
     in_flight_fence: vk::Fence,
@@ -125,10 +124,9 @@ impl Renderer {
             gpu_device,
             graphics_queue,
             present_queue,
-            render_pass: None,
-            framebuffers: Vec::new(),
             command_pool,
             command_buffers: Vec::new(),
+            image_layouts: Vec::new(),
             image_available_semaphore,
             render_finished_semaphores: Vec::new(),
             in_flight_fence,
@@ -189,6 +187,8 @@ impl Renderer {
             .get(image_index as usize)
             .context("missing command buffer for swapchain image")?;
 
+        self.record_command_buffer(image_index as usize)?;
+
         let render_finished_semaphore = *self
             .render_finished_semaphores
             .get(image_index as usize)
@@ -246,107 +246,18 @@ impl Renderer {
 
         self.cleanup_swapchain_resources()?;
 
-        let format = self
-            .gpu_swapchain
-            .format()
-            .context("missing swapchain format")?;
-        let extent = self.gpu_swapchain.extent();
-        let image_views = self.gpu_swapchain.image_views();
+        let image_count = self.gpu_swapchain.image_count();
+        let command_buffers = self.create_command_buffers(image_count)?;
+        let render_finished_semaphores = self.create_render_finished_semaphores(image_count)?;
 
-        let render_pass = self.create_render_pass(format)?;
-        let framebuffers = self.create_framebuffers(render_pass, image_views, extent)?;
-        let command_buffers = self.create_command_buffers(render_pass, &framebuffers, extent)?;
-        let render_finished_semaphores =
-            self.create_render_finished_semaphores(image_views.len())?;
-
-        self.render_pass = Some(render_pass);
-        self.framebuffers = framebuffers;
         self.command_buffers = command_buffers;
         self.render_finished_semaphores = render_finished_semaphores;
+        self.image_layouts = vec![vk::ImageLayout::UNDEFINED; image_count];
 
         Ok(())
     }
 
-    fn create_render_pass(&self, format: vk::Format) -> Result<vk::RenderPass> {
-        let color_attachment = vk::AttachmentDescription::builder()
-            .format(format)
-            .samples(vk::SampleCountFlags::_1)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
-            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
-
-        let color_attachment_ref = vk::AttachmentReference {
-            attachment: 0,
-            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        };
-
-        let color_attachments = [color_attachment_ref];
-        let subpass = vk::SubpassDescription::builder()
-            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-            .color_attachments(&color_attachments);
-
-        let dependency = vk::SubpassDependency::builder()
-            .src_subpass(vk::SUBPASS_EXTERNAL)
-            .dst_subpass(0)
-            .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
-
-        let attachments = [color_attachment];
-        let subpasses = [subpass];
-        let dependencies = [dependency];
-        let render_pass_info = vk::RenderPassCreateInfo::builder()
-            .attachments(&attachments)
-            .subpasses(&subpasses)
-            .dependencies(&dependencies);
-
-        let render_pass = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .create_render_pass(&render_pass_info, None)
-                .context("failed to create render pass")?
-        };
-
-        Ok(render_pass)
-    }
-
-    fn create_framebuffers(
-        &self,
-        render_pass: vk::RenderPass,
-        image_views: &[vk::ImageView],
-        extent: vk::Extent2D,
-    ) -> Result<Vec<vk::Framebuffer>> {
-        let mut framebuffers = Vec::with_capacity(image_views.len());
-        for &view in image_views {
-            let attachments = [view];
-            let info = vk::FramebufferCreateInfo::builder()
-                .render_pass(render_pass)
-                .attachments(&attachments)
-                .width(extent.width)
-                .height(extent.height)
-                .layers(1);
-
-            let framebuffer = unsafe {
-                self.gpu_device
-                    .get_vk_device()
-                    .create_framebuffer(&info, None)
-                    .context("failed to create framebuffer")?
-            };
-            framebuffers.push(framebuffer);
-        }
-
-        Ok(framebuffers)
-    }
-
-    fn create_command_buffers(
-        &self,
-        render_pass: vk::RenderPass,
-        framebuffers: &[vk::Framebuffer],
-        extent: vk::Extent2D,
-    ) -> Result<Vec<vk::CommandBuffer>> {
+    fn create_command_buffers(&self, count: usize) -> Result<Vec<vk::CommandBuffer>> {
         if !self.command_buffers.is_empty() {
             unsafe {
                 self.gpu_device
@@ -358,7 +269,7 @@ impl Renderer {
         let alloc_info = vk::CommandBufferAllocateInfo::builder()
             .command_pool(self.command_pool)
             .level(vk::CommandBufferLevel::PRIMARY)
-            .command_buffer_count(framebuffers.len() as u32);
+            .command_buffer_count(count as u32);
 
         let command_buffers = unsafe {
             self.gpu_device
@@ -367,47 +278,122 @@ impl Renderer {
                 .context("failed to allocate command buffers")?
         };
 
-        for (command_buffer, &framebuffer) in command_buffers.iter().zip(framebuffers.iter()) {
-            let begin_info = vk::CommandBufferBeginInfo::builder();
-            unsafe {
-                self.gpu_device
-                    .get_vk_device()
-                    .begin_command_buffer(*command_buffer, &begin_info)
-                    .context("failed to begin command buffer")?;
-            }
+        Ok(command_buffers)
+    }
 
-            let clear_values = [vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [1.0, 0.0, 0.0, 1.0],
-                },
-            }];
-            let render_area = vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent,
-            };
-            let render_pass_info = vk::RenderPassBeginInfo::builder()
-                .render_pass(render_pass)
-                .framebuffer(framebuffer)
-                .render_area(render_area)
-                .clear_values(&clear_values);
+    fn record_command_buffer(&mut self, image_index: usize) -> Result<()> {
+        let command_buffer = *self
+            .command_buffers
+            .get(image_index)
+            .context("missing command buffer for swapchain image")?;
+        let image = self
+            .gpu_swapchain
+            .image(image_index)
+            .context("missing swapchain image")?;
+        let image_view = self
+            .gpu_swapchain
+            .image_view(image_index)
+            .context("missing swapchain image view")?;
+        let extent = self.gpu_swapchain.extent();
+        let old_layout = *self
+            .image_layouts
+            .get(image_index)
+            .context("missing swapchain image layout")?;
 
-            unsafe {
-                self.gpu_device.get_vk_device().cmd_begin_render_pass(
-                    *command_buffer,
-                    &render_pass_info,
-                    vk::SubpassContents::INLINE,
-                );
-                self.gpu_device
-                    .get_vk_device()
-                    .cmd_end_render_pass(*command_buffer);
-                self.gpu_device
-                    .get_vk_device()
-                    .end_command_buffer(*command_buffer)
-                    .context("failed to end command buffer")?;
-            }
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        unsafe {
+            self.gpu_device
+                .get_vk_device()
+                .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
+                .context("failed to reset command buffer")?;
+            self.gpu_device
+                .get_vk_device()
+                .begin_command_buffer(command_buffer, &begin_info)
+                .context("failed to begin command buffer")?;
         }
 
-        Ok(command_buffers)
+        let to_color_barrier = vk::ImageMemoryBarrier2::builder()
+            .src_stage_mask(vk::PipelineStageFlags2::TOP_OF_PIPE)
+            .src_access_mask(vk::AccessFlags2::empty())
+            .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+            .dst_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
+            .old_layout(old_layout)
+            .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .image(image)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            });
+        let to_color_info = vk::DependencyInfo::builder()
+            .image_memory_barriers(std::slice::from_ref(&to_color_barrier));
+
+        let clear_value = vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [1.0, 0.0, 0.0, 1.0],
+            },
+        };
+        let color_attachment = vk::RenderingAttachmentInfo::builder()
+            .image_view(image_view)
+            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(clear_value);
+
+        let render_area = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent,
+        };
+        let rendering_info = vk::RenderingInfo::builder()
+            .render_area(render_area)
+            .layer_count(1)
+            .color_attachments(std::slice::from_ref(&color_attachment));
+
+        let to_present_barrier = vk::ImageMemoryBarrier2::builder()
+            .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+            .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
+            .dst_stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
+            .dst_access_mask(vk::AccessFlags2::empty())
+            .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+            .image(image)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            });
+        let to_present_info = vk::DependencyInfo::builder()
+            .image_memory_barriers(std::slice::from_ref(&to_present_barrier));
+
+        unsafe {
+            self.gpu_device
+                .get_vk_device()
+                .cmd_pipeline_barrier2(command_buffer, &to_color_info);
+            self.gpu_device
+                .get_vk_device()
+                .cmd_begin_rendering(command_buffer, &rendering_info);
+            self.gpu_device
+                .get_vk_device()
+                .cmd_end_rendering(command_buffer);
+            self.gpu_device
+                .get_vk_device()
+                .cmd_pipeline_barrier2(command_buffer, &to_present_info);
+            self.gpu_device
+                .get_vk_device()
+                .end_command_buffer(command_buffer)
+                .context("failed to end command buffer")?;
+        }
+
+        if let Some(layout) = self.image_layouts.get_mut(image_index) {
+            *layout = vk::ImageLayout::PRESENT_SRC_KHR;
+        }
+
+        Ok(())
     }
 
     fn cleanup_swapchain_resources(&mut self) -> Result<()> {
@@ -418,18 +404,6 @@ impl Renderer {
                     .free_command_buffers(self.command_pool, &self.command_buffers);
             }
 
-            for framebuffer in self.framebuffers.drain(..) {
-                self.gpu_device
-                    .get_vk_device()
-                    .destroy_framebuffer(framebuffer, None);
-            }
-
-            if let Some(render_pass) = self.render_pass.take() {
-                self.gpu_device
-                    .get_vk_device()
-                    .destroy_render_pass(render_pass, None);
-            }
-
             for semaphore in self.render_finished_semaphores.drain(..) {
                 self.gpu_device
                     .get_vk_device()
@@ -438,6 +412,7 @@ impl Renderer {
         }
 
         self.command_buffers.clear();
+        self.image_layouts.clear();
 
         Ok(())
     }
