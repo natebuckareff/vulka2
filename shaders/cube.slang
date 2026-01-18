@@ -1,21 +1,4 @@
-struct Vertex
-{
-    float3 position;
-    float _pad0;
-    float2 uv;
-    float2 _pad1;
-};
-
-struct PushConstants
-{
-    float4x4 mvp;
-    Vertex *vertices;
-    uint *indices;
-    uint textureIndex;
-    uint _pad0;
-    uint _pad1;
-    uint _pad2;
-};
+#include "cube.inl"
 
 [[vk::push_constant]]
 ConstantBuffer<PushConstants> pushConstants;
@@ -40,11 +23,12 @@ VSOutput vertexMain(uint vertexId: SV_VertexID)
     Vertex vertex = pushConstants.vertices[index];
     output.position = mul(float4(vertex.position, 1.0), pushConstants.mvp);
     output.uv = vertex.uv;
+    printf("vertexId: %d", vertexId);
     return output;
 }
 
 [shader("fragment")]
 float4 fragmentMain(VSOutput input) : SV_Target0
 {
-    return textures[pushConstants.textureIndex].Sample(textureSampler, input.uv);
+    return textures[pushConstants.texture_index].Sample(textureSampler, input.uv);
 }

@@ -7,43 +7,40 @@ use crate::gpu::{
     GpuQueueProfile, GpuQueueRequest, GpuSurface, GpuSwapchain,
 };
 use anyhow::{Context, Result, anyhow};
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use shader_slang as slang;
 use slang::Downcast;
+use slang_struct::slang_include;
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
 use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
+use vulkanalia_vma::{self as vma, Alloc};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
+slang_include!("shaders/cube.inl");
+
+impl Vertex {
+    fn new(position: [f32; 3], uv: [f32; 2]) -> Self {
+        Self {
+            position: Vec3::from_array(position),
+            _pad0: 0.0,
+            uv: Vec2::from_array(uv),
+            _pad1: Vec2::ZERO,
+        }
+    }
+}
+
 const MAX_TEXTURES: u32 = 1;
 const TEXTURE_PATH: &str = "assets/debug-texture.png";
-
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct Vertex {
-    position: [f32; 3],
-    _pad0: f32,
-    uv: [f32; 2],
-    _pad1: [f32; 2],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct PushConstants {
-    mvp: [[f32; 4]; 4],
-    vertex_address: u64,
-    index_address: u64,
-    texture_index: u32,
-    _pad0: [u32; 3],
-}
 
 pub struct Renderer {
     gpu_instance: Arc<GpuInstance>,
     gpu_swapchain: GpuSwapchain,
     gpu_device: Arc<GpuDevice>,
     physical_device: vk::PhysicalDevice,
+    allocator: Option<vma::Allocator>,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
     command_pool: vk::CommandPool,
@@ -58,19 +55,19 @@ pub struct Renderer {
     descriptor_pool: vk::DescriptorPool,
     descriptor_set: vk::DescriptorSet,
     texture_image: vk::Image,
-    texture_image_memory: vk::DeviceMemory,
+    texture_image_allocation: Option<vma::Allocation>,
     texture_image_view: vk::ImageView,
     texture_sampler: vk::Sampler,
     depth_image: vk::Image,
-    depth_image_memory: vk::DeviceMemory,
+    depth_image_allocation: Option<vma::Allocation>,
     depth_image_view: vk::ImageView,
     depth_format: vk::Format,
     depth_layout: vk::ImageLayout,
     vertex_buffer: vk::Buffer,
-    vertex_buffer_memory: vk::DeviceMemory,
+    vertex_buffer_allocation: Option<vma::Allocation>,
     vertex_buffer_address: vk::DeviceAddress,
     index_buffer: vk::Buffer,
-    index_buffer_memory: vk::DeviceMemory,
+    index_buffer_allocation: Option<vma::Allocation>,
     index_buffer_address: vk::DeviceAddress,
     start_time: Instant,
 }
@@ -133,6 +130,16 @@ impl Renderer {
         let graphics_queue = main_queue.get_vk_queue();
         let present_queue = main_queue.get_vk_queue();
 
+        let mut allocator_options = vma::AllocatorOptions::new(
+            gpu_instance.get_vk_instance(),
+            gpu_device.get_vk_device(),
+            physical_device,
+        );
+        allocator_options.flags = vma::AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
+        let allocator = unsafe { vma::Allocator::new(&allocator_options) }
+            .map_err(|err| anyhow!(err))
+            .context("failed to create VMA allocator")?;
+
         let command_pool = unsafe {
             gpu_device
                 .get_vk_device()
@@ -176,6 +183,7 @@ impl Renderer {
             gpu_swapchain,
             gpu_device,
             physical_device,
+            allocator: Some(allocator),
             graphics_queue,
             present_queue,
             command_pool,
@@ -190,19 +198,19 @@ impl Renderer {
             descriptor_pool: vk::DescriptorPool::null(),
             descriptor_set: vk::DescriptorSet::null(),
             texture_image: vk::Image::null(),
-            texture_image_memory: vk::DeviceMemory::null(),
+            texture_image_allocation: None,
             texture_image_view: vk::ImageView::null(),
             texture_sampler: vk::Sampler::null(),
             depth_image: vk::Image::null(),
-            depth_image_memory: vk::DeviceMemory::null(),
+            depth_image_allocation: None,
             depth_image_view: vk::ImageView::null(),
             depth_format: vk::Format::UNDEFINED,
             depth_layout: vk::ImageLayout::UNDEFINED,
             vertex_buffer: vk::Buffer::null(),
-            vertex_buffer_memory: vk::DeviceMemory::null(),
+            vertex_buffer_allocation: None,
             vertex_buffer_address: 0,
             index_buffer: vk::Buffer::null(),
-            index_buffer_memory: vk::DeviceMemory::null(),
+            index_buffer_allocation: None,
             index_buffer_address: 0,
             start_time: Instant::now(),
         };
@@ -521,13 +529,14 @@ impl Renderer {
         let mut projection = Mat4::perspective_rh(45.0_f32.to_radians(), aspect, 0.1, 100.0);
         projection.y_axis.y *= -1.0;
         let mvp = projection * view * model;
-        let mvp_row_major = mvp.to_cols_array_2d();
         let push_constants = PushConstants {
-            mvp: mvp_row_major,
-            vertex_address: self.vertex_buffer_address,
-            index_address: self.index_buffer_address,
+            mvp,
+            vertices: self.vertex_buffer_address,
+            indices: self.index_buffer_address,
             texture_index: 0,
-            _pad0: [0; 3],
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
         };
         let push_constants_bytes = unsafe {
             std::slice::from_raw_parts(
@@ -638,18 +647,17 @@ impl Renderer {
             }
 
             if self.depth_image != vk::Image::null() {
-                self.gpu_device
-                    .get_vk_device()
-                    .destroy_image(self.depth_image, None);
+                if let Some(allocation) = self.depth_image_allocation.take() {
+                    self.allocator().destroy_image(self.depth_image, allocation);
+                } else {
+                    self.gpu_device
+                        .get_vk_device()
+                        .destroy_image(self.depth_image, None);
+                }
                 self.depth_image = vk::Image::null();
             }
 
-            if self.depth_image_memory != vk::DeviceMemory::null() {
-                self.gpu_device
-                    .get_vk_device()
-                    .free_memory(self.depth_image_memory, None);
-                self.depth_image_memory = vk::DeviceMemory::null();
-            }
+            self.depth_image_allocation = None;
         }
 
         self.command_buffers.clear();
@@ -807,22 +815,31 @@ impl Renderer {
         let image_data = image.into_raw();
         let image_size = image_data.len() as vk::DeviceSize;
 
-        let (staging_buffer, staging_memory) = self.create_buffer(
+        let staging_options = vma::AllocationOptions {
+            usage: vma::MemoryUsage::AutoPreferHost,
+            flags: vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
+            ..Default::default()
+        };
+        let (staging_buffer, staging_allocation) = self.create_buffer(
             image_size,
             vk::BufferUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            false,
+            &staging_options,
         )?;
-        self.write_memory(staging_memory, &image_data)?;
+        self.write_memory(staging_allocation, &image_data)?;
 
-        let (texture_image, texture_memory) = self.create_image(
+        let texture_allocation = vma::AllocationOptions {
+            usage: vma::MemoryUsage::AutoPreferDevice,
+            ..Default::default()
+        };
+        let (texture_image, texture_allocation) = self.create_image(
             width,
             height,
             vk::Format::R8G8B8A8_SRGB,
             vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+            &texture_allocation,
         )?;
         self.texture_image = texture_image;
-        self.texture_image_memory = texture_memory;
+        self.texture_image_allocation = Some(texture_allocation);
 
         self.submit_immediate(|command_buffer| {
             let to_transfer = vk::ImageMemoryBarrier2::builder()
@@ -900,12 +917,8 @@ impl Renderer {
         })?;
 
         unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .destroy_buffer(staging_buffer, None);
-            self.gpu_device
-                .get_vk_device()
-                .free_memory(staging_memory, None);
+            self.allocator()
+                .destroy_buffer(staging_buffer, staging_allocation);
         }
 
         let view_info = vk::ImageViewCreateInfo::builder()
@@ -949,163 +962,47 @@ impl Renderer {
 
     fn create_mesh_buffers(&mut self) -> Result<()> {
         let vertices: [Vertex; 24] = [
-            Vertex {
-                position: [-1.0, -1.0, 1.0],
-                _pad0: 0.0,
-                uv: [0.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, -1.0, 1.0],
-                _pad0: 0.0,
-                uv: [1.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, 1.0, 1.0],
-                _pad0: 0.0,
-                uv: [1.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, 1.0, 1.0],
-                _pad0: 0.0,
-                uv: [0.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, -1.0, -1.0],
-                _pad0: 0.0,
-                uv: [0.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, -1.0, -1.0],
-                _pad0: 0.0,
-                uv: [1.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, 1.0, -1.0],
-                _pad0: 0.0,
-                uv: [1.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, 1.0, -1.0],
-                _pad0: 0.0,
-                uv: [0.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, -1.0, -1.0],
-                _pad0: 0.0,
-                uv: [0.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, -1.0, 1.0],
-                _pad0: 0.0,
-                uv: [1.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, 1.0, 1.0],
-                _pad0: 0.0,
-                uv: [1.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, 1.0, -1.0],
-                _pad0: 0.0,
-                uv: [0.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, -1.0, 1.0],
-                _pad0: 0.0,
-                uv: [0.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, -1.0, -1.0],
-                _pad0: 0.0,
-                uv: [1.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, 1.0, -1.0],
-                _pad0: 0.0,
-                uv: [1.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, 1.0, 1.0],
-                _pad0: 0.0,
-                uv: [0.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, 1.0, 1.0],
-                _pad0: 0.0,
-                uv: [0.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, 1.0, 1.0],
-                _pad0: 0.0,
-                uv: [1.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, 1.0, -1.0],
-                _pad0: 0.0,
-                uv: [1.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, 1.0, -1.0],
-                _pad0: 0.0,
-                uv: [0.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, -1.0, -1.0],
-                _pad0: 0.0,
-                uv: [0.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, -1.0, -1.0],
-                _pad0: 0.0,
-                uv: [1.0, 1.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [1.0, -1.0, 1.0],
-                _pad0: 0.0,
-                uv: [1.0, 0.0],
-                _pad1: [0.0; 2],
-            },
-            Vertex {
-                position: [-1.0, -1.0, 1.0],
-                _pad0: 0.0,
-                uv: [0.0, 0.0],
-                _pad1: [0.0; 2],
-            },
+            Vertex::new([-1.0, -1.0, 1.0], [0.0, 1.0]),
+            Vertex::new([1.0, -1.0, 1.0], [1.0, 1.0]),
+            Vertex::new([1.0, 1.0, 1.0], [1.0, 0.0]),
+            Vertex::new([-1.0, 1.0, 1.0], [0.0, 0.0]),
+            Vertex::new([1.0, -1.0, -1.0], [0.0, 1.0]),
+            Vertex::new([-1.0, -1.0, -1.0], [1.0, 1.0]),
+            Vertex::new([-1.0, 1.0, -1.0], [1.0, 0.0]),
+            Vertex::new([1.0, 1.0, -1.0], [0.0, 0.0]),
+            Vertex::new([-1.0, -1.0, -1.0], [0.0, 1.0]),
+            Vertex::new([-1.0, -1.0, 1.0], [1.0, 1.0]),
+            Vertex::new([-1.0, 1.0, 1.0], [1.0, 0.0]),
+            Vertex::new([-1.0, 1.0, -1.0], [0.0, 0.0]),
+            Vertex::new([1.0, -1.0, 1.0], [0.0, 1.0]),
+            Vertex::new([1.0, -1.0, -1.0], [1.0, 1.0]),
+            Vertex::new([1.0, 1.0, -1.0], [1.0, 0.0]),
+            Vertex::new([1.0, 1.0, 1.0], [0.0, 0.0]),
+            Vertex::new([-1.0, 1.0, 1.0], [0.0, 1.0]),
+            Vertex::new([1.0, 1.0, 1.0], [1.0, 1.0]),
+            Vertex::new([1.0, 1.0, -1.0], [1.0, 0.0]),
+            Vertex::new([-1.0, 1.0, -1.0], [0.0, 0.0]),
+            Vertex::new([-1.0, -1.0, -1.0], [0.0, 1.0]),
+            Vertex::new([1.0, -1.0, -1.0], [1.0, 1.0]),
+            Vertex::new([1.0, -1.0, 1.0], [1.0, 0.0]),
+            Vertex::new([-1.0, -1.0, 1.0], [0.0, 0.0]),
         ];
         let indices: [u32; 36] = [
             0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4, 8, 9, 10, 10, 11, 8, 12, 13, 14, 14, 15, 12, 16,
             17, 18, 18, 19, 16, 20, 21, 22, 22, 23, 20,
         ];
 
-        let (vertex_buffer, vertex_memory) = self.create_buffer(
+        let host_allocation = vma::AllocationOptions {
+            usage: vma::MemoryUsage::AutoPreferHost,
+            flags: vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
+            ..Default::default()
+        };
+        let (vertex_buffer, vertex_allocation) = self.create_buffer(
             (vertices.len() * std::mem::size_of::<Vertex>()) as vk::DeviceSize,
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            true,
+            &host_allocation,
         )?;
-        self.write_memory(vertex_memory, &vertices)?;
+        self.write_memory(vertex_allocation, &vertices)?;
         let vertex_address_info = vk::BufferDeviceAddressInfo::builder().buffer(vertex_buffer);
         let vertex_address = unsafe {
             self.gpu_device
@@ -1113,13 +1010,12 @@ impl Renderer {
                 .get_buffer_device_address(&vertex_address_info)
         };
 
-        let (index_buffer, index_memory) = self.create_buffer(
+        let (index_buffer, index_allocation) = self.create_buffer(
             (indices.len() * std::mem::size_of::<u32>()) as vk::DeviceSize,
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            true,
+            &host_allocation,
         )?;
-        self.write_memory(index_memory, &indices)?;
+        self.write_memory(index_allocation, &indices)?;
         let index_address_info = vk::BufferDeviceAddressInfo::builder().buffer(index_buffer);
         let index_address = unsafe {
             self.gpu_device
@@ -1128,10 +1024,10 @@ impl Renderer {
         };
 
         self.vertex_buffer = vertex_buffer;
-        self.vertex_buffer_memory = vertex_memory;
+        self.vertex_buffer_allocation = Some(vertex_allocation);
         self.vertex_buffer_address = vertex_address;
         self.index_buffer = index_buffer;
-        self.index_buffer_memory = index_memory;
+        self.index_buffer_allocation = Some(index_allocation);
         self.index_buffer_address = index_address;
 
         Ok(())
@@ -1140,11 +1036,16 @@ impl Renderer {
     fn create_depth_resources(&mut self) -> Result<()> {
         let depth_format = self.select_depth_format()?;
         let extent = self.gpu_swapchain.extent();
-        let (depth_image, depth_memory) = self.create_image(
+        let depth_allocation = vma::AllocationOptions {
+            usage: vma::MemoryUsage::AutoPreferDevice,
+            ..Default::default()
+        };
+        let (depth_image, depth_allocation) = self.create_image(
             extent.width,
             extent.height,
             depth_format,
             vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            &depth_allocation,
         )?;
         let view_info = vk::ImageViewCreateInfo::builder()
             .image(depth_image)
@@ -1166,7 +1067,7 @@ impl Renderer {
 
         self.depth_format = depth_format;
         self.depth_image = depth_image;
-        self.depth_image_memory = depth_memory;
+        self.depth_image_allocation = Some(depth_allocation);
         self.depth_image_view = view;
         Ok(())
     }
@@ -1393,7 +1294,8 @@ impl Renderer {
         height: u32,
         format: vk::Format,
         usage: vk::ImageUsageFlags,
-    ) -> Result<(vk::Image, vk::DeviceMemory)> {
+        allocation_options: &vma::AllocationOptions,
+    ) -> Result<(vk::Image, vma::Allocation)> {
         let info = vk::ImageCreateInfo::builder()
             .image_type(vk::ImageType::_2D)
             .format(format)
@@ -1409,99 +1311,50 @@ impl Renderer {
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(vk::ImageLayout::UNDEFINED);
-        let image = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .create_image(&info, None)
-                .context("failed to create image")?
-        };
-        let requirements = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .get_image_memory_requirements(image)
-        };
-        let memory_type = self.find_memory_type(
-            requirements.memory_type_bits,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
-        let alloc_info = vk::MemoryAllocateInfo::builder()
-            .allocation_size(requirements.size)
-            .memory_type_index(memory_type);
-        let memory = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .allocate_memory(&alloc_info, None)
-                .context("failed to allocate image memory")?
-        };
-        unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .bind_image_memory(image, memory, 0)
-                .context("failed to bind image memory")?;
-        }
-        Ok((image, memory))
+        let (image, allocation) =
+            unsafe { self.allocator().create_image(info, allocation_options) }
+                .map_err(|err| anyhow!(err))
+                .context("failed to create VMA image")?;
+        Ok((image, allocation))
     }
 
     fn create_buffer(
         &self,
         size: vk::DeviceSize,
         usage: vk::BufferUsageFlags,
-        properties: vk::MemoryPropertyFlags,
-        device_address: bool,
-    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
+        allocation_options: &vma::AllocationOptions,
+    ) -> Result<(vk::Buffer, vma::Allocation)> {
         let buffer_info = vk::BufferCreateInfo::builder()
             .size(size)
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        let buffer = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .create_buffer(&buffer_info, None)
-                .context("failed to create buffer")?
-        };
-        let requirements = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .get_buffer_memory_requirements(buffer)
-        };
-        let memory_type = self.find_memory_type(requirements.memory_type_bits, properties)?;
-        let mut alloc_info = vk::MemoryAllocateInfo::builder()
-            .allocation_size(requirements.size)
-            .memory_type_index(memory_type);
-        let mut flags_info =
-            vk::MemoryAllocateFlagsInfo::builder().flags(vk::MemoryAllocateFlags::DEVICE_ADDRESS);
-        if device_address {
-            alloc_info = alloc_info.push_next(&mut flags_info);
+        let (buffer, allocation) = unsafe {
+            self.allocator()
+                .create_buffer(buffer_info, allocation_options)
         }
-        let memory = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .allocate_memory(&alloc_info, None)
-                .context("failed to allocate buffer memory")?
-        };
-        unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .bind_buffer_memory(buffer, memory, 0)
-                .context("failed to bind buffer memory")?;
-        }
-        Ok((buffer, memory))
+        .map_err(|err| anyhow!(err))
+        .context("failed to create VMA buffer")?;
+        Ok((buffer, allocation))
     }
 
-    fn write_memory<T: Copy>(&self, memory: vk::DeviceMemory, data: &[T]) -> Result<()> {
+    fn write_memory<T: Copy>(&self, allocation: vma::Allocation, data: &[T]) -> Result<()> {
         let size = (data.len() * std::mem::size_of::<T>()) as vk::DeviceSize;
         unsafe {
             let ptr = self
-                .gpu_device
-                .get_vk_device()
-                .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())
-                .context("failed to map memory")?;
+                .allocator()
+                .map_memory(allocation)
+                .map_err(|err| anyhow!(err))
+                .context("failed to map allocation")?;
             std::ptr::copy_nonoverlapping(
                 data.as_ptr() as *const u8,
                 ptr as *mut u8,
                 size as usize,
             );
-            self.gpu_device.get_vk_device().unmap_memory(memory);
+            self.allocator()
+                .flush_allocation(allocation, 0, size)
+                .map_err(|err| anyhow!(err))
+                .context("failed to flush allocation")?;
+            self.allocator().unmap_memory(allocation);
         }
         Ok(())
     }
@@ -1553,6 +1406,12 @@ impl Renderer {
         Ok(())
     }
 
+    fn allocator(&self) -> &vma::Allocator {
+        self.allocator
+            .as_ref()
+            .expect("VMA allocator must be initialized")
+    }
+
     fn select_depth_format(&self) -> Result<vk::Format> {
         let candidates = [
             vk::Format::D32_SFLOAT,
@@ -1572,25 +1431,6 @@ impl Renderer {
             }
         }
         Err(anyhow!("failed to find supported depth format"))
-    }
-
-    fn find_memory_type(
-        &self,
-        type_filter: u32,
-        properties: vk::MemoryPropertyFlags,
-    ) -> Result<u32> {
-        let mem_props = unsafe {
-            self.gpu_instance
-                .get_vk_instance()
-                .get_physical_device_memory_properties(self.physical_device)
-        };
-        for i in 0..mem_props.memory_type_count {
-            let memory_type = mem_props.memory_types[i as usize];
-            if (type_filter & (1 << i)) != 0 && memory_type.property_flags.contains(properties) {
-                return Ok(i);
-            }
-        }
-        Err(anyhow!("failed to find suitable memory type"))
     }
 
     fn log_physical_devices(instance: &Instance) -> Result<()> {
@@ -1651,46 +1491,46 @@ impl Drop for Renderer {
             }
 
             if self.texture_image != vk::Image::null() {
-                self.gpu_device
-                    .get_vk_device()
-                    .destroy_image(self.texture_image, None);
+                if let Some(allocation) = self.texture_image_allocation.take() {
+                    self.allocator()
+                        .destroy_image(self.texture_image, allocation);
+                } else {
+                    self.gpu_device
+                        .get_vk_device()
+                        .destroy_image(self.texture_image, None);
+                }
                 self.texture_image = vk::Image::null();
             }
 
-            if self.texture_image_memory != vk::DeviceMemory::null() {
-                self.gpu_device
-                    .get_vk_device()
-                    .free_memory(self.texture_image_memory, None);
-                self.texture_image_memory = vk::DeviceMemory::null();
-            }
+            self.texture_image_allocation = None;
 
             if self.vertex_buffer != vk::Buffer::null() {
-                self.gpu_device
-                    .get_vk_device()
-                    .destroy_buffer(self.vertex_buffer, None);
+                if let Some(allocation) = self.vertex_buffer_allocation.take() {
+                    self.allocator()
+                        .destroy_buffer(self.vertex_buffer, allocation);
+                } else {
+                    self.gpu_device
+                        .get_vk_device()
+                        .destroy_buffer(self.vertex_buffer, None);
+                }
                 self.vertex_buffer = vk::Buffer::null();
             }
 
-            if self.vertex_buffer_memory != vk::DeviceMemory::null() {
-                self.gpu_device
-                    .get_vk_device()
-                    .free_memory(self.vertex_buffer_memory, None);
-                self.vertex_buffer_memory = vk::DeviceMemory::null();
-            }
+            self.vertex_buffer_allocation = None;
 
             if self.index_buffer != vk::Buffer::null() {
-                self.gpu_device
-                    .get_vk_device()
-                    .destroy_buffer(self.index_buffer, None);
+                if let Some(allocation) = self.index_buffer_allocation.take() {
+                    self.allocator()
+                        .destroy_buffer(self.index_buffer, allocation);
+                } else {
+                    self.gpu_device
+                        .get_vk_device()
+                        .destroy_buffer(self.index_buffer, None);
+                }
                 self.index_buffer = vk::Buffer::null();
             }
 
-            if self.index_buffer_memory != vk::DeviceMemory::null() {
-                self.gpu_device
-                    .get_vk_device()
-                    .free_memory(self.index_buffer_memory, None);
-                self.index_buffer_memory = vk::DeviceMemory::null();
-            }
+            self.index_buffer_allocation = None;
 
             self.gpu_device
                 .get_vk_device()
@@ -1701,6 +1541,10 @@ impl Drop for Renderer {
             self.gpu_device
                 .get_vk_device()
                 .destroy_command_pool(self.command_pool, None);
+        }
+
+        if let Some(allocator) = self.allocator.take() {
+            drop(allocator);
         }
     }
 }
