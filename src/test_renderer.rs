@@ -3,32 +3,21 @@ use std::sync::Arc;
 
 use crate::gpu::{
     GpuDevice, GpuDeviceFeatureV12, GpuDeviceFeatureV13, GpuDeviceRequestBuilder, GpuInstance,
-    GpuQueueProfile, GpuQueueRequest,
+    GpuQueueProfile, GpuQueueRequest, GpuSurface, GpuSwapchain,
 };
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
-use vulkanalia::vk::{KhrSurfaceExtensionInstanceCommands, KhrSwapchainExtensionDeviceCommands};
-use vulkanalia::window::{create_surface, get_required_instance_extensions};
+use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 pub struct Renderer {
-    gpu_instance: Arc<GpuInstance>,
-    surface: vk::SurfaceKHR,
-    physical_device: vk::PhysicalDevice,
+    gpu_swapchain: GpuSwapchain,
     gpu_device: Arc<GpuDevice>,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
-    graphics_queue_family: u32,
-    present_queue_family: u32,
-    swapchain: Option<vk::SwapchainKHR>,
-    swapchain_format: Option<vk::Format>,
-    swapchain_color_space: Option<vk::ColorSpaceKHR>,
-    swapchain_extent: vk::Extent2D,
-    swapchain_images: Vec<vk::Image>,
-    swapchain_image_views: Vec<vk::ImageView>,
     render_pass: Option<vk::RenderPass>,
     framebuffers: Vec<vk::Framebuffer>,
     command_pool: vk::CommandPool,
@@ -36,8 +25,6 @@ pub struct Renderer {
     image_available_semaphore: vk::Semaphore,
     render_finished_semaphores: Vec<vk::Semaphore>,
     in_flight_fence: vk::Fence,
-    recreate_swapchain: bool,
-    window_size: [u32; 2],
 }
 
 impl Renderer {
@@ -54,19 +41,12 @@ impl Renderer {
         let gpu_instance = GpuInstance::build(&entry)
             .application_name("voxels2".to_string())?
             .require_layer(VK_LAYER_KHRONOS_VALIDATION)?
-            .require_extensions(&get_required_instance_extensions(&window))?
+            .require_extensions(&GpuSurface::required_instance_extensions(&window))?
             .build()?;
 
         Self::log_physical_devices(gpu_instance.get_vk_instance())?;
 
-        let surface = unsafe {
-            create_surface(
-                gpu_instance.get_vk_instance(),
-                window.as_ref(),
-                window.as_ref(),
-            )
-        }
-        .context("failed to create window surface")?;
+        let gpu_surface = GpuSurface::new(gpu_instance.clone(), window.as_ref())?;
 
         let requests = GpuDeviceRequestBuilder::new()
             .is_discrete()
@@ -78,7 +58,7 @@ impl Renderer {
                     priority: 1.0,
                     requests: vec![
                         GpuQueueRequest::HasGraphics,
-                        GpuQueueRequest::CanPresentTo(surface),
+                        GpuQueueRequest::CanPresentTo(gpu_surface.surface()),
                     ],
                 },
             )
@@ -130,24 +110,21 @@ impl Renderer {
         };
 
         let window_size = window.inner_size();
-        let mut renderer = Self {
-            gpu_instance,
-            surface,
+        let gpu_swapchain = GpuSwapchain::new(
+            gpu_instance.clone(),
+            gpu_device.clone(),
+            gpu_surface.clone(),
             physical_device,
+            graphics_queue_family,
+            present_queue_family,
+            [window_size.width, window_size.height],
+        )?;
+
+        let mut renderer = Self {
+            gpu_swapchain,
             gpu_device,
             graphics_queue,
             present_queue,
-            graphics_queue_family,
-            present_queue_family,
-            swapchain: None,
-            swapchain_format: None,
-            swapchain_color_space: None,
-            swapchain_extent: vk::Extent2D {
-                width: 0,
-                height: 0,
-            },
-            swapchain_images: Vec::new(),
-            swapchain_image_views: Vec::new(),
             render_pass: None,
             framebuffers: Vec::new(),
             command_pool,
@@ -155,26 +132,23 @@ impl Renderer {
             image_available_semaphore,
             render_finished_semaphores: Vec::new(),
             in_flight_fence,
-            recreate_swapchain: true,
-            window_size: [window_size.width, window_size.height],
         };
 
-        renderer.recreate_swapchain_if_needed()?;
+        renderer.rebuild_swapchain_resources()?;
         Ok(renderer)
     }
 
     pub fn resized_window(&mut self, size: PhysicalSize<u32>) -> Result<()> {
-        self.window_size = [size.width, size.height];
-        self.recreate_swapchain = true;
+        self.gpu_swapchain.resized([size.width, size.height]);
         Ok(())
     }
 
     pub fn render_frame(&mut self) -> Result<()> {
-        if self.recreate_swapchain {
-            self.recreate_swapchain_if_needed()?;
+        if self.gpu_swapchain.recreate_if_needed()? {
+            self.rebuild_swapchain_resources()?;
         }
 
-        let swapchain = match self.swapchain {
+        let swapchain = match self.gpu_swapchain.swapchain() {
             Some(swapchain) => swapchain,
             None => return Ok(()),
         };
@@ -199,7 +173,7 @@ impl Renderer {
             ) {
                 Ok(result) => result,
                 Err(vk::ErrorCode::OUT_OF_DATE_KHR) => {
-                    self.recreate_swapchain = true;
+                    self.gpu_swapchain.mark_recreate();
                     return Ok(());
                 }
                 Err(err) => return Err(anyhow!(err)),
@@ -207,7 +181,7 @@ impl Renderer {
         };
 
         if acquire_status == vk::SuccessCode::SUBOPTIMAL_KHR {
-            self.recreate_swapchain = true;
+            self.gpu_swapchain.mark_recreate();
         }
 
         let command_buffer = *self
@@ -253,11 +227,11 @@ impl Renderer {
         match present_result {
             Ok(status) => {
                 if status == vk::SuccessCode::SUBOPTIMAL_KHR {
-                    self.recreate_swapchain = true;
+                    self.gpu_swapchain.mark_recreate();
                 }
             }
             Err(vk::ErrorCode::OUT_OF_DATE_KHR) => {
-                self.recreate_swapchain = true;
+                self.gpu_swapchain.mark_recreate();
             }
             Err(err) => return Err(anyhow!(err)),
         }
@@ -265,171 +239,32 @@ impl Renderer {
         Ok(())
     }
 
-    fn recreate_swapchain_if_needed(&mut self) -> Result<()> {
-        if !self.recreate_swapchain {
+    fn rebuild_swapchain_resources(&mut self) -> Result<()> {
+        if self.gpu_swapchain.swapchain().is_none() {
             return Ok(());
         }
 
-        if self.window_size[0] == 0 || self.window_size[1] == 0 {
-            return Ok(());
-        }
-
-        unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .device_wait_idle()
-                .context("failed waiting for device idle")?;
-        }
-
-        let old_swapchain = self.swapchain.take();
         self.cleanup_swapchain_resources()?;
 
-        let (swapchain, images, format, color_space, extent) =
-            self.create_swapchain(old_swapchain.unwrap_or(vk::SwapchainKHR::null()))?;
-
-        if let Some(old_swapchain) = old_swapchain {
-            unsafe {
-                self.gpu_device
-                    .get_vk_device()
-                    .destroy_swapchain_khr(old_swapchain, None);
-            }
-        }
+        let format = self
+            .gpu_swapchain
+            .format()
+            .context("missing swapchain format")?;
+        let extent = self.gpu_swapchain.extent();
+        let image_views = self.gpu_swapchain.image_views();
 
         let render_pass = self.create_render_pass(format)?;
-        let image_views = self.create_image_views(format, &images)?;
-        let framebuffers = self.create_framebuffers(render_pass, &image_views, extent)?;
+        let framebuffers = self.create_framebuffers(render_pass, image_views, extent)?;
         let command_buffers = self.create_command_buffers(render_pass, &framebuffers, extent)?;
-        let render_finished_semaphores = self.create_render_finished_semaphores(images.len())?;
+        let render_finished_semaphores =
+            self.create_render_finished_semaphores(image_views.len())?;
 
-        self.swapchain = Some(swapchain);
-        self.swapchain_format = Some(format);
-        self.swapchain_color_space = Some(color_space);
-        self.swapchain_extent = extent;
-        self.swapchain_images = images;
-        self.swapchain_image_views = image_views;
         self.render_pass = Some(render_pass);
         self.framebuffers = framebuffers;
         self.command_buffers = command_buffers;
         self.render_finished_semaphores = render_finished_semaphores;
-        self.recreate_swapchain = false;
 
         Ok(())
-    }
-
-    fn create_swapchain(
-        &self,
-        old_swapchain: vk::SwapchainKHR,
-    ) -> Result<(
-        vk::SwapchainKHR,
-        Vec<vk::Image>,
-        vk::Format,
-        vk::ColorSpaceKHR,
-        vk::Extent2D,
-    )> {
-        let capabilities = unsafe {
-            self.gpu_instance
-                .get_vk_instance()
-                .get_physical_device_surface_capabilities_khr(self.physical_device, self.surface)
-                .context("failed to query surface capabilities")?
-        };
-        let formats = unsafe {
-            self.gpu_instance
-                .get_vk_instance()
-                .get_physical_device_surface_formats_khr(self.physical_device, self.surface)
-                .context("failed to query surface formats")?
-        };
-        let present_modes = unsafe {
-            self.gpu_instance
-                .get_vk_instance()
-                .get_physical_device_surface_present_modes_khr(self.physical_device, self.surface)
-                .context("failed to query present modes")?
-        };
-
-        let surface_format = formats.first().context("no surface formats available")?;
-        let image_format = surface_format.format;
-        let image_color_space = surface_format.color_space;
-
-        let mut extent = if capabilities.current_extent.width == u32::MAX {
-            vk::Extent2D {
-                width: self.window_size[0],
-                height: self.window_size[1],
-            }
-        } else {
-            capabilities.current_extent
-        };
-
-        extent.width = extent.width.clamp(
-            capabilities.min_image_extent.width,
-            capabilities.max_image_extent.width,
-        );
-        extent.height = extent.height.clamp(
-            capabilities.min_image_extent.height,
-            capabilities.max_image_extent.height,
-        );
-
-        let mut min_image_count = capabilities.min_image_count + 1;
-        if capabilities.max_image_count > 0 {
-            min_image_count = min_image_count.min(capabilities.max_image_count);
-        }
-
-        let composite_alpha = [
-            vk::CompositeAlphaFlagsKHR::OPAQUE,
-            vk::CompositeAlphaFlagsKHR::PRE_MULTIPLIED,
-            vk::CompositeAlphaFlagsKHR::POST_MULTIPLIED,
-            vk::CompositeAlphaFlagsKHR::INHERIT,
-        ]
-        .into_iter()
-        .find(|alpha| capabilities.supported_composite_alpha.contains(*alpha))
-        .context("no supported composite alpha")?;
-
-        let present_mode = if present_modes.contains(&vk::PresentModeKHR::FIFO) {
-            vk::PresentModeKHR::FIFO
-        } else {
-            *present_modes
-                .first()
-                .context("no present modes available")?
-        };
-
-        let sharing_mode = if self.graphics_queue_family != self.present_queue_family {
-            vk::SharingMode::CONCURRENT
-        } else {
-            vk::SharingMode::EXCLUSIVE
-        };
-        let queue_family_indices = [self.graphics_queue_family, self.present_queue_family];
-
-        let mut swapchain_info = vk::SwapchainCreateInfoKHR::builder()
-            .surface(self.surface)
-            .min_image_count(min_image_count)
-            .image_format(image_format)
-            .image_color_space(image_color_space)
-            .image_extent(extent)
-            .image_array_layers(1)
-            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
-            .image_sharing_mode(sharing_mode)
-            .pre_transform(capabilities.current_transform)
-            .composite_alpha(composite_alpha)
-            .present_mode(present_mode)
-            .clipped(true)
-            .old_swapchain(old_swapchain);
-        if sharing_mode == vk::SharingMode::CONCURRENT {
-            swapchain_info = swapchain_info.queue_family_indices(&queue_family_indices);
-        }
-
-        let swapchain = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .create_swapchain_khr(&swapchain_info, None)
-                .context("failed to create swapchain")?
-        };
-
-        let images = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .get_swapchain_images_khr(swapchain)
-                .context("failed to get swapchain images")?
-        };
-
-        Ok((swapchain, images, image_format, image_color_space, extent))
     }
 
     fn create_render_pass(&self, format: vk::Format) -> Result<vk::RenderPass> {
@@ -476,37 +311,6 @@ impl Renderer {
         };
 
         Ok(render_pass)
-    }
-
-    fn create_image_views(
-        &self,
-        format: vk::Format,
-        images: &[vk::Image],
-    ) -> Result<Vec<vk::ImageView>> {
-        let mut views = Vec::with_capacity(images.len());
-        for &image in images {
-            let info = vk::ImageViewCreateInfo::builder()
-                .image(image)
-                .view_type(vk::ImageViewType::_2D)
-                .format(format)
-                .subresource_range(vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                });
-
-            let view = unsafe {
-                self.gpu_device
-                    .get_vk_device()
-                    .create_image_view(&info, None)
-                    .context("failed to create image view")?
-            };
-            views.push(view);
-        }
-
-        Ok(views)
     }
 
     fn create_framebuffers(
@@ -620,12 +424,6 @@ impl Renderer {
                     .destroy_framebuffer(framebuffer, None);
             }
 
-            for view in self.swapchain_image_views.drain(..) {
-                self.gpu_device
-                    .get_vk_device()
-                    .destroy_image_view(view, None);
-            }
-
             if let Some(render_pass) = self.render_pass.take() {
                 self.gpu_device
                     .get_vk_device()
@@ -640,9 +438,6 @@ impl Renderer {
         }
 
         self.command_buffers.clear();
-        self.swapchain_images.clear();
-        self.swapchain_format = None;
-        self.swapchain_color_space = None;
 
         Ok(())
     }
@@ -684,12 +479,6 @@ impl Drop for Renderer {
             let _ = self.gpu_device.get_vk_device().device_wait_idle();
             let _ = self.cleanup_swapchain_resources();
 
-            if let Some(swapchain) = self.swapchain.take() {
-                self.gpu_device
-                    .get_vk_device()
-                    .destroy_swapchain_khr(swapchain, None);
-            }
-
             self.gpu_device
                 .get_vk_device()
                 .destroy_semaphore(self.image_available_semaphore, None);
@@ -699,9 +488,6 @@ impl Drop for Renderer {
             self.gpu_device
                 .get_vk_device()
                 .destroy_command_pool(self.command_pool, None);
-            self.gpu_instance
-                .get_vk_instance()
-                .destroy_surface_khr(self.surface, None);
         }
     }
 }
