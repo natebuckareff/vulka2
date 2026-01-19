@@ -565,14 +565,12 @@ impl Renderer {
         let mvp = projection * view * model;
         let push_constants = PushConstants {
             mvp,
-            vertices: self.vertex_buffer_address,
-            indices: self.index_buffer_address,
+            vertices: DeviceAddress(self.vertex_buffer_address),
+            indices: DeviceAddress(self.index_buffer_address),
             texture_index: 0,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
         };
-        let push_constants_bytes = bytemuck::bytes_of(&push_constants);
+        let push_constants_std140 = push_constants.as_std140();
+        let push_constants_bytes = bytemuck::bytes_of(&push_constants_std140);
 
         let viewport = vk::Viewport {
             x: 0.0,
