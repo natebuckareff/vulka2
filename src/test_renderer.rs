@@ -46,20 +46,6 @@ struct PushConstants {
     texture_index: u32,
 }
 
-// struct PointerU64(u64);
-
-// impl AsStd140 for PointerU64 {
-//     type Output = [u8; 8];
-
-//     fn as_std140(&self) -> Self::Output {
-//         self.0.to_le_bytes()
-//     }
-
-//     fn from_std140(val: Self::Output) -> Self {
-//         Self(u64::from_le_bytes(val))
-//     }
-// }
-
 const MAX_TEXTURES: u32 = 1;
 const TEXTURE_PATH: &str = "assets/debug-texture.png";
 
