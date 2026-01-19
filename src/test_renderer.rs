@@ -7,10 +7,12 @@ use crate::gpu::{
     GpuQueueProfile, GpuQueueRequest, GpuSurface, GpuSwapchain,
 };
 use anyhow::{Context, Result, anyhow};
+use crevice::std140::AsStd140;
+use crevice::std430::AsStd430;
 use glam::{Mat4, Vec2, Vec3};
 use shader_slang as slang;
 use slang::Downcast;
-use slang_struct::slang_include;
+use slang_struct_ext::slang_include;
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
@@ -25,11 +27,18 @@ impl Vertex {
     fn new(position: [f32; 3], uv: [f32; 2]) -> Self {
         Self {
             position: Vec3::from_array(position),
-            _pad0: 0.0,
+            // _pad0: 0.0,
             uv: Vec2::from_array(uv),
-            _pad1: Vec2::ZERO,
+            // _pad1: Vec2::ZERO,
         }
     }
+}
+
+// trying to see if this works
+#[derive(AsStd430)]
+struct TestVertex {
+    position: glam::Vec3,
+    uv: glam::Vec2,
 }
 
 const MAX_TEXTURES: u32 = 1;
@@ -531,14 +540,12 @@ impl Renderer {
         let mvp = projection * view * model;
         let push_constants = PushConstants {
             mvp,
-            vertices: self.vertex_buffer_address,
-            indices: self.index_buffer_address,
+            vertices: self.vertex_buffer_address.into(),
+            indices: self.index_buffer_address.into(),
             texture_index: 0,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
         };
-        let push_constants_bytes = bytemuck::bytes_of(&push_constants);
+        let push_constants_std140 = push_constants.as_std140();
+        let push_constants_bytes = push_constants_std140.as_bytes();
 
         let viewport = vk::Viewport {
             x: 0.0,
@@ -717,7 +724,7 @@ impl Renderer {
         let push_constant_range = vk::PushConstantRange::builder()
             .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
             .offset(0)
-            .size(std::mem::size_of::<PushConstants>() as u32);
+            .size(std::mem::size_of::<Std140PushConstants>() as u32);
         let layout_info = vk::PipelineLayoutCreateInfo::builder()
             .set_layouts(std::slice::from_ref(&self.descriptor_set_layout))
             .push_constant_ranges(std::slice::from_ref(&push_constant_range));

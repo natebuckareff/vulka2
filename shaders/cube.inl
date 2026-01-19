@@ -1,18 +1,20 @@
+// @std430
 struct Vertex
 {
     float3 position;
-    float _pad0;
+    // float _pad0;
     float2 uv;
-    float2 _pad1;
+    // float2 _pad1;
 }
 
+// @std140
 struct PushConstants
 {
     float4x4 mvp;
     Vertex *vertices;
     uint *indices;
     uint texture_index;
-    uint _pad0;
-    uint _pad1;
-    uint _pad2;
+    // uint _pad0;
+    // uint _pad1;
+    // uint _pad2;
 }

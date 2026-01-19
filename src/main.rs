@@ -5,6 +5,7 @@ use winit::event_loop::EventLoop;
 
 mod app;
 mod gpu;
+mod std_layout;
 mod test_renderer;
 
 fn main() -> Result<()> {
