@@ -2,11 +2,15 @@ use std::ffi::CStr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::device_address::DeviceAddress;
 use crate::gpu::{
     GpuDevice, GpuDeviceFeatureV12, GpuDeviceFeatureV13, GpuDeviceRequestBuilder, GpuInstance,
     GpuQueueProfile, GpuQueueRequest, GpuSurface, GpuSwapchain,
 };
 use anyhow::{Context, Result, anyhow};
+use bytemuck::{Pod, Zeroable};
+use crevice::std140::{AsStd140, Std140};
+use crevice::std430::AsStd430;
 use glam::{Mat4, Vec2, Vec3};
 use shader_slang as slang;
 use slang::Downcast;
@@ -19,18 +23,48 @@ use vulkanalia_vma::{self as vma, Alloc};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-slang_include!("shaders/cube.inl");
+// slang_include!("shaders/cube.inl");
 
 impl Vertex {
     fn new(position: [f32; 3], uv: [f32; 2]) -> Self {
         Self {
             position: Vec3::from_array(position),
-            _pad0: 0.0,
+            // _pad0: 0.0,
             uv: Vec2::from_array(uv),
-            _pad1: Vec2::ZERO,
+            // _pad1: Vec2::ZERO,
         }
     }
 }
+
+#[repr(C)]
+#[derive(AsStd430, Clone, Copy)]
+struct Vertex {
+    position: Vec3,
+    uv: Vec2,
+}
+
+#[repr(C)]
+#[derive(AsStd140, Clone, Copy)]
+struct PushConstants {
+    mvp: Mat4,
+    vertices: DeviceAddress,
+    indices: DeviceAddress,
+    texture_index: u32,
+}
+
+// struct PointerU64(u64);
+
+// impl AsStd140 for PointerU64 {
+//     type Output = [u8; 8];
+
+//     fn as_std140(&self) -> Self::Output {
+//         self.0.to_le_bytes()
+//     }
+
+//     fn from_std140(val: Self::Output) -> Self {
+//         Self(u64::from_le_bytes(val))
+//     }
+// }
 
 const MAX_TEXTURES: u32 = 1;
 const TEXTURE_PATH: &str = "assets/debug-texture.png";
