@@ -8,13 +8,11 @@ use crate::gpu::{
     GpuQueueProfile, GpuQueueRequest, GpuSurface, GpuSwapchain,
 };
 use anyhow::{Context, Result, anyhow};
-use bytemuck::{Pod, Zeroable};
-use crevice::std140::{AsStd140, Std140};
+use crevice::std140::AsStd140;
 use crevice::std430::AsStd430;
 use glam::{Mat4, Vec2, Vec3};
 use shader_slang as slang;
 use slang::Downcast;
-use slang_struct::slang_include;
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
@@ -23,15 +21,11 @@ use vulkanalia_vma::{self as vma, Alloc};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-// slang_include!("shaders/cube.inl");
-
 impl Vertex {
     fn new(position: [f32; 3], uv: [f32; 2]) -> Self {
         Self {
             position: Vec3::from_array(position),
-            // _pad0: 0.0,
             uv: Vec2::from_array(uv),
-            // _pad1: Vec2::ZERO,
         }
     }
 }
@@ -1014,6 +1008,8 @@ impl Renderer {
             Vertex::new([1.0, -1.0, 1.0], [1.0, 0.0]),
             Vertex::new([-1.0, -1.0, 1.0], [0.0, 0.0]),
         ];
+        let vertices_std430: Vec<<Vertex as AsStd430>::Output> =
+            vertices.iter().map(Vertex::as_std430).collect();
         let indices: [u32; 36] = [
             0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4, 8, 9, 10, 10, 11, 8, 12, 13, 14, 14, 15, 12, 16,
             17, 18, 18, 19, 16, 20, 21, 22, 22, 23, 20,
@@ -1025,11 +1021,12 @@ impl Renderer {
             ..Default::default()
         };
         let (vertex_buffer, vertex_allocation) = self.create_buffer(
-            (vertices.len() * std::mem::size_of::<Vertex>()) as vk::DeviceSize,
+            (vertices_std430.len() * std::mem::size_of::<<Vertex as AsStd430>::Output>())
+                as vk::DeviceSize,
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             &host_allocation,
         )?;
-        self.write_memory(vertex_allocation, &vertices)?;
+        self.write_memory(vertex_allocation, &vertices_std430)?;
         let vertex_address_info = vk::BufferDeviceAddressInfo::builder().buffer(vertex_buffer);
         let vertex_address = unsafe {
             self.gpu_device

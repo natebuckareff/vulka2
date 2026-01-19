@@ -12,7 +12,4 @@ struct PushConstants
     Vertex *vertices;
     uint *indices;
     uint texture_index;
-    uint _pad0;
-    uint _pad1;
-    uint _pad2;
 }
