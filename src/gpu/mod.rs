@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+mod device_address;
 mod extension_name_array;
 mod extension_support;
 mod feature_support;
@@ -10,6 +11,7 @@ mod gpu_instance;
 mod gpu_surface;
 mod gpu_swapchain;
 
+pub use device_address::*;
 pub use gpu_device::*;
 pub use gpu_device_profile::*;
 pub use gpu_device_request::*;

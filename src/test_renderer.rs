@@ -2,7 +2,7 @@ use std::ffi::CStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::device_address::DeviceAddress;
+use crate::gpu::DeviceAddress;
 use crate::gpu::{
     GpuDevice, GpuDeviceFeatureV12, GpuDeviceFeatureV13, GpuDeviceRequestBuilder, GpuInstance,
     GpuQueueProfile, GpuQueueRequest, GpuSurface, GpuSwapchain,

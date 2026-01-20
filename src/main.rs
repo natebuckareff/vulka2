@@ -4,7 +4,6 @@ use anyhow::Result;
 use winit::event_loop::EventLoop;
 
 mod app;
-mod device_address;
 mod gpu;
 mod test_renderer;
 
