@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use shader_slang as slang;
-use slang::Downcast;
 
 fn main() -> Result<()> {
     let (module_name, search_path) = resolve_inputs();
@@ -10,10 +9,29 @@ fn main() -> Result<()> {
     let global_session =
         slang::GlobalSession::new().context("failed to create slang global session")?;
 
-    let compiler_options = slang::CompilerOptions::default()
+    let physical_storage = global_session.find_capability("SPV_EXT_physical_storage_buffer");
+    if physical_storage.is_unknown() {
+        return Err(anyhow!(
+            "Slang capability SPV_EXT_physical_storage_buffer is unavailable"
+        ));
+    }
+    let descriptor_indexing = global_session.find_capability("SPV_EXT_descriptor_indexing");
+    if descriptor_indexing.is_unknown() {
+        return Err(anyhow!(
+            "Slang capability SPV_EXT_descriptor_indexing is unavailable"
+        ));
+    }
+
+    let mut compiler_options = slang::CompilerOptions::default()
         .optimization(slang::OptimizationLevel::High)
         .matrix_layout_row(true)
-        .vulkan_use_entry_point_name(true);
+        .vulkan_use_entry_point_name(true)
+        .capability(physical_storage)
+        .capability(descriptor_indexing);
+    if let Some(bindless_space_index) = bindless_space_index() {
+        println!("bindless_space_index: {bindless_space_index}");
+        compiler_options = compiler_options.bindless_space_index(bindless_space_index);
+    }
 
     let profile = global_session.find_profile("glsl_450");
     if profile.is_unknown() {
@@ -32,7 +50,8 @@ fn main() -> Result<()> {
 
     let session_desc = slang::SessionDesc::default()
         .targets(&targets)
-        .search_paths(&search_paths);
+        .search_paths(&search_paths)
+        .options(&compiler_options);
 
     let session = global_session
         .create_session(&session_desc)
@@ -55,9 +74,9 @@ fn main() -> Result<()> {
     }
 
     let mut components = Vec::with_capacity(1 + entry_points.len());
-    components.push(module.downcast().clone());
+    components.push(module.clone().into());
     for entry in &entry_points {
-        components.push(entry.downcast().clone());
+        components.push(entry.clone().into());
     }
 
     let linked_program = session
@@ -66,24 +85,50 @@ fn main() -> Result<()> {
 
     let reflection = linked_program.layout(0)?;
 
+    if env_flag("SLANG_DUMP_SPIRV") {
+        dump_spirv(&linked_program, reflection)?;
+    }
+
     println!("entry_points: {}", reflection.entry_point_count());
     for (index, entry) in reflection.entry_points().enumerate() {
         println!(
             "  entry[{index}]: name={} stage={:?}",
-            entry.name(),
+            entry.name().unwrap_or("<unnamed>"),
             entry.stage()
         );
     }
 
     println!("parameters: {}", reflection.parameter_count());
     for (index, param) in reflection.parameters().enumerate() {
-        println!("  param[{index}]:");
-        dump_variable_layout(param, 4);
+        let name = param.name().unwrap_or("<unnamed>");
+        println!(
+            "  param[{index}]: name={name} category={:?} binding={}:{} stage={:?}",
+            param.category(),
+            param.binding_space(),
+            param.binding_index(),
+            param.stage()
+        );
     }
 
-    let global_layout = reflection.global_params_type_layout();
-    dump_descriptor_sets(global_layout);
-    dump_binding_ranges(global_layout);
+    println!(
+        "global_constant_buffer: binding={} size={}",
+        reflection.global_constant_buffer_binding(),
+        reflection.global_constant_buffer_size()
+    );
+
+    if let Some(global_layout) = reflection.global_params_type_layout() {
+        dump_descriptor_sets(global_layout, "global");
+    }
+
+    for (index, entry) in reflection.entry_points().enumerate() {
+        let name = entry.name().unwrap_or("<unnamed>");
+        let stage = entry.stage();
+        let Some(entry_layout) = entry.type_layout() else {
+            continue;
+        };
+        println!("entry_layout[{index}]: name={name} stage={stage:?}");
+        dump_descriptor_sets(entry_layout, "entry");
+    }
 
     Ok(())
 }
@@ -130,67 +175,61 @@ fn resolve_inputs() -> (String, PathBuf) {
     }
 }
 
-fn dump_variable_layout(layout: &slang::reflection::VariableLayout, indent: usize) {
-    let indent = " ".repeat(indent);
-    let name = layout.name().unwrap_or("<unnamed>");
-    let category = layout.category();
-    let binding_index = layout.binding_index();
-    let binding_space = layout.binding_space();
-    let stage = layout.stage();
-    let ty = layout.ty();
-    let ty_name = ty.map(|t| t.name()).unwrap_or("<anonymous>");
-    let ty_kind = ty.map(|t| t.kind());
-    let array_count = ty.map(|t| t.total_array_element_count()).unwrap_or(0);
-
-    println!(
-        "{indent}name={name} category={category:?} binding={binding_space}:{binding_index} stage={stage:?}"
-    );
-    println!(
-        "{indent}type=name={ty_name} kind={:?} array_total={array_count}",
-        ty_kind
-    );
-
-    if let Some(ty) = ty {
-        if ty_kind == Some(slang::TypeKind::Resource) {
-            println!(
-                "{indent}resource_shape={:?} resource_access={:?}",
-                ty.resource_shape(),
-                ty.resource_access()
-            );
-        }
-    }
+fn bindless_space_index() -> Option<i32> {
+    std::env::var("SLANG_BINDLESS_SPACE_INDEX")
+        .ok()
+        .and_then(|value| value.parse::<i32>().ok())
 }
 
-fn dump_descriptor_sets(layout: &slang::reflection::TypeLayout) {
+fn env_flag(name: &str) -> bool {
+    matches!(std::env::var(name).as_deref(), Ok("1") | Ok("true") | Ok("TRUE"))
+}
+
+fn dump_spirv(
+    program: &slang::ComponentType,
+    reflection: &slang::reflection::Shader,
+) -> Result<()> {
+    let out_dir = std::env::var("SLANG_SPIRV_OUT_DIR").unwrap_or_else(|_| "target/slang".into());
+    std::fs::create_dir_all(&out_dir)
+        .with_context(|| format!("failed to create {out_dir}"))?;
+
+    for index in 0..reflection.entry_point_count() {
+        let name = reflection
+            .entry_point_by_index(index)
+            .and_then(|entry| entry.name())
+            .unwrap_or("<unknown>");
+        let blob = program
+            .entry_point_code(index as i64, 0)
+            .with_context(|| format!("failed to get SPIR-V for entry {name}"))?;
+        let path = format!("{out_dir}/{name}.spv");
+        std::fs::write(&path, blob.as_slice())
+            .with_context(|| format!("failed to write {path}"))?;
+        println!("wrote_spirv: {path}");
+    }
+
+    Ok(())
+}
+
+fn dump_descriptor_sets(layout: &slang::reflection::TypeLayout, label: &str) {
     let set_count = layout.descriptor_set_count();
-    println!("descriptor_sets: {set_count}");
+    println!("{label}_descriptor_sets: {set_count}");
     for set_index in 0..set_count {
         let range_count = layout.descriptor_set_descriptor_range_count(set_index);
-        println!("  set[{set_index}]: descriptor_ranges={range_count}");
+        let space_offset = layout.descriptor_set_space_offset(set_index);
+        println!(
+            "  set[{set_index}]: space_offset={space_offset} descriptor_ranges={range_count}"
+        );
         for range_index in 0..range_count {
             let range_type = layout.descriptor_set_descriptor_range_type(set_index, range_index);
             let range_category =
                 layout.descriptor_set_descriptor_range_category(set_index, range_index);
             let descriptor_count =
                 layout.descriptor_set_descriptor_range_descriptor_count(set_index, range_index);
+            let range_offset =
+                layout.descriptor_set_descriptor_range_index_offset(set_index, range_index);
             println!(
-                "    range[{range_index}]: type={range_type:?} category={range_category:?} count={descriptor_count}"
+                "    range[{range_index}]: type={range_type:?} category={range_category:?} count={descriptor_count} range_offset={range_offset}"
             );
         }
-    }
-}
-
-fn dump_binding_ranges(layout: &slang::reflection::TypeLayout) {
-    let binding_range_count = layout.binding_range_count();
-    println!("binding_ranges: {binding_range_count}");
-    for range_index in 0..binding_range_count {
-        let range_type = layout.binding_range_type(range_index);
-        let binding_count = layout.binding_range_binding_count(range_index);
-        let set_index = layout.binding_range_descriptor_set_index(range_index);
-        let first_descriptor_range = layout.binding_range_first_descriptor_range_index(range_index);
-        let descriptor_range_count = layout.binding_range_descriptor_range_count(range_index);
-        println!(
-            "  range[{range_index}]: type={range_type:?} set={set_index} bindings={binding_count} descriptor_ranges={first_descriptor_range}+{descriptor_range_count}"
-        );
     }
 }
