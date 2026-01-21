@@ -12,7 +12,6 @@ use crevice::std140::AsStd140;
 use crevice::std430::AsStd430;
 use glam::{Mat4, Vec2, Vec3};
 use shader_slang as slang;
-use slang::Downcast;
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
@@ -1225,10 +1224,7 @@ impl Renderer {
             .find_entry_point_by_name("vertexMain")
             .context("missing vertexMain entry point")?;
         let vertex_program = session
-            .create_composite_component_type(&[
-                module.downcast().clone(),
-                vertex_entry.downcast().clone(),
-            ])
+            .create_composite_component_type(&[module.clone().into(), vertex_entry.clone().into()])
             .map_err(|err| anyhow!("failed to link vertex entry point: {:?}", err))?
             .link()
             .map_err(|err| anyhow!("failed to finalize vertex shader: {:?}", err))?;
@@ -1241,8 +1237,8 @@ impl Renderer {
             .context("missing fragmentMain entry point")?;
         let fragment_program = session
             .create_composite_component_type(&[
-                module.downcast().clone(),
-                fragment_entry.downcast().clone(),
+                module.clone().into(),
+                fragment_entry.clone().into(),
             ])
             .map_err(|err| anyhow!("failed to link fragment entry point: {:?}", err))?
             .link()
