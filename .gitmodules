@@ -1,0 +1,3 @@
+[submodule "vendor/slang-rs"]
+	path = vendor/slang-rs
+	url = https://github.com/natebuckareff/slang-rs
