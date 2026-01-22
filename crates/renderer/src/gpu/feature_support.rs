@@ -5,11 +5,13 @@ use vulkanalia::vk;
 pub enum GpuDeviceFeature {
     Vulkan12(GpuDeviceFeatureV12),
     Vulkan13(GpuDeviceFeatureV13),
+    Ext(GpuDeviceFeatureExt),
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum GpuDeviceFeatureV12 {
     BufferDeviceAddress,
+    DescriptorBindingPartiallyBound,
     DescriptorBindingVariableDescriptorCount,
     DescriptorIndexing,
     RuntimeDescriptorArray,
@@ -21,11 +23,17 @@ pub enum GpuDeviceFeatureV13 {
     Synchronization2,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum GpuDeviceFeatureExt {
+    MutableDescriptorType,
+}
+
 #[derive(Default)]
 pub(crate) struct DeviceFeatureArray {
     features: Vec<GpuDeviceFeature>,
     vulkan12: Option<Box<vk::PhysicalDeviceVulkan12Features>>,
     vulkan13: Option<Box<vk::PhysicalDeviceVulkan13Features>>,
+    mutable_descriptor_type: Option<Box<vk::PhysicalDeviceMutableDescriptorTypeFeaturesEXT>>,
     features2: Option<Box<vk::PhysicalDeviceFeatures2>>,
 }
 
@@ -35,6 +43,7 @@ impl From<Vec<GpuDeviceFeature>> for DeviceFeatureArray {
             features,
             vulkan12: None,
             vulkan13: None,
+            mutable_descriptor_type: None,
             features2: None,
         }
     }
@@ -85,6 +94,22 @@ impl DeviceFeatureArray {
         vulkan13
     }
 
+    fn get_mutable_descriptor_type(
+        features: &Vec<GpuDeviceFeature>,
+    ) -> vk::PhysicalDeviceMutableDescriptorTypeFeaturesEXT {
+        let mut mutable = vk::PhysicalDeviceMutableDescriptorTypeFeaturesEXT::default();
+        for feature in features.iter() {
+            use GpuDeviceFeature::*;
+            match feature {
+                Ext(feature) => {
+                    *set_ext_mutable_descriptor_type(&mut mutable, *feature) = vk::TRUE;
+                }
+                _ => {}
+            }
+        }
+        mutable
+    }
+
     pub(crate) fn get_features2(&mut self) -> &mut vk::PhysicalDeviceFeatures2 {
         if self.features2.is_none() {
             let features = &self.features;
@@ -97,9 +122,14 @@ impl DeviceFeatureArray {
                 .vulkan13
                 .get_or_insert_with(|| Box::new(Self::get_vulkan13(features)));
 
+            let mutable = self.mutable_descriptor_type.get_or_insert_with(|| {
+                Box::new(Self::get_mutable_descriptor_type(features))
+            });
+
             let features2 = vk::PhysicalDeviceFeatures2::builder()
                 .push_next(vulkan12.as_mut())
                 .push_next(vulkan13.as_mut())
+                .push_next(mutable.as_mut())
                 .build();
 
             self.features2 = Some(Box::new(features2));
@@ -129,10 +159,12 @@ impl FeatureSupport {
     ) -> Self {
         let mut vulkan12 = vk::PhysicalDeviceVulkan12Features::default();
         let mut vulkan13 = vk::PhysicalDeviceVulkan13Features::default();
+        let mut mutable = vk::PhysicalDeviceMutableDescriptorTypeFeaturesEXT::default();
 
         let mut features2 = vk::PhysicalDeviceFeatures2::builder()
             .push_next(&mut vulkan12)
             .push_next(&mut vulkan13)
+            .push_next(&mut mutable)
             .build();
 
         unsafe { instance.get_physical_device_features2(physical_device, &mut features2) };
@@ -147,6 +179,7 @@ impl FeatureSupport {
             let supported = match feature {
                 Vulkan12(feature) => *set_v12(&mut vulkan12, feature) == vk::TRUE,
                 Vulkan13(feature) => *set_v13(&mut vulkan13, feature) == vk::TRUE,
+                Ext(feature) => *set_ext_mutable_descriptor_type(&mut mutable, feature) == vk::TRUE,
             };
             if supported {
                 result.supported.push(feature);
@@ -166,6 +199,7 @@ fn set_v12(
     use GpuDeviceFeatureV12::*;
     match feature {
         BufferDeviceAddress => &mut vulkan12.buffer_device_address,
+        DescriptorBindingPartiallyBound => &mut vulkan12.descriptor_binding_partially_bound,
         DescriptorBindingVariableDescriptorCount => {
             &mut vulkan12.descriptor_binding_variable_descriptor_count
         }
@@ -182,5 +216,15 @@ fn set_v13(
     match feature {
         DynamicRendering => &mut vulkan13.dynamic_rendering,
         Synchronization2 => &mut vulkan13.synchronization2,
+    }
+}
+
+fn set_ext_mutable_descriptor_type(
+    mutable: &mut vk::PhysicalDeviceMutableDescriptorTypeFeaturesEXT,
+    feature: GpuDeviceFeatureExt,
+) -> &mut u32 {
+    use GpuDeviceFeatureExt::*;
+    match feature {
+        MutableDescriptorType => &mut mutable.mutable_descriptor_type,
     }
 }

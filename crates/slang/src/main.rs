@@ -193,7 +193,10 @@ fn bindless_space_index() -> Option<i32> {
 }
 
 fn env_flag(name: &str) -> bool {
-    matches!(std::env::var(name).as_deref(), Ok("1") | Ok("true") | Ok("TRUE"))
+    matches!(
+        std::env::var(name).as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE")
+    )
 }
 
 fn dump_spirv(
@@ -201,8 +204,7 @@ fn dump_spirv(
     reflection: &slang::reflection::Shader,
 ) -> Result<()> {
     let out_dir = std::env::var("SLANG_SPIRV_OUT_DIR").unwrap_or_else(|_| "target/slang".into());
-    std::fs::create_dir_all(&out_dir)
-        .with_context(|| format!("failed to create {out_dir}"))?;
+    std::fs::create_dir_all(&out_dir).with_context(|| format!("failed to create {out_dir}"))?;
 
     for index in 0..reflection.entry_point_count() {
         let name = reflection
@@ -227,9 +229,7 @@ fn dump_descriptor_sets(layout: &slang::reflection::TypeLayout, label: &str) {
     for set_index in 0..set_count {
         let range_count = layout.descriptor_set_descriptor_range_count(set_index);
         let space_offset = layout.descriptor_set_space_offset(set_index);
-        println!(
-            "  set[{set_index}]: space_offset={space_offset} descriptor_ranges={range_count}"
-        );
+        println!("  set[{set_index}]: space_offset={space_offset} descriptor_ranges={range_count}");
         for range_index in 0..range_count {
             let range_type = layout.descriptor_set_descriptor_range_type(set_index, range_index);
             let range_category =
@@ -282,21 +282,15 @@ fn dump_type_layout(layout: &slang::reflection::TypeLayout, indent: usize, recur
         let size = layout.size(category);
         let stride = layout.stride(category);
         let align = layout.alignment(category);
-        println!(
-            "{indent_str}  layout[{category:?}]: size={size} stride={stride} align={align}"
-        );
+        println!("{indent_str}  layout[{category:?}]: size={size} stride={stride} align={align}");
     }
     if layout.is_array() {
         let element_count = layout.element_count().unwrap_or(0);
         let total_count = layout.total_array_element_count();
-        println!(
-            "{indent_str}  array: element_count={element_count} total_elements={total_count}"
-        );
+        println!("{indent_str}  array: element_count={element_count} total_elements={total_count}");
         for category in layout.categories() {
             let element_stride = layout.element_stride(category);
-            println!(
-                "{indent_str}  array_layout[{category:?}]: element_stride={element_stride}"
-            );
+            println!("{indent_str}  array_layout[{category:?}]: element_stride={element_stride}");
         }
     }
     let field_count = layout.field_count();
@@ -337,9 +331,7 @@ fn dump_field_layout(
         .and_then(type_layout_name)
         .unwrap_or("<unnamed>".to_string());
     let kind = type_layout.map(|ty| ty.kind());
-    println!(
-        "{indent_str}field[{index}]: name={name} type={type_name} kind={kind:?}"
-    );
+    println!("{indent_str}field[{index}]: name={name} type={type_name} kind={kind:?}");
     if let Some(type_layout) = type_layout {
         for category in type_layout.categories() {
             let offset = layout.offset(category);

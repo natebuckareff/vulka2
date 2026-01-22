@@ -4,14 +4,18 @@ use std::time::Instant;
 
 use crate::gpu::DeviceAddress;
 use crate::gpu::{
-    GpuDevice, GpuDeviceFeatureV12, GpuDeviceFeatureV13, GpuDeviceRequestBuilder, GpuInstance,
-    GpuQueueProfile, GpuQueueRequest, GpuSurface, GpuSwapchain,
+    GpuDevice, GpuDeviceFeatureExt, GpuDeviceFeatureV12, GpuDeviceFeatureV13,
+    GpuDeviceRequestBuilder, GpuInstance, GpuQueueProfile, GpuQueueRequest, GpuSurface,
+    GpuSwapchain,
 };
 use anyhow::{Context, Result, anyhow};
 use crevice::std140::AsStd140;
 use crevice::std430::AsStd430;
-use glam::{Mat4, Vec2, Vec3};
-use shader_slang as slang;
+use glam::{Mat4, UVec2, Vec2, Vec3};
+use slang::{
+    DescriptorCount, LayoutUnit, SlangDescriptorSetLayout, SlangParameterLayout, SlangShader,
+    SlangShaderBuilder, SlangStageMask, SlangTypeLayout,
+};
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
@@ -42,7 +46,7 @@ struct PushConstants {
     mvp: Mat4,
     vertices: DeviceAddress,
     indices: DeviceAddress,
-    texture_index: u32,
+    texture: UVec2,
 }
 
 const MAX_TEXTURES: u32 = 1;
@@ -62,11 +66,17 @@ pub struct Renderer {
     image_available_semaphore: vk::Semaphore,
     render_finished_semaphores: Vec<vk::Semaphore>,
     in_flight_fence: vk::Fence,
+    slang_shader: Option<SlangShader>,
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
-    descriptor_set_layout: vk::DescriptorSetLayout,
+    descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     descriptor_pool: vk::DescriptorPool,
-    descriptor_set: vk::DescriptorSet,
+    descriptor_sets: Vec<vk::DescriptorSet>,
+    sampler_set_index: u32,
+    sampler_binding: u32,
+    bindless_set_index: u32,
+    bindless_binding: u32,
+    push_constant_stage_flags: vk::ShaderStageFlags,
     texture_image: vk::Image,
     texture_image_allocation: Option<vma::Allocation>,
     texture_image_view: vk::ImageView,
@@ -97,6 +107,8 @@ impl Renderer {
             vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
         const VK_KHR_SHADER_DRAW_PARAMETERS: vk::ExtensionName =
             vk::ExtensionName::from_bytes(b"VK_KHR_shader_draw_parameters");
+        const VK_EXT_MUTABLE_DESCRIPTOR_TYPE: vk::ExtensionName =
+            vk::ExtensionName::from_bytes(b"VK_EXT_mutable_descriptor_type");
 
         let gpu_instance = GpuInstance::build(&entry)
             .application_name("voxels2".to_string())?
@@ -113,6 +125,8 @@ impl Renderer {
             .minimum_api_version(vk::make_version(1, 3, 0))
             .required_extension(vk::KHR_SWAPCHAIN_EXTENSION.name)
             .required_extension(VK_KHR_SHADER_DRAW_PARAMETERS)
+            .required_extension(VK_EXT_MUTABLE_DESCRIPTOR_TYPE)
+            // TODO: derive required_* extensions/features from SlangLayout once it exists.
             .has_queue(
                 "main",
                 GpuQueueProfile {
@@ -124,6 +138,7 @@ impl Renderer {
                 },
             )
             .required_feature_vk12(GpuDeviceFeatureV12::BufferDeviceAddress)
+            .required_feature_ext(GpuDeviceFeatureExt::MutableDescriptorType)
             .required_feature_vk12(GpuDeviceFeatureV12::DescriptorBindingVariableDescriptorCount)
             .required_feature_vk12(GpuDeviceFeatureV12::DescriptorIndexing)
             .required_feature_vk12(GpuDeviceFeatureV12::RuntimeDescriptorArray)
@@ -205,11 +220,17 @@ impl Renderer {
             image_available_semaphore,
             render_finished_semaphores: Vec::new(),
             in_flight_fence,
+            slang_shader: None,
             pipeline_layout: vk::PipelineLayout::null(),
             pipeline: vk::Pipeline::null(),
-            descriptor_set_layout: vk::DescriptorSetLayout::null(),
+            descriptor_set_layouts: Vec::new(),
             descriptor_pool: vk::DescriptorPool::null(),
-            descriptor_set: vk::DescriptorSet::null(),
+            descriptor_sets: Vec::new(),
+            sampler_set_index: 0,
+            sampler_binding: 0,
+            bindless_set_index: 0,
+            bindless_binding: 0,
+            push_constant_stage_flags: vk::ShaderStageFlags::empty(),
             texture_image: vk::Image::null(),
             texture_image_allocation: None,
             texture_image_view: vk::ImageView::null(),
@@ -338,7 +359,8 @@ impl Renderer {
     }
 
     fn create_static_resources(&mut self) -> Result<()> {
-        self.create_descriptor_set_layout()?;
+        self.create_slang_shader()?;
+        self.create_descriptor_set_layouts()?;
         self.create_pipeline_layout()?;
         self.create_texture_resources()?;
         self.create_descriptor_pool_and_set()?;
@@ -546,7 +568,7 @@ impl Renderer {
             mvp,
             vertices: DeviceAddress(self.vertex_buffer_address),
             indices: DeviceAddress(self.index_buffer_address),
-            texture_index: 0,
+            texture: UVec2::new(0, 0),
         };
         let push_constants_std140 = push_constants.as_std140();
         let push_constants_bytes = bytemuck::bytes_of(&push_constants_std140);
@@ -591,16 +613,18 @@ impl Renderer {
                 vk::PipelineBindPoint::GRAPHICS,
                 self.pipeline_layout,
                 0,
-                std::slice::from_ref(&self.descriptor_set),
+                &self.descriptor_sets,
                 &[],
             );
-            self.gpu_device.get_vk_device().cmd_push_constants(
-                command_buffer,
-                self.pipeline_layout,
-                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                0,
-                push_constants_bytes,
-            );
+            if !self.push_constant_stage_flags.is_empty() {
+                self.gpu_device.get_vk_device().cmd_push_constants(
+                    command_buffer,
+                    self.pipeline_layout,
+                    self.push_constant_stage_flags,
+                    0,
+                    push_constants_bytes,
+                );
+            }
             self.gpu_device
                 .get_vk_device()
                 .cmd_draw(command_buffer, 36, 1, 0, 0);
@@ -687,51 +711,141 @@ impl Renderer {
         Ok(semaphores)
     }
 
-    fn create_descriptor_set_layout(&mut self) -> Result<()> {
-        let bindings = [
-            vk::DescriptorSetLayoutBinding::builder()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::SAMPLER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-                .build(),
-            vk::DescriptorSetLayoutBinding::builder()
-                .binding(1)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .descriptor_count(MAX_TEXTURES)
-                .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-                .build(),
-        ];
+    fn create_slang_shader(&mut self) -> Result<()> {
+        let shader_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("shaders");
+        let shader = SlangShaderBuilder::new("cube.slang")
+            .search_path(shader_dir)
+            .bindless_space_index(1)
+            .build()?;
+        self.slang_shader = Some(shader);
+        Ok(())
+    }
 
-        let binding_flags = [
-            vk::DescriptorBindingFlags::empty(),
-            vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT,
-        ];
-        let mut binding_flags_info =
-            vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder().binding_flags(&binding_flags);
+    fn create_descriptor_set_layouts(&mut self) -> Result<()> {
+        let shader = self
+            .slang_shader
+            .as_ref()
+            .context("missing Slang shader")?;
+        let layout = shader.layout();
 
-        let layout_info = vk::DescriptorSetLayoutCreateInfo::builder()
-            .bindings(&bindings)
-            .push_next(&mut binding_flags_info);
+        if !self.descriptor_set_layouts.is_empty() {
+            for handle in self.descriptor_set_layouts.drain(..) {
+                unsafe {
+                    self.gpu_device
+                        .get_vk_device()
+                        .destroy_descriptor_set_layout(handle, None);
+                }
+            }
+        }
 
-        let layout = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .create_descriptor_set_layout(&layout_info, None)
-                .context("failed to create descriptor set layout")?
-        };
-        self.descriptor_set_layout = layout;
+        let mut set_layouts = layout.descriptor_sets.clone();
+        if let Some(bindless) = layout.bindless_heap.as_ref() {
+            set_layouts.push(SlangDescriptorSetLayout {
+                set: bindless.set,
+                bindings: bindless.bindings.clone(),
+            });
+        }
+        set_layouts.sort_by_key(|layout| layout.set);
+
+        let max_set = set_layouts.last().map(|layout| layout.set).unwrap_or(0);
+        if max_set as usize + 1 != set_layouts.len() {
+            return Err(anyhow!(
+                "descriptor set indices must be contiguous starting at 0"
+            ));
+        }
+
+        let mut sampler_binding = None;
+        for set_layout in &set_layouts {
+            for binding in &set_layout.bindings {
+                if binding.binding_type == slang::BindingType::Sampler {
+                    sampler_binding = Some((set_layout.set, binding.binding));
+                }
+            }
+        }
+        let (sampler_set_index, sampler_binding) =
+            sampler_binding.context("missing sampler binding in Slang layout")?;
+
+        let bindless = layout
+            .bindless_heap
+            .as_ref()
+            .context("missing bindless heap in Slang layout")?;
+        let bindless_binding = bindless
+            .bindings
+            .iter()
+            .find(|binding| binding.binding_type == slang::BindingType::Texture)
+            .map(|binding| binding.binding)
+            .context("missing bindless sampled image binding")?;
+
+        let mut descriptor_set_layouts = Vec::with_capacity(set_layouts.len());
+        for set_layout in &set_layouts {
+            let mut bindings = Vec::with_capacity(set_layout.bindings.len());
+            let mut binding_flags = Vec::with_capacity(set_layout.bindings.len());
+            for binding in &set_layout.bindings {
+                let descriptor_type = Self::slang_binding_type_to_vk(binding.binding_type)?;
+                let descriptor_count = Self::resolve_descriptor_count(binding.descriptor_count)?;
+                bindings.push(
+                    vk::DescriptorSetLayoutBinding::builder()
+                        .binding(binding.binding)
+                        .descriptor_type(descriptor_type)
+                        .descriptor_count(descriptor_count)
+                        .stage_flags(Self::slang_stage_mask_to_vk(binding.stage))
+                        .build(),
+                );
+                if matches!(binding.descriptor_count, DescriptorCount::Unbounded) {
+                    binding_flags.push(vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT);
+                } else {
+                    binding_flags.push(vk::DescriptorBindingFlags::empty());
+                }
+            }
+
+            let mut binding_flags_info =
+                vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder()
+                    .binding_flags(&binding_flags);
+            let layout_info = vk::DescriptorSetLayoutCreateInfo::builder()
+                .bindings(&bindings)
+                .push_next(&mut binding_flags_info);
+
+            let layout_handle = unsafe {
+                self.gpu_device
+                    .get_vk_device()
+                    .create_descriptor_set_layout(&layout_info, None)
+                    .context("failed to create descriptor set layout")?
+            };
+            descriptor_set_layouts.push(layout_handle);
+        }
+
+        self.descriptor_set_layouts = descriptor_set_layouts;
+        self.sampler_set_index = sampler_set_index;
+        self.sampler_binding = sampler_binding;
+        self.bindless_set_index = bindless.set;
+        self.bindless_binding = bindless_binding;
         Ok(())
     }
 
     fn create_pipeline_layout(&mut self) -> Result<()> {
-        let push_constant_range = vk::PushConstantRange::builder()
-            .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT)
-            .offset(0)
-            .size(std::mem::size_of::<PushConstants>() as u32);
+        let shader = self
+            .slang_shader
+            .as_ref()
+            .context("missing Slang shader")?;
+        let layout = shader.layout();
+
+        let mut push_constant_stage_flags = vk::ShaderStageFlags::empty();
+        let push_constant_ranges: Vec<_> = layout
+            .push_constant_params()
+            .map(|param| {
+                let stage_flags = Self::slang_stage_mask_to_vk(param.stage);
+                push_constant_stage_flags |= stage_flags;
+                let size = Self::push_constant_byte_size(param)?;
+                Ok(vk::PushConstantRange::builder()
+                    .stage_flags(stage_flags)
+                    .offset(0)
+                    .size(size)
+                    .build())
+            })
+            .collect::<Result<Vec<_>>>()?;
         let layout_info = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(std::slice::from_ref(&self.descriptor_set_layout))
-            .push_constant_ranges(std::slice::from_ref(&push_constant_range));
+            .set_layouts(&self.descriptor_set_layouts)
+            .push_constant_ranges(&push_constant_ranges);
         let layout = unsafe {
             self.gpu_device
                 .get_vk_device()
@@ -739,22 +853,43 @@ impl Renderer {
                 .context("failed to create pipeline layout")?
         };
         self.pipeline_layout = layout;
+        self.push_constant_stage_flags = push_constant_stage_flags;
         Ok(())
     }
 
     fn create_descriptor_pool_and_set(&mut self) -> Result<()> {
-        let pool_sizes = [
-            vk::DescriptorPoolSize {
-                type_: vk::DescriptorType::SAMPLED_IMAGE,
-                descriptor_count: MAX_TEXTURES,
-            },
-            vk::DescriptorPoolSize {
-                type_: vk::DescriptorType::SAMPLER,
-                descriptor_count: 1,
-            },
-        ];
+        let shader = self
+            .slang_shader
+            .as_ref()
+            .context("missing Slang shader")?;
+        let layout = shader.layout();
+        let mut set_layouts = layout.descriptor_sets.clone();
+        if let Some(bindless) = layout.bindless_heap.as_ref() {
+            set_layouts.push(SlangDescriptorSetLayout {
+                set: bindless.set,
+                bindings: bindless.bindings.clone(),
+            });
+        }
+        set_layouts.sort_by_key(|layout| layout.set);
+
+        let mut pool_counts: std::collections::HashMap<vk::DescriptorType, u32> =
+            std::collections::HashMap::new();
+        for set_layout in &set_layouts {
+            for binding in &set_layout.bindings {
+                let descriptor_type = Self::slang_binding_type_to_vk(binding.binding_type)?;
+                let descriptor_count = Self::resolve_descriptor_count(binding.descriptor_count)?;
+                *pool_counts.entry(descriptor_type).or_insert(0) += descriptor_count;
+            }
+        }
+        let pool_sizes: Vec<_> = pool_counts
+            .iter()
+            .map(|(descriptor_type, count)| vk::DescriptorPoolSize {
+                type_: *descriptor_type,
+                descriptor_count: *count,
+            })
+            .collect();
         let pool_info = vk::DescriptorPoolCreateInfo::builder()
-            .max_sets(1)
+            .max_sets(set_layouts.len() as u32)
             .pool_sizes(&pool_sizes);
         let pool = unsafe {
             self.gpu_device
@@ -764,21 +899,40 @@ impl Renderer {
         };
         self.descriptor_pool = pool;
 
-        let descriptor_counts = [1u32];
+        let mut descriptor_counts = Vec::with_capacity(set_layouts.len());
+        let mut uses_variable_counts = false;
+        for set_layout in &set_layouts {
+            let variable_count = set_layout
+                .bindings
+                .iter()
+                .find(|binding| matches!(binding.descriptor_count, DescriptorCount::Unbounded))
+                .map(|binding| Self::resolve_descriptor_count(binding.descriptor_count))
+                .transpose()?
+                .unwrap_or(0);
+            if variable_count != 0 {
+                uses_variable_counts = true;
+            }
+            descriptor_counts.push(variable_count);
+        }
+
         let mut variable_count_info =
             vk::DescriptorSetVariableDescriptorCountAllocateInfo::builder()
                 .descriptor_counts(&descriptor_counts);
         let alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.descriptor_pool)
-            .set_layouts(std::slice::from_ref(&self.descriptor_set_layout))
-            .push_next(&mut variable_count_info);
+            .set_layouts(&self.descriptor_set_layouts);
+        let alloc_info = if uses_variable_counts {
+            alloc_info.push_next(&mut variable_count_info)
+        } else {
+            alloc_info
+        };
         let sets = unsafe {
             self.gpu_device
                 .get_vk_device()
                 .allocate_descriptor_sets(&alloc_info)
                 .context("failed to allocate descriptor sets")?
         };
-        self.descriptor_set = sets[0];
+        self.descriptor_sets = sets.to_vec();
 
         let sampler_info = vk::DescriptorImageInfo::builder()
             .sampler(self.texture_sampler)
@@ -787,16 +941,24 @@ impl Renderer {
             .image_view(self.texture_image_view)
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .build();
+        let sampler_set = *self
+            .descriptor_sets
+            .get(self.sampler_set_index as usize)
+            .context("missing sampler descriptor set")?;
+        let bindless_set = *self
+            .descriptor_sets
+            .get(self.bindless_set_index as usize)
+            .context("missing bindless descriptor set")?;
         let writes = [
             vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_set)
-                .dst_binding(0)
+                .dst_set(sampler_set)
+                .dst_binding(self.sampler_binding)
                 .descriptor_type(vk::DescriptorType::SAMPLER)
                 .image_info(std::slice::from_ref(&sampler_info))
                 .build(),
             vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_set)
-                .dst_binding(1)
+                .dst_set(bindless_set)
+                .dst_binding(self.bindless_binding)
                 .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
                 .image_info(std::slice::from_ref(&image_info))
                 .build(),
@@ -1087,12 +1249,21 @@ impl Renderer {
             .format()
             .context("missing swapchain format")?;
 
-        let (vertex_code, fragment_code) = self.compile_slang_shaders()?;
+        let shader = self
+            .slang_shader
+            .as_ref()
+            .context("missing Slang shader")?;
+        let vertex_entry = shader
+            .entry_point_by_name("vertexMain")
+            .context("missing vertexMain entry point")?;
+        let fragment_entry = shader
+            .entry_point_by_name("fragmentMain")
+            .context("missing fragmentMain entry point")?;
 
-        let vertex_module = self.create_shader_module(&vertex_code)?;
-        let fragment_module = self.create_shader_module(&fragment_code)?;
-        let vertex_name = std::ffi::CString::new("vertexMain").unwrap();
-        let fragment_name = std::ffi::CString::new("fragmentMain").unwrap();
+        let vertex_module = self.create_shader_module(&vertex_entry.spirv)?;
+        let fragment_module = self.create_shader_module(&fragment_entry.spirv)?;
+        let vertex_name = std::ffi::CString::new(vertex_entry.name.as_str()).unwrap();
+        let fragment_name = std::ffi::CString::new(fragment_entry.name.as_str()).unwrap();
         let stages = [
             vk::PipelineShaderStageCreateInfo::builder()
                 .stage(vk::ShaderStageFlags::VERTEX)
@@ -1178,104 +1349,119 @@ impl Renderer {
         Ok(())
     }
 
-    fn compile_slang_shaders(&self) -> Result<(Vec<u32>, Vec<u32>)> {
-        let global_session =
-            slang::GlobalSession::new().context("failed to create Slang session")?;
-        let search_path = std::ffi::CString::new("shaders").unwrap();
-        let physical_storage = global_session.find_capability("SPV_EXT_physical_storage_buffer");
-        if physical_storage.is_unknown() {
-            return Err(anyhow!(
-                "Slang capability SPV_EXT_physical_storage_buffer is unavailable"
-            ));
-        }
-        let descriptor_indexing = global_session.find_capability("SPV_EXT_descriptor_indexing");
-        if descriptor_indexing.is_unknown() {
-            return Err(anyhow!(
-                "Slang capability SPV_EXT_descriptor_indexing is unavailable"
-            ));
-        }
-        let compiler_options = slang::CompilerOptions::default()
-            .optimization(slang::OptimizationLevel::High)
-            .matrix_layout_row(true)
-            .vulkan_use_entry_point_name(true)
-            .capability(physical_storage)
-            .capability(descriptor_indexing);
-        let profile = global_session.find_profile("glsl_450");
-        if profile.is_unknown() {
-            return Err(anyhow!("Slang profile glsl_450 is unavailable"));
-        }
-        let target_desc = slang::TargetDesc::default()
-            .format(slang::CompileTarget::Spirv)
-            .profile(profile)
-            .options(&compiler_options);
-        let targets = [target_desc];
-        let search_paths = [search_path.as_ptr()];
-        let session_desc = slang::SessionDesc::default()
-            .targets(&targets)
-            .search_paths(&search_paths);
-        let session = global_session
-            .create_session(&session_desc)
-            .context("failed to create Slang session")?;
-        let module = session
-            .load_module("cube.slang")
-            .map_err(|err| anyhow!("failed to load cube.slang: {:?}", err))?;
-
-        let vertex_entry = module
-            .find_entry_point_by_name("vertexMain")
-            .context("missing vertexMain entry point")?;
-        let vertex_program = session
-            .create_composite_component_type(&[module.clone().into(), vertex_entry.clone().into()])
-            .map_err(|err| anyhow!("failed to link vertex entry point: {:?}", err))?
-            .link()
-            .map_err(|err| anyhow!("failed to finalize vertex shader: {:?}", err))?;
-        let vertex_blob = vertex_program
-            .entry_point_code(0, 0)
-            .map_err(|err| anyhow!("failed to get vertex shader code: {:?}", err))?;
-
-        let fragment_entry = module
-            .find_entry_point_by_name("fragmentMain")
-            .context("missing fragmentMain entry point")?;
-        let fragment_program = session
-            .create_composite_component_type(&[
-                module.clone().into(),
-                fragment_entry.clone().into(),
-            ])
-            .map_err(|err| anyhow!("failed to link fragment entry point: {:?}", err))?
-            .link()
-            .map_err(|err| anyhow!("failed to finalize fragment shader: {:?}", err))?;
-        let fragment_blob = fragment_program
-            .entry_point_code(0, 0)
-            .map_err(|err| anyhow!("failed to get fragment shader code: {:?}", err))?;
-
-        Ok((
-            Self::blob_to_words(&vertex_blob)?,
-            Self::blob_to_words(&fragment_blob)?,
-        ))
+    fn resolve_descriptor_count(count: DescriptorCount) -> Result<u32> {
+        Ok(match count {
+            DescriptorCount::Exact(value) => value,
+            DescriptorCount::Unbounded => {
+                // TODO: make this configurable from the renderer or material system.
+                MAX_TEXTURES
+            }
+        })
     }
 
-    fn blob_to_words(blob: &slang::Blob) -> Result<Vec<u32>> {
-        let bytes = blob.as_slice();
-        if bytes.len() % 4 != 0 {
-            return Err(anyhow!("shader bytecode size is not 4-byte aligned"));
-        }
-        if bytes.len() < 4 {
-            return Err(anyhow!("shader bytecode is empty"));
-        }
-        let mut words = Vec::with_capacity(bytes.len() / 4);
-        for chunk in bytes.chunks_exact(4) {
-            let word = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            words.push(word);
-        }
-        if words.first().copied() != Some(0x07230203) {
-            if let Ok(text) = std::str::from_utf8(bytes) {
-                return Err(anyhow!(
-                    "shader bytecode is not SPIR-V; first bytes: {:?}",
-                    &text[..text.len().min(64)]
-                ));
+    fn slang_binding_type_to_vk(binding_type: slang::BindingType) -> Result<vk::DescriptorType> {
+        let raw = binding_type as u32;
+        let base_mask = slang::BindingType::BaseMask as u32;
+        let base = raw & base_mask;
+        let base_type = if base != 0 { base } else { raw };
+
+        let descriptor_type = match base_type {
+            x if x == slang::BindingType::Sampler as u32 => vk::DescriptorType::SAMPLER,
+            x if x == slang::BindingType::Texture as u32 => vk::DescriptorType::SAMPLED_IMAGE,
+            x if x == slang::BindingType::CombinedTextureSampler as u32 => {
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER
             }
-            return Err(anyhow!("shader bytecode is not SPIR-V"));
+            x if x == slang::BindingType::ConstantBuffer as u32 => vk::DescriptorType::UNIFORM_BUFFER,
+            x if x == slang::BindingType::TypedBuffer as u32 => {
+                vk::DescriptorType::UNIFORM_TEXEL_BUFFER
+            }
+            x if x == slang::BindingType::RawBuffer as u32 => vk::DescriptorType::STORAGE_BUFFER,
+            x if x == slang::BindingType::InputRenderTarget as u32 => {
+                vk::DescriptorType::INPUT_ATTACHMENT
+            }
+            x if x == slang::BindingType::InlineUniformData as u32 => {
+                vk::DescriptorType::INLINE_UNIFORM_BLOCK
+            }
+            x if x == slang::BindingType::RayTracingAccelerationStructure as u32 => {
+                vk::DescriptorType::ACCELERATION_STRUCTURE_KHR
+            }
+            x if x == slang::BindingType::PushConstant as u32 => {
+                return Err(anyhow!("push constant bindings are not descriptors"));
+            }
+            _ => {
+                return Err(anyhow!("unsupported Slang binding type {binding_type:?}"));
+            }
+        };
+
+        Ok(descriptor_type)
+    }
+
+    fn slang_stage_mask_to_vk(stage: SlangStageMask) -> vk::ShaderStageFlags {
+        let mut flags = vk::ShaderStageFlags::empty();
+        for slang_stage in [
+            slang::Stage::Vertex,
+            slang::Stage::Fragment,
+            slang::Stage::Compute,
+            slang::Stage::Geometry,
+            slang::Stage::Hull,
+            slang::Stage::Domain,
+            slang::Stage::RayGeneration,
+            slang::Stage::Intersection,
+            slang::Stage::AnyHit,
+            slang::Stage::ClosestHit,
+            slang::Stage::Miss,
+            slang::Stage::Callable,
+            slang::Stage::Mesh,
+            slang::Stage::Amplification,
+            slang::Stage::Dispatch,
+        ] {
+            let bit = 1u32 << (slang_stage as u32);
+            if stage.bits() & bit == 0 {
+                continue;
+            }
+            flags |= match slang_stage {
+                slang::Stage::Vertex => vk::ShaderStageFlags::VERTEX,
+                slang::Stage::Fragment => vk::ShaderStageFlags::FRAGMENT,
+                slang::Stage::Compute => vk::ShaderStageFlags::COMPUTE,
+                slang::Stage::Geometry => vk::ShaderStageFlags::GEOMETRY,
+                slang::Stage::Hull => vk::ShaderStageFlags::TESSELLATION_CONTROL,
+                slang::Stage::Domain => vk::ShaderStageFlags::TESSELLATION_EVALUATION,
+                slang::Stage::RayGeneration => vk::ShaderStageFlags::RAYGEN_KHR,
+                slang::Stage::Intersection => vk::ShaderStageFlags::INTERSECTION_KHR,
+                slang::Stage::AnyHit => vk::ShaderStageFlags::ANY_HIT_KHR,
+                slang::Stage::ClosestHit => vk::ShaderStageFlags::CLOSEST_HIT_KHR,
+                slang::Stage::Miss => vk::ShaderStageFlags::MISS_KHR,
+                slang::Stage::Callable => vk::ShaderStageFlags::CALLABLE_KHR,
+                slang::Stage::Mesh => vk::ShaderStageFlags::MESH_EXT,
+                slang::Stage::Amplification => vk::ShaderStageFlags::TASK_EXT,
+                slang::Stage::Dispatch => vk::ShaderStageFlags::COMPUTE,
+                slang::Stage::None => vk::ShaderStageFlags::empty(),
+                _ => vk::ShaderStageFlags::empty(),
+            };
         }
-        Ok(words.to_vec())
+        flags
+    }
+
+    fn push_constant_byte_size(param: &SlangParameterLayout) -> Result<u32> {
+        let type_layout = if param.type_layout.kind == slang::TypeKind::ConstantBuffer {
+            param
+                .type_layout
+                .element_type
+                .as_deref()
+                .unwrap_or(&param.type_layout)
+        } else {
+            &param.type_layout
+        };
+        let size = Self::uniform_size_from_layout(type_layout)
+            .context("missing uniform size for push constant")?;
+        Ok(size)
+    }
+
+    fn uniform_size_from_layout(layout: &SlangTypeLayout) -> Option<u32> {
+        layout.layouts.iter().find_map(|metric| match metric.size.as_ref() {
+            Some(LayoutUnit::Uniform(value)) => Some(*value),
+            _ => None,
+        })
     }
 
     fn create_shader_module(&self, code: &[u32]) -> Result<vk::ShaderModule> {
@@ -1467,12 +1653,12 @@ impl Drop for Renderer {
                     .destroy_descriptor_pool(self.descriptor_pool, None);
                 self.descriptor_pool = vk::DescriptorPool::null();
             }
+            self.descriptor_sets.clear();
 
-            if self.descriptor_set_layout != vk::DescriptorSetLayout::null() {
+            for layout in self.descriptor_set_layouts.drain(..) {
                 self.gpu_device
                     .get_vk_device()
-                    .destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-                self.descriptor_set_layout = vk::DescriptorSetLayout::null();
+                    .destroy_descriptor_set_layout(layout, None);
             }
 
             if self.pipeline_layout != vk::PipelineLayout::null() {

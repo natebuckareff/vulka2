@@ -11,5 +11,6 @@ struct PushConstants
     float4x4 mvp;
     Vertex *vertices;
     uint *indices;
-    uint texture_index;
+    // uint texture_index;
+    Texture2D.Handle texture;
 }

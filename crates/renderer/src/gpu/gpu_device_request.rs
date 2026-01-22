@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use vulkanalia::vk;
 
-use crate::gpu::{GpuDeviceFeature, GpuDeviceFeatureV12, GpuDeviceFeatureV13};
+use crate::gpu::{GpuDeviceFeature, GpuDeviceFeatureExt, GpuDeviceFeatureV12, GpuDeviceFeatureV13};
 
 pub enum GpuDeviceRequest {
     MinimumApiVersion(u32),
@@ -73,6 +73,10 @@ impl GpuDeviceRequestBuilder {
 
     pub fn required_feature_vk13(self, feature: GpuDeviceFeatureV13) -> Self {
         self.required_feature(GpuDeviceFeature::Vulkan13(feature))
+    }
+
+    pub fn required_feature_ext(self, feature: GpuDeviceFeatureExt) -> Self {
+        self.required_feature(GpuDeviceFeature::Ext(feature))
     }
 
     pub fn optional_feature(mut self, feature: GpuDeviceFeature) -> Self {

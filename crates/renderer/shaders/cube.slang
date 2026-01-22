@@ -30,5 +30,7 @@ VSOutput vertexMain(uint vertexId: SV_VertexID)
 [shader("fragment")]
 float4 fragmentMain(VSOutput input) : SV_Target0
 {
-    return textures[pushConstants.texture_index].Sample(textureSampler, input.uv);
+    Texture2D tex = pushConstants.texture;
+    return tex.Sample(textureSampler, input.uv);
+    // return textures[pushConstants.texture_index].Sample(textureSampler, input.uv);
 }
