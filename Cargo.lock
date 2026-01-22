@@ -1310,7 +1310,7 @@ dependencies = [
  "crevice",
  "glam",
  "image",
- "shader-slang",
+ "slang",
  "slang_struct",
  "vulkanalia",
  "vulkanalia-vma",
@@ -1450,6 +1450,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "shader-slang",
+ "vulkanalia",
 ]
 
 [[package]]

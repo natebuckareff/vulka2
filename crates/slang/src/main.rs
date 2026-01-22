@@ -109,6 +109,10 @@ fn main() -> Result<()> {
             param.stage()
         );
     }
+    println!("parameter_layouts: {}", reflection.parameter_count());
+    for (index, param) in reflection.parameters().enumerate() {
+        dump_variable_layout(param, &format!("param[{index}]"), 2);
+    }
 
     println!(
         "global_constant_buffer: binding={} size={}",
@@ -116,18 +120,25 @@ fn main() -> Result<()> {
         reflection.global_constant_buffer_size()
     );
 
-    if let Some(global_layout) = reflection.global_params_type_layout() {
-        dump_descriptor_sets(global_layout, "global");
+    if let Some(global_layout) = reflection.global_params_var_layout() {
+        println!("global_params_layout:");
+        dump_variable_layout(global_layout, "global", 2);
+        if let Some(type_layout) = global_layout.type_layout() {
+            dump_descriptor_sets(type_layout, "global");
+        }
     }
 
     for (index, entry) in reflection.entry_points().enumerate() {
         let name = entry.name().unwrap_or("<unnamed>");
         let stage = entry.stage();
-        let Some(entry_layout) = entry.type_layout() else {
+        let Some(entry_layout) = entry.var_layout() else {
             continue;
         };
         println!("entry_layout[{index}]: name={name} stage={stage:?}");
-        dump_descriptor_sets(entry_layout, "entry");
+        dump_variable_layout(entry_layout, "entry", 2);
+        if let Some(type_layout) = entry_layout.type_layout() {
+            dump_descriptor_sets(type_layout, "entry");
+        }
     }
 
     Ok(())
@@ -232,4 +243,157 @@ fn dump_descriptor_sets(layout: &slang::reflection::TypeLayout, label: &str) {
             );
         }
     }
+}
+
+fn dump_variable_layout(layout: &slang::reflection::VariableLayout, label: &str, indent: usize) {
+    let indent = " ".repeat(indent);
+    let name = layout.name().unwrap_or("<unnamed>");
+    let type_layout = layout.type_layout();
+    let type_name = type_layout
+        .and_then(type_layout_name)
+        .unwrap_or("<unnamed>".to_string());
+    let kind = type_layout.map(|ty| ty.kind());
+    println!(
+        "{indent}{label}: name={name} type={type_name} kind={kind:?} category={:?} binding={}:{} stage={:?}",
+        layout.category(),
+        layout.binding_space(),
+        layout.binding_index(),
+        layout.stage()
+    );
+    if let Some(type_layout) = type_layout {
+        for category in type_layout.categories() {
+            let offset = layout.offset(category);
+            println!("{indent}  layout[{category:?}]: offset={offset}");
+        }
+        dump_type_layout(type_layout, indent.len() + 2, true);
+    }
+}
+
+fn dump_type_layout(layout: &slang::reflection::TypeLayout, indent: usize, recurse: bool) {
+    let indent_str = " ".repeat(indent);
+    let name = type_layout_name(layout).unwrap_or("<unnamed>".to_string());
+    let kind = layout.kind();
+    println!(
+        "{indent_str}type_layout: name={name} kind={:?} parameter_category={:?}",
+        kind,
+        layout.parameter_category()
+    );
+    for category in layout.categories() {
+        let size = layout.size(category);
+        let stride = layout.stride(category);
+        let align = layout.alignment(category);
+        println!(
+            "{indent_str}  layout[{category:?}]: size={size} stride={stride} align={align}"
+        );
+    }
+    if layout.is_array() {
+        let element_count = layout.element_count().unwrap_or(0);
+        let total_count = layout.total_array_element_count();
+        println!(
+            "{indent_str}  array: element_count={element_count} total_elements={total_count}"
+        );
+        for category in layout.categories() {
+            let element_stride = layout.element_stride(category);
+            println!(
+                "{indent_str}  array_layout[{category:?}]: element_stride={element_stride}"
+            );
+        }
+    }
+    let field_count = layout.field_count();
+    if field_count > 0 {
+        println!("{indent_str}  fields: {field_count}");
+        for (field_index, field) in layout.fields().enumerate() {
+            dump_field_layout(field, field_index, indent + 4, recurse);
+        }
+    }
+    if recurse {
+        if layout.is_array() {
+            if let Some(element_layout) = layout.element_type_layout() {
+                dump_type_layout(element_layout, indent + 2, recurse);
+            }
+        }
+        if matches!(
+            kind,
+            slang::TypeKind::ConstantBuffer
+                | slang::TypeKind::ParameterBlock
+                | slang::TypeKind::TextureBuffer
+                | slang::TypeKind::ShaderStorageBuffer
+        ) {
+            dump_container_and_element(layout, indent + 2, recurse);
+        }
+    }
+}
+
+fn dump_field_layout(
+    layout: &slang::reflection::VariableLayout,
+    index: usize,
+    indent: usize,
+    recurse: bool,
+) {
+    let indent_str = " ".repeat(indent);
+    let name = layout.name().unwrap_or("<unnamed>");
+    let type_layout = layout.type_layout();
+    let type_name = type_layout
+        .and_then(type_layout_name)
+        .unwrap_or("<unnamed>".to_string());
+    let kind = type_layout.map(|ty| ty.kind());
+    println!(
+        "{indent_str}field[{index}]: name={name} type={type_name} kind={kind:?}"
+    );
+    if let Some(type_layout) = type_layout {
+        for category in type_layout.categories() {
+            let offset = layout.offset(category);
+            let size = type_layout.size(category);
+            let stride = type_layout.stride(category);
+            let align = type_layout.alignment(category);
+            println!(
+                "{indent_str}  layout[{category:?}]: offset={offset} size={size} stride={stride} align={align}"
+            );
+        }
+        if recurse && (type_layout.field_count() > 0 || type_layout.is_array()) {
+            dump_type_layout(type_layout, indent + 2, recurse);
+        }
+    }
+}
+
+fn dump_container_and_element(
+    layout: &slang::reflection::TypeLayout,
+    indent: usize,
+    recurse: bool,
+) {
+    let indent_str = " ".repeat(indent);
+    if let Some(container) = layout.container_var_layout() {
+        println!("{indent_str}container_offsets:");
+        dump_offsets(container, indent + 2);
+    }
+    if let Some(element) = layout.element_var_layout() {
+        println!("{indent_str}element_offsets:");
+        dump_offsets(element, indent + 2);
+        if let Some(element_layout) = element.type_layout() {
+            dump_type_layout(element_layout, indent + 2, recurse);
+        }
+    }
+}
+
+fn dump_offsets(layout: &slang::reflection::VariableLayout, indent: usize) {
+    let indent_str = " ".repeat(indent);
+    let mut printed = false;
+    for category in layout.categories() {
+        let offset = layout.offset(category);
+        println!("{indent_str}offset[{category:?}]: {offset}");
+        printed = true;
+    }
+    if !printed {
+        println!("{indent_str}offsets: <none>");
+    }
+}
+
+fn type_layout_name(layout: &slang::reflection::TypeLayout) -> Option<String> {
+    let ty = layout.ty()?;
+    if let Ok(full) = ty.full_name() {
+        if let Ok(name) = full.as_str() {
+            return Some(name.to_string());
+        }
+    }
+    ty.name().map(|name| name.to_string())
 }
