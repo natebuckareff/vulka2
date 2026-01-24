@@ -98,9 +98,17 @@ struct SlangEntrypoint {
     name: CompactString, // own the name for simplicity
 
     fn module_id(&self) -> ModuleId;
-    fn stage(&self) -> ShaderStage;
+    fn stage(&self) -> SlangShaderStage;
     fn name(&self) -> &str
 }
+
+enum SlangShaderStage {
+    Vertex,
+    Fragment,
+    Compute,
+}
+
+impl Into<vk::ShaderStageFlags> for SlangShaderStage { ... }
 
 // can assume there is only ever one target so always layout(0)
 // implies always entry_point_code(e, 0) for some entrypoint
@@ -210,4 +218,205 @@ fn example() {
 
 ## shader layout
 
-TODO
+NOTES:
+- [need to surface the _actual_ vk descriptor index](https://github.com/shader-slang/slang/issues/7598)
+
+```rust
+trait ByteLike {
+    fn size_bytes(&self) -> u32;
+}
+
+trait ArrayLike {
+    fn stride_bytes(&self) -> u32;
+}
+
+struct SlangLayout {
+    pub bindless_heap: Option<BindlessHeapLayout>,
+    pub push_constants: Option<PushConstantLayout>,
+    pub descriptor_sets: Vec<DescriptorSetLayout>,
+    pub entrypoints: Vec<EntrypointLayout>,
+}
+
+struct BindlessHeapLayout {
+    pub set: u32,
+    pub policy: BindlessPolicy, // VkMutable vs None ???
+    pub bindings: Vec<DescriptorBindingLayout>,
+}
+
+// impl ByteLike
+struct PushConstantLayout {
+    pub stages: vk::ShaderStageFlags,
+    pub size_bytes: u32,
+    pub ty: SlangStruct,
+}
+
+struct DescriptorSetLayout {
+    pub set: u32,
+    pub bindings: Vec<DescriptorBindingLayout>,
+}
+
+struct DescriptorBindingLayout {
+    pub binding: u32,
+    pub name: CompactString,
+    pub flags: vk::DescriptorBindingFlags,
+    pub stages: vk::ShaderStageFlags,
+    pub ty: SlangResource,
+    pub count: DescriptorCount,
+}
+
+enum DescriptorCount {
+    One,
+    Many(u32),
+    Runtime,
+}
+
+struct EntrypointLayout {
+    pub entrypoint: SlangEntrypoint,
+    pub vertex_inputs: Option<VertexInputLayout>,
+}
+
+struct VertexInputLayout {
+    pub attributes: Vec<VertexAttributeLayout>,
+}
+
+struct VertexAttributeLayout {
+    pub location: u32,
+    pub name: CompactString,
+    pub format: vk::Format,
+    pub hint_binding: u32, // hints are intended as reasonable defaults
+    pub hint_offset: u32,  // ...
+}
+```
+
+## types
+
+```rust
+// impl ByteLike
+enum SlangType {
+    Scalar(SlangScalar),
+    Vector(SlangVector),
+    Matrix(SlangMatrix),
+    Struct(SlangStruct),
+    Array(Box<SlangArray>),
+    DescriptorHandle(Box<SlangResource>),
+    DeviceAddress,
+}
+
+// impl ByteLike
+enum SlangScalar {
+    Bool,
+    Int32,
+    UInt32,
+    Float32,
+}
+
+// impl ByteLike
+enum SlangVector {
+    Vec2(SlangScalar),
+    Vec3(SlangScalar),
+    Vec4(SlangScalar),
+}
+
+// impl ByteLike
+enum SlangMatrix {
+    Mat2x2(SlangScalar),
+    Mat2x3(SlangScalar),
+    Mat2x4(SlangScalar),
+    Mat3x2(SlangScalar),
+    Mat3x3(SlangScalar),
+    Mat3x4(SlangScalar),
+    Mat4x2(SlangScalar),
+    Mat4x3(SlangScalar),
+    Mat4x4(SlangScalar),
+}
+
+// impl ByteLike
+struct SlangStruct {
+    // pub size_bytes: u32,
+    pub fields: Vec<SlangField>,
+}
+
+// impl ByteLike
+struct SlangField {
+    pub name: CompactString,
+    pub offset_bytes: u32,
+    pub size_bytes: u32,
+    pub ty: SlangType,
+}
+
+// impl ByteLike
+// impl ArrayLike
+struct SlangArray {
+    pub size_bytes: u32,
+    pub stride_bytes: u32,
+    pub element_count: u32,
+    pub ty: SlangType,
+}
+
+// impl ByteLike
+struct DeviceAddress {
+    ...
+}
+
+enum SlangResource {
+    Sampler,
+    Texture(SlangTexture),
+    Buffer(SlangBuffer),
+}
+
+impl Into<vk::DescriptorType> for SlangResource { ... }
+
+struct SlangTexture {
+    pub dim: TextureDim,
+    pub array: bool,
+    pub multisampled: bool,
+    pub access: TextureAccess,
+    pub sampled: SlangSampledType,
+}
+
+enum TextureDim {
+    One,
+    Two,
+    Three,
+    Cube,
+}
+
+enum TextureAccess {
+    ReadOnly,
+    ReadWrite,
+}
+
+enum SlangSampledType {
+    Scalar(SlangScalar),
+    Vector(SlangVector),
+}
+
+struct SlangBuffer {
+    pub kind: BufferKind,
+    pub access: BufferAccess,
+    pub element: BufferElement,
+    pub trailing_array: Option<TrailingArray>,
+}
+
+enum BufferKind {
+    Uniform,
+    Storage,
+}
+
+enum BufferAccess {
+    ReadOnly,
+    ReadWrite,
+}
+
+// impl ByteLike
+enum BufferElement {
+    RawBytes,
+    Typed(SlangType),
+}
+
+// impl ArrayLike
+struct TrailingArray {
+    pub stride_bytes: u32,
+    pub ty: SlangType,
+}
+```
