@@ -1,5 +1,7 @@
 ## shader compilation and linking
 
+this file is the spec for the `slang` crate in this repo
+
 the `slang` crate in this repo is a wrapper around [slang-rs](https://github.com/FloatyMonkey/slang-rs). it's responsible for:
 - compiling and linking slang shaders
 - providing reflection information to the renderer for pipeline creation
@@ -16,9 +18,11 @@ struct SlangCompilerBuilder {
     fn optimization(mut self, ...) -> Self;
     fn matrix_layout_row(mut self, ...) -> Self;
 
+    // add directory where cached program layouts and spirv code are written
+    fn cache_path<P: AsRef<Path>>(mut self, P) -> Self;
+
     // adds a search path for resolving modules
     fn search_path<P: AsRef<Path>>(mut self, P) -> Self;
-
 
     // instantiates a compiler instance
     fn build(self) -> SlangCompiler;
@@ -101,7 +105,11 @@ struct SlangEntrypoint {
     fn stage(&self) -> SlangShaderStage;
     fn name(&self) -> &str
 }
+```
 
+`SlangEntrypoint` needs to be an unambiguous handle to the underlying `shader-slang` entrypoint owned by the module / compiler. Ideally we have some internal ID that maps back, or some Arc to the parent object
+
+```rust
 enum SlangShaderStage {
     Vertex,
     Fragment,
@@ -124,6 +132,47 @@ struct SlangProgram {
 
     // get the program bytecode
     fn code(&self, entrypoint: SlangEntrypoint) -> SpirvCode
+
+    // errors if any one stage has multiple entrypoints, but allows missing
+    // stages. this is the easy path for most simple shaders
+    fn select_all(&self) -> Result<SlangPipelineProgram>;
+
+    // selects only graphics entrypoints, errors if any one selected stage has
+    // multiple entrypoints, allows missing stages. selects at most one
+    // graphics, and one fragment entrypoint, ignores compute
+    fn select_graphics(&self) -> Result<SlangPipelineProgram>;
+
+    // errors if multiple compute entrypoints, otherwise selects the single
+    // compute entrypoint
+    fn select_compute(&self) -> Result<SlangPipelineProgram>;
+
+    // another helper: useful for large shader and we only need to grab a single
+    // compute entrypoint
+    fn select_one(
+        &self,
+        entrypoint: SlangEntrypoint
+    ) -> Result<SlangPipelineProgram>;
+
+    fn select_each(
+        &self,
+        selection: SlangPipelineSelection
+    ) -> Result<SlangPipelineProgram>;
+}
+
+struct SlangPipelineSelection {
+    vertex: Option<SlangEntrypoint>,
+    fragment: Option<SlangEntrypoint>,
+    compute: Option<SlangEntrypoint>,
+}
+
+// otherwise is the same as SlangProgram, just with a
+// single-entrypoint-per-stage guarantee for vulkan pipeline creation
+// should probably hold an Arc<SlangProgram> internally
+struct SlangPipelineProgram {
+    fn layout(&self) -> &SlangLayout;
+    fn entrypoint(&self, stage: SlangShaderStage) -> Option<SlangEntrypoint>;
+    fn entrypoints(&self) -> impl Iterator<Item = SlangEntrypoint>;
+    fn code(&self, stage: SlangShaderStage) -> Option<&SpirvCode>;
 }
 ```
 
@@ -137,12 +186,17 @@ struct SlangProgramCache {
 }
 ```
 
+the rationale for not have a `HashMap<SlangProgramKey, SlangProgram>` is because: the cache check happens during `SlangLinker::link()` so at that point we know all the entrypoints requested and have constructed a `SlangProgramKey`, so deriving a `SlangProgram` is therefore trivial. The `SlangProgram` is implied by what we are trying to link! A cache hit skips recomputing the layout and spirv code, but will know the entrypoints from the linker state
+
+also node that both `SlangLayout` and `SpirvCode` can be serialized/deserialized to disk using serde. `SpirvCode` will be byte serialized and `SlangLayout` will be serialized to JSON
+
 ```rust
 impl Clone        for SpirvCode { ... }
 impl AsRef<[u32]> for SpirvCode { ... } // dereference to 32-bit words
 
 // just an owned blob of spirv bytes
 // guaranteed to be 4-byte aligned
+#[derive(Serialize, Deserialize)]
 impl SpirvCode {
     fn cache_key() -> SpirvCodeKey;
     fn len_words() -> usize;
@@ -218,8 +272,12 @@ fn example() {
 
 ## shader layout
 
-NOTES:
-- [need to surface the _actual_ vk descriptor index](https://github.com/shader-slang/slang/issues/7598)
+it's important to state up-front: most of the design decisions made in this section and the [shader types](#shader-types) section are meant to simplify the process of code generating "shader cursors" for writing from the CPU into these GPU memory resources
+
+see this article [A practical and scalable approach to cross-platform shader parameter passing using Slang’s reflection API](https://shader-slang.org/docs/shader-cursors/) for more information about the shader cursor concept
+
+NOTES: [need to surface the _actual_ vk descriptor index](https://github.com/shader-slang/slang/issues/7598)
+
 
 ```rust
 trait ByteLike {
@@ -230,19 +288,33 @@ trait ArrayLike {
     fn stride_bytes(&self) -> u32;
 }
 
+#[derive(Serialize, Deserialize)]
 struct SlangLayout {
     pub bindless_heap: Option<BindlessHeapLayout>,
     pub push_constants: Option<PushConstantLayout>,
     pub descriptor_sets: Vec<DescriptorSetLayout>,
     pub entrypoints: Vec<EntrypointLayout>,
 }
+```
 
+note that _all `SlangLayout` structs and types need to be `serde` serializable and deserializble_ so that we can cache to disk
+
+```rust
 struct BindlessHeapLayout {
     pub set: u32,
     pub policy: BindlessPolicy, // VkMutable vs None ???
     pub bindings: Vec<DescriptorBindingLayout>,
 }
+```
 
+still need to decide which bindless implementation we want to map to on the vulkan side. options are:
+- descriptor indexing on a regular, runtime-sized descriptor set
+- VK_EXT_descriptor_buffer
+- something else?
+
+can decide on this later, it doesn't really block finishing the `slang` crate
+
+```rust
 // impl ByteLike
 struct PushConstantLayout {
     pub stages: vk::ShaderStageFlags,
@@ -269,7 +341,11 @@ enum DescriptorCount {
     Many(u32),
     Runtime,
 }
+```
 
+set and binding are Vulkan descriptor set/binding indices, not Slang internal indices
+
+```rust
 struct EntrypointLayout {
     pub entrypoint: SlangEntrypoint,
     pub vertex_inputs: Option<VertexInputLayout>,
@@ -288,7 +364,9 @@ struct VertexAttributeLayout {
 }
 ```
 
-## types
+`hint_binding` and `hint_offset` are the "default recommended values", and are what the struct generation macros will use. the engine can use their own values instead, but will need to build their own vertex structs in that case
+
+## shader types
 
 ```rust
 // impl ByteLike
@@ -332,7 +410,8 @@ enum SlangMatrix {
 
 // impl ByteLike
 struct SlangStruct {
-    // pub size_bytes: u32,
+    pub size_bytes: u32,
+    pub alignment_bytes: u32,
     pub fields: Vec<SlangField>,
 }
 
@@ -341,14 +420,15 @@ struct SlangField {
     pub name: CompactString,
     pub offset_bytes: u32,
     pub size_bytes: u32,
+    pub alignment_bytes: u32,
     pub ty: SlangType,
 }
 
 // impl ByteLike
 // impl ArrayLike
 struct SlangArray {
-    pub size_bytes: u32,
     pub stride_bytes: u32,
+    pub alignment_bytes: u32,
     pub element_count: u32,
     pub ty: SlangType,
 }
@@ -395,6 +475,7 @@ struct SlangBuffer {
     pub kind: BufferKind,
     pub access: BufferAccess,
     pub element: BufferElement,
+    pub block_alignment_bytes: u32
     pub trailing_array: Option<TrailingArray>,
 }
 
@@ -417,6 +498,28 @@ enum BufferElement {
 // impl ArrayLike
 struct TrailingArray {
     pub stride_bytes: u32,
+    pub alignment_bytes: u32,
     pub ty: SlangType,
 }
 ```
+
+## struct generation macros / shader cursor generation
+
+reference/inspiration: https://shader-slang.org/docs/shader-cursors/
+
+TODO
+
+macros:
+- `slang_push_constants!`
+- `slang_uniform_block!`
+- `slang_storage_block!`
+- `slang_vertex!`
+
+map `SlangVector` and `SlangMatrix` to glam types
+
+## hot reload
+
+TODO pre-requisites:
+- implement `SlangProgram` caching
+- implement `SlangLayout` and `SpirvCode` serdes
+- will need engine hooks; dirty pipelines need to be re-created
