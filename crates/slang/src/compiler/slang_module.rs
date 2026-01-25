@@ -3,9 +3,10 @@ use std::{cell::OnceCell, fs};
 use anyhow::Result;
 use blake3::{Hash, Hasher};
 use compact_str::CompactString;
+use serde::{Deserialize, Serialize};
 use shader_slang as slang;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ModuleId(CompactString);
 
 impl ModuleId {
@@ -26,7 +27,7 @@ impl std::fmt::Display for ModuleId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SlangShaderStage {
     Vertex,
     Fragment,
@@ -187,7 +188,7 @@ impl SlangModule {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SlangEntrypoint {
     module_id: ModuleId,
     name: CompactString,
