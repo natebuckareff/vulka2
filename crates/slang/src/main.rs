@@ -73,7 +73,28 @@ fn main() -> Result<()> {
     println!("  entrypoints: {}", program.entrypoints().len());
 
     for ep in program.entrypoints() {
-        println!("    {:?} {}", ep.stage(), ep.name());
+        let code = program.code(ep).unwrap();
+        println!(
+            "    {:?} {} - {} bytes ({} words)",
+            ep.stage(),
+            ep.name(),
+            code.len_bytes(),
+            code.len_words()
+        );
+    }
+
+    // Test select_graphics
+    let pipeline = program.select_graphics()?;
+    println!("\nGraphics pipeline:");
+    for ep in pipeline.entrypoints() {
+        if let Some(code) = pipeline.code(ep.stage()) {
+            println!(
+                "  {:?} {} - {} bytes",
+                ep.stage(),
+                ep.name(),
+                code.len_bytes()
+            );
+        }
     }
 
     Ok(())

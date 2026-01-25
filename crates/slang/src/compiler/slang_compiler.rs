@@ -208,6 +208,11 @@ impl SlangCompiler {
         self.modules.get(id)
     }
 
+    /// Access the underlying slang session for linking operations.
+    pub(crate) fn session(&self) -> &slang::Session {
+        &self.session
+    }
+
     pub fn linker(&self) -> SlangLinker<'_> {
         SlangLinker::new(self)
     }

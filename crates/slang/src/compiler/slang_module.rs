@@ -79,6 +79,45 @@ impl SlangModule {
         self.content_hash
     }
 
+    pub(crate) fn slang_module(&self) -> &slang::Module {
+        &self.module
+    }
+
+    pub(crate) fn slang_entrypoint(&self, ep: &SlangEntrypoint) -> Result<slang::EntryPoint> {
+        if ep.module_id != self.id {
+            anyhow::bail!(
+                "entrypoint '{}' belongs to module '{}', not '{}'",
+                ep.name,
+                ep.module_id,
+                self.id
+            );
+        }
+
+        for slang_ep in self.module.entry_points() {
+            let func = slang_ep.function_reflection();
+            if let Some(name) = func.name() {
+                if name == ep.name.as_str() {
+                    // Verify stage matches
+                    let component: slang::ComponentType = slang_ep.clone().into();
+                    if let Ok(layout) = component.layout(0) {
+                        if let Some(ep_layout) = layout.entry_point_by_index(0) {
+                            if SlangShaderStage::from_slang(ep_layout.stage()) == Some(ep.stage) {
+                                return Ok(slang_ep);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        anyhow::bail!(
+            "entrypoint '{}' ({:?}) not found in module '{}'",
+            ep.name,
+            ep.stage,
+            self.name()
+        )
+    }
+
     pub fn entrypoints(&self) -> &[SlangEntrypoint] {
         self.entrypoints.get_or_init(|| self.compute_entrypoints())
     }

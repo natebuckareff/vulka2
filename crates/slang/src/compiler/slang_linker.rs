@@ -1,12 +1,14 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 
 use anyhow::{Result, bail};
-use blake3::{Hash, Hasher};
+use blake3::Hasher;
+use shader_slang as slang;
 
-use crate::{ModuleId, SlangCompiler, SlangEntrypoint, SlangModule, SlangShaderStage};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SlangProgramKey(pub Hash);
+use crate::{
+    ModuleId, SlangCompiler, SlangEntrypoint, SlangLayout, SlangModule, SlangProgram,
+    SlangProgramKey, SlangShaderStage, SpirvCode, SpirvCodeKey,
+};
 
 pub struct SlangLinker<'a> {
     compiler: &'a SlangCompiler,
@@ -69,20 +71,56 @@ impl<'a> SlangLinker<'a> {
         Ok(self)
     }
 
-    pub fn link(self) -> Result<SlangProgram> {
+    pub fn link(self) -> Result<Arc<SlangProgram>> {
         if self.entrypoints.is_empty() {
             bail!("no entrypoints to link");
         }
 
         let program_key = self.compute_program_key();
+        // TODO: check cache
 
-        // TODO: Check cache for existing program
-        // TODO: Perform actual linking via shader_slang
+        let entrypoints: Vec<_> = self.entrypoints.iter().cloned().collect();
+        let mut components: Vec<slang::ComponentType> = Vec::new();
 
-        Ok(SlangProgram {
-            key: program_key,
-            entrypoints: self.entrypoints.into_iter().collect(),
-        })
+        for module_id in &self.modules {
+            let module = self.compiler.module(module_id).unwrap();
+            components.push(module.slang_module().clone().into());
+        }
+
+        for ep in &entrypoints {
+            let module = self.compiler.module(ep.module_id()).unwrap();
+            let slang_ep = module.slang_entrypoint(ep)?;
+            components.push(slang_ep.clone().into());
+        }
+
+        let composite = self
+            .compiler
+            .session()
+            .create_composite_component_type(&components)
+            .map_err(|e| anyhow::anyhow!("failed to create composite: {}", e))?;
+
+        let linked = composite
+            .link()
+            .map_err(|e| anyhow::anyhow!("failed to link: {}", e))?;
+
+        let mut code: HashMap<SlangEntrypoint, SpirvCode> = HashMap::new();
+
+        for (i, ep) in entrypoints.iter().enumerate() {
+            let spirv_blob = linked
+                .entry_point_code(i as i64, 0)
+                .map_err(|e| anyhow::anyhow!("failed to get code for '{}': {}", ep.name(), e))?;
+
+            let spirv_bytes = spirv_blob.as_slice();
+            let code_key = SpirvCodeKey::new(program_key, ep);
+            let spirv_code = SpirvCode::new(code_key, spirv_bytes);
+
+            code.insert(ep.clone(), spirv_code);
+        }
+
+        // TODO: Extract layout via reflection
+        let layout = SlangLayout::default();
+
+        Ok(SlangProgram::new(program_key, layout, entrypoints, code))
     }
 
     fn compute_program_key(&self) -> SlangProgramKey {
@@ -109,20 +147,5 @@ impl<'a> SlangLinker<'a> {
         }
 
         SlangProgramKey(hasher.finalize())
-    }
-}
-
-pub struct SlangProgram {
-    key: SlangProgramKey,
-    entrypoints: Vec<SlangEntrypoint>,
-}
-
-impl SlangProgram {
-    pub fn key(&self) -> SlangProgramKey {
-        self.key
-    }
-
-    pub fn entrypoints(&self) -> &[SlangEntrypoint] {
-        &self.entrypoints
     }
 }
