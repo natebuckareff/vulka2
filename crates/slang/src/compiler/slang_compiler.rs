@@ -1,11 +1,13 @@
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use blake3::Hasher;
+use compact_str::CompactString;
 use shader_slang as slang;
 
-use crate::{SlangLinker, SlangModule};
+use crate::compiler::slang_linker::{SlangLinker, SlangModule};
 
 pub const SLANG_CACHE_KEY_VERSION: u8 = 1;
 
@@ -125,6 +127,7 @@ impl SlangCompilerBuilder {
             options_hash,
             cache_path: self.cache_path,
             search_paths: self.search_paths,
+            module_hashes: HashMap::new(),
         })
     }
 
@@ -171,6 +174,7 @@ pub struct SlangCompiler {
     options_hash: CompilerOptionsHash,
     cache_path: Option<PathBuf>,
     search_paths: Vec<PathBuf>,
+    module_hashes: HashMap<CompactString, [u8; 32]>,
 }
 
 impl SlangCompiler {
@@ -191,7 +195,18 @@ impl SlangCompiler {
             .load_module(module_name)
             .map_err(|e| anyhow!("failed to load module '{}': {}", module_name, e))?;
 
-        Ok(SlangModule::new(module))
+        let slang_module = SlangModule::new(module);
+
+        // Track the module's content hash by identity
+        let identity: CompactString = slang_module.unique_identity().into();
+        self.module_hashes
+            .insert(identity, *slang_module.content_hash());
+
+        Ok(slang_module)
+    }
+
+    pub fn module_hash(&self, identity: &str) -> Option<&[u8; 32]> {
+        self.module_hashes.get(identity)
     }
 
     pub fn linker(&mut self) -> SlangLinker<'_> {

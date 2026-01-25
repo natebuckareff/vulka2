@@ -35,17 +35,39 @@ fn main() -> Result<()> {
     }
     let mut compiler = builder.build()?;
 
-    println!("Compiler options hash: {:02x?}", &compiler.options_hash().0[..8]);
+    println!(
+        "Compiler options hash: {:02x?}",
+        &compiler.options_hash().0[..8]
+    );
 
     // Load the module
     let module = compiler.load_module(shader_path)?;
     println!("\nLoaded module: {}", module.name());
     println!("  file: {}", module.file_path());
     println!("  identity: {}", module.unique_identity());
+    println!("  content hash: {:02x?}", &module.content_hash()[..8]);
 
-    // Try linking (will fail since not implemented)
-    let _linker = compiler.linker();
-    println!("\nLinker created (not yet implemented)");
+    // List entrypoints
+    println!("\nEntrypoints:");
+    for ep in module.entrypoints() {
+        println!(
+            "  {:?} {} (module: {})",
+            ep.stage(),
+            ep.name(),
+            ep.module_identity()
+        );
+    }
+
+    // Link all entrypoints
+    let program = compiler.linker().add_all_entrypoints(&module).link()?;
+
+    println!("\nLinked program:");
+    println!("  key: {:02x?}", &program.key().0[..8]);
+    println!("  entrypoints: {}", program.entrypoints().len());
+
+    for ep in program.entrypoints() {
+        println!("    {:?} {}", ep.stage(), ep.name());
+    }
 
     Ok(())
 }
