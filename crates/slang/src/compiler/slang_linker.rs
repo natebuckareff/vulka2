@@ -6,8 +6,8 @@ use blake3::Hasher;
 use shader_slang as slang;
 
 use crate::{
-    ModuleId, SlangCompiler, SlangEntrypoint, SlangLayout, SlangModule, SlangProgram,
-    SlangProgramKey, SlangShaderStage, SpirvCode, SpirvCodeKey,
+    ModuleId, SlangCompiler, SlangEntrypoint, SlangModule, SlangProgram, SlangProgramKey,
+    SlangShaderStage, SpirvCode, SpirvCodeKey,
 };
 
 pub struct SlangLinker<'a> {
@@ -117,8 +117,8 @@ impl<'a> SlangLinker<'a> {
             code.insert(ep.clone(), spirv_code);
         }
 
-        // TODO: Extract layout via reflection
-        let layout = SlangLayout::default();
+        // Extract layout via reflection
+        let layout = crate::reflection::reflect_layout(&linked)?;
 
         Ok(SlangProgram::new(program_key, layout, entrypoints, code))
     }
