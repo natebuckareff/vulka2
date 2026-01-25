@@ -274,10 +274,7 @@ fn example() {
 
 it's important to state up-front: most of the design decisions made in this section and the [shader types](#shader-types) section are meant to simplify the process of code generating "shader cursors" for writing from the CPU into these GPU memory resources
 
-see this article [A practical and scalable approach to cross-platform shader parameter passing using Slang’s reflection API](https://shader-slang.org/docs/shader-cursors/) for more information about the shader cursor concept
-
-NOTES: [need to surface the _actual_ vk descriptor index](https://github.com/shader-slang/slang/issues/7598)
-
+see this article [A practical and scalable approach to cross-platform shader parameter passing using Slang’s reflection API][1] for more information about the shader cursor concept
 
 ```rust
 trait ByteLike {
@@ -288,22 +285,48 @@ trait ArrayLike {
     fn stride_bytes(&self) -> u32;
 }
 
+struct SlangUnit {
+    set_spaces: u32,
+    binding_slots: u32,
+    bytes: u32,
+}
+
+// same semantics as in slang's shader cursor docs
+impl Add for SlangUnit { ... }
+impl Mul<u32> for SlangUnit { ... }
+```
+
+in the context of the slang reflection api:
+- `set_spaces` maps to the `SubElementRegisterSpace` category
+- `binding_slots` maps to the `DescriptorTableSlot` category
+- `bytes` maps to the `Uniform` category
+
+the idea is that `SlangUnit` values are _relative_ and _accumulated_ while walking the slang reflection API output tree. see [1] for details
+
+```rust
 #[derive(Serialize, Deserialize)]
 struct SlangLayout {
     pub bindless_heap: Option<BindlessHeapLayout>,
     pub push_constants: Option<PushConstantLayout>,
     pub descriptor_sets: Vec<DescriptorSetLayout>,
+    pub parameter_blocks: Vec<ParameterBlockLayout>,
     pub entrypoints: Vec<EntrypointLayout>,
 }
 ```
+
+`descriptor_sets` is the flattened Vulkan view used to build pipeline objects; `parameter_blocks` preserves the hierarchical shader-object structure used for cursor traversal and CPU writes
 
 note that _all `SlangLayout` structs and types need to be `serde` serializable and deserializble_ so that we can cache to disk
 
 ```rust
 struct BindlessHeapLayout {
     pub set: u32,
-    pub policy: BindlessPolicy, // VkMutable vs None ???
+    pub policy: BindlessPolicy, // TODO VkMutable vs None ???
     pub bindings: Vec<DescriptorBindingLayout>,
+}
+
+enum BindlessPolicy {
+    // TODO
 }
 ```
 
@@ -312,7 +335,7 @@ still need to decide which bindless implementation we want to map to on the vulk
 - VK_EXT_descriptor_buffer
 - something else?
 
-can decide on this later, it doesn't really block finishing the `slang` crate
+can decide on this later, it doesn't really block finishing the `slang` crate. so for now: *skip building `BindlessHeapLayout` and always set `SlangLayout::bindless_heap` to `None`*
 
 ```rust
 // impl ByteLike
@@ -343,9 +366,29 @@ enum DescriptorCount {
 }
 ```
 
-set and binding are Vulkan descriptor set/binding indices, not Slang internal indices
-
 ```rust
+// set and binding *must* be Vulkan descriptor set/binding indices, not Slang
+// internal indices
+struct ParameterBlockLayout {
+    scope: ParameterBlockScope,
+    name: CompactString,
+    ty: SlangStruct,
+    set: u32,
+    ordinary: Option<OrdinaryParameterBinding>,
+    bindings: Vec<DescriptorBindingLayout>,
+    nested: Vec<ParameterBlockLayout>,
+}
+
+enum ParameterBlockScope {
+    Global,
+    Entrypoint(SlangEntrypoint),
+}
+
+struct OrdinaryParameterBinding {
+    binding: u32,
+    ty: SlangStruct,
+}
+
 struct EntrypointLayout {
     pub entrypoint: SlangEntrypoint,
     pub vertex_inputs: Option<VertexInputLayout>,
@@ -410,7 +453,7 @@ enum SlangMatrix {
 
 // impl ByteLike
 struct SlangStruct {
-    pub size_bytes: u32,
+    pub size: SlangUnit,
     pub alignment_bytes: u32,
     pub fields: Vec<SlangField>,
 }
@@ -418,8 +461,8 @@ struct SlangStruct {
 // impl ByteLike
 struct SlangField {
     pub name: CompactString,
-    pub offset_bytes: u32,
-    pub size_bytes: u32,
+    pub offset: SlangUnit,
+    pub size: SlangUnit,
     pub alignment_bytes: u32,
     pub ty: SlangType,
 }
@@ -427,7 +470,7 @@ struct SlangField {
 // impl ByteLike
 // impl ArrayLike
 struct SlangArray {
-    pub stride_bytes: u32,
+    pub stride: SlangUnit,
     pub alignment_bytes: u32,
     pub element_count: u32,
     pub ty: SlangType,
@@ -497,25 +540,20 @@ enum BufferElement {
 
 // impl ArrayLike
 struct TrailingArray {
-    pub stride_bytes: u32,
+    pub stride: SlangUnit,
     pub alignment_bytes: u32,
     pub ty: SlangType,
 }
 ```
 
+## notes on the slang reflection API
+
+- need to translate from slang offsets to [_actual_ vulkan descriptor indices](#shader-slang-issue-7598)
+- be careful choosing between `getElementTypeLayout()` and `getElementVarLayout()` when getting the correct offsets within `ConstantBuffer<T>`s and `ParameterBlock<T>` (see `docs/slang-docs-md/08-compiling.md#reflection` locally or https://shader-slang.org/slang/user-guide/reflection)
+
 ## struct generation macros / shader cursor generation
 
-reference/inspiration: https://shader-slang.org/docs/shader-cursors/
-
 TODO
-
-macros:
-- `slang_push_constants!`
-- `slang_uniform_block!`
-- `slang_storage_block!`
-- `slang_vertex!`
-
-map `SlangVector` and `SlangMatrix` to glam types
 
 ## hot reload
 
@@ -523,3 +561,15 @@ TODO pre-requisites:
 - implement `SlangProgram` caching
 - implement `SlangLayout` and `SpirvCode` serdes
 - will need engine hooks; dirty pipelines need to be re-created
+
+## shader-slang issue 7598
+
+from: https://github.com/shader-slang/slang/issues/7598
+
+> When using the Slang Reflection API to extract descriptor set and binding information for Vulkan, it’s not immediately clear that the setIndex returned from getBindingRangeDescriptorSetIndex() is not the actual Vulkan descriptor set index, but rather the internal Slang set index. Similarly, the rangeIndex used with getDescriptorSetDescriptorRangeType() is not the actual Vulkan binding index.
+
+> To retrieve the actual Vulkan descriptor set index, you must use getDescriptorSetSpaceOffset(), passing in the Slang descriptor set index obtained from getBindingRangeDescriptorSetIndex(). Similarly, to get the Vulkan binding index, you need to call getDescriptorSetDescriptorRangeIndexOffset(), passing both the Slang descriptor set index and the descriptor range index obtained from getBindingRangeFirstDescriptorRangeIndex().
+
+## references
+
+[1]: ../vendor/shader-slang-docs/shader-cursors.md
