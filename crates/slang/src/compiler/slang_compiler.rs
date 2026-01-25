@@ -3,10 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use blake3::Hasher;
-use shader_slang::{
-    CapabilityID, CompileTarget, CompilerOptions, GlobalSession, OptimizationLevel, Session,
-    SessionDesc, TargetDesc,
-};
+use shader_slang as slang;
 
 use crate::{SlangLinker, SlangModule};
 
@@ -16,10 +13,10 @@ pub const SLANG_CACHE_KEY_VERSION: u8 = 1;
 pub struct CompilerOptionsHash(pub [u8; 32]);
 
 pub struct SlangCompilerBuilder {
-    global_session: GlobalSession,
-    capabilities: Vec<(String, CapabilityID)>, // (name, id) for hashing and API
+    global_session: slang::GlobalSession,
+    capabilities: Vec<(String, slang::CapabilityID)>,
     bindless_space_index: Option<i32>,
-    optimization: OptimizationLevel,
+    optimization: slang::OptimizationLevel,
     matrix_layout_row: bool,
     cache_path: Option<PathBuf>,
     search_paths: Vec<PathBuf>,
@@ -28,13 +25,13 @@ pub struct SlangCompilerBuilder {
 impl SlangCompilerBuilder {
     pub fn new() -> Result<Self> {
         let global_session =
-            GlobalSession::new().context("failed to create slang global session")?;
+            slang::GlobalSession::new().context("failed to create slang global session")?;
 
         Ok(Self {
             global_session,
             capabilities: Vec::new(),
             bindless_space_index: None,
-            optimization: OptimizationLevel::Default,
+            optimization: slang::OptimizationLevel::Default,
             matrix_layout_row: true,
             cache_path: None,
             search_paths: Vec::new(),
@@ -55,7 +52,7 @@ impl SlangCompilerBuilder {
         self
     }
 
-    pub fn optimization(mut self, level: OptimizationLevel) -> Self {
+    pub fn optimization(mut self, level: slang::OptimizationLevel) -> Self {
         self.optimization = level;
         self
     }
@@ -83,7 +80,7 @@ impl SlangCompilerBuilder {
 
         let options_hash = self.compute_options_hash();
 
-        let mut options = CompilerOptions::default()
+        let mut options = slang::CompilerOptions::default()
             .vulkan_use_entry_point_name(true)
             .emit_spirv_directly(true)
             .optimization(self.optimization)
@@ -97,8 +94,8 @@ impl SlangCompilerBuilder {
             options = options.bindless_space_index(index);
         }
 
-        let target = TargetDesc::default()
-            .format(CompileTarget::Spirv)
+        let target = slang::TargetDesc::default()
+            .format(slang::CompileTarget::Spirv)
             .profile(profile)
             .options(&options);
 
@@ -112,7 +109,7 @@ impl SlangCompilerBuilder {
             search_path_cstrings.iter().map(|s| s.as_ptr()).collect();
 
         let targets = [target];
-        let session_desc = SessionDesc::default()
+        let session_desc = slang::SessionDesc::default()
             .targets(&targets)
             .search_paths(&search_path_ptrs)
             .options(&options);
@@ -169,8 +166,8 @@ impl SlangCompilerBuilder {
 }
 
 pub struct SlangCompiler {
-    global_session: GlobalSession,
-    session: Session,
+    global_session: slang::GlobalSession,
+    session: slang::Session,
     options_hash: CompilerOptionsHash,
     cache_path: Option<PathBuf>,
     search_paths: Vec<PathBuf>,

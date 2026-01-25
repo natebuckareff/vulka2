@@ -1,13 +1,13 @@
-use shader_slang::Module;
+use shader_slang as slang;
 
 use crate::SlangCompiler;
 
 pub struct SlangModule {
-    module: Module,
+    module: slang::Module,
 }
 
 impl SlangModule {
-    pub(crate) fn new(module: Module) -> Self {
+    pub(crate) fn new(module: slang::Module) -> Self {
         Self { module }
     }
 
