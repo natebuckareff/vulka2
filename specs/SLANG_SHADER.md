@@ -1,3 +1,19 @@
+# slang util crate
+
+the crate is both a library and binary. the core logic is implemented in lib.rs, and main.rs is a simple CLI that allows compiling and introspecting slang shaders
+
+project structure:
+
+```
+crates
+'-- slang
+    '-- src
+        |-- main.rs       # cli entrypoint
+        |-- lib.rs        # library
+        |-- compiler.rs   # implements compilation and caching
+        '-- reflection.rs # builds layouts and types from slang reflection
+```
+
 ## shader compilation and linking
 
 this file is the spec for the `slang` crate in this repo
