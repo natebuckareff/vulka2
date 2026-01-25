@@ -37,7 +37,7 @@ fn main() -> Result<()> {
 
     println!(
         "Compiler options hash: {:02x?}",
-        &compiler.options_hash().0[..8]
+        &compiler.options_hash().0.as_bytes()[..8]
     );
 
     // Load the module
@@ -45,7 +45,7 @@ fn main() -> Result<()> {
     println!("\nLoaded module: {}", module.name());
     println!("  file: {}", module.file_path());
     println!("  identity: {}", module.unique_identity());
-    println!("  content hash: {:02x?}", &module.content_hash()[..8]);
+    println!("  content hash: {:02x?}", &module.content_hash().as_bytes()[..8]);
 
     // List entrypoints
     println!("\nEntrypoints:");
@@ -62,7 +62,7 @@ fn main() -> Result<()> {
     let program = compiler.linker().add_all_entrypoints(&module).link()?;
 
     println!("\nLinked program:");
-    println!("  key: {:02x?}", &program.key().0[..8]);
+    println!("  key: {:02x?}", &program.key().0.as_bytes()[..8]);
     println!("  entrypoints: {}", program.entrypoints().len());
 
     for ep in program.entrypoints() {

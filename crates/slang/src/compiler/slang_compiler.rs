@@ -3,7 +3,7 @@ use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
-use blake3::Hasher;
+use blake3::{Hash, Hasher};
 use compact_str::CompactString;
 use shader_slang as slang;
 
@@ -12,7 +12,7 @@ use crate::compiler::slang_linker::{SlangLinker, SlangModule};
 pub const SLANG_CACHE_KEY_VERSION: u8 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CompilerOptionsHash(pub [u8; 32]);
+pub struct CompilerOptionsHash(pub Hash);
 
 pub struct SlangCompilerBuilder {
     global_session: slang::GlobalSession,
@@ -164,7 +164,7 @@ impl SlangCompilerBuilder {
         hasher.update(&(self.optimization as u32).to_le_bytes());
         hasher.update(&[self.matrix_layout_row as u8]);
 
-        CompilerOptionsHash(hasher.finalize().into())
+        CompilerOptionsHash(hasher.finalize())
     }
 }
 
@@ -174,7 +174,7 @@ pub struct SlangCompiler {
     options_hash: CompilerOptionsHash,
     cache_path: Option<PathBuf>,
     search_paths: Vec<PathBuf>,
-    module_hashes: HashMap<CompactString, [u8; 32]>,
+    module_hashes: HashMap<CompactString, Hash>,
 }
 
 impl SlangCompiler {
@@ -197,16 +197,15 @@ impl SlangCompiler {
 
         let slang_module = SlangModule::new(module);
 
-        // Track the module's content hash by identity
         let identity: CompactString = slang_module.unique_identity().into();
         self.module_hashes
-            .insert(identity, *slang_module.content_hash());
+            .insert(identity, slang_module.content_hash());
 
         Ok(slang_module)
     }
 
-    pub fn module_hash(&self, identity: &str) -> Option<&[u8; 32]> {
-        self.module_hashes.get(identity)
+    pub fn module_hash(&self, identity: &str) -> Option<Hash> {
+        self.module_hashes.get(identity).copied()
     }
 
     pub fn linker(&mut self) -> SlangLinker<'_> {

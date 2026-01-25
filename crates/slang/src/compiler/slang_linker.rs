@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use anyhow::{Result, bail};
-use blake3::Hasher;
+use blake3::{Hash, Hasher};
 use compact_str::CompactString;
 use shader_slang as slang;
 
@@ -66,7 +66,7 @@ impl Ord for SlangEntrypoint {
 
 pub struct SlangModule {
     module: slang::Module,
-    content_hash: [u8; 32],
+    content_hash: Hash,
     entrypoints: OnceCell<Vec<SlangEntrypoint>>,
 }
 
@@ -92,8 +92,8 @@ impl SlangModule {
         self.module.unique_identity()
     }
 
-    pub fn content_hash(&self) -> &[u8; 32] {
-        &self.content_hash
+    pub fn content_hash(&self) -> Hash {
+        self.content_hash
     }
 
     pub fn entrypoints(&self) -> &[SlangEntrypoint] {
@@ -140,7 +140,7 @@ impl SlangModule {
         result
     }
 
-    fn compute_content_hash(module: &slang::Module) -> [u8; 32] {
+    fn compute_content_hash(module: &slang::Module) -> Hash {
         let mut hasher = Hasher::new();
 
         let main_path = module.file_path();
@@ -162,18 +162,18 @@ impl SlangModule {
             }
         }
 
-        hasher.finalize().into()
+        hasher.finalize()
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SlangProgramKey(pub [u8; 32]);
+pub struct SlangProgramKey(pub Hash);
 
 pub struct SlangLinker<'a> {
     compiler: &'a mut SlangCompiler,
     modules: BTreeSet<CompactString>,
     entrypoints: BTreeSet<SlangEntrypoint>,
-    module_hashes: Vec<(CompactString, [u8; 32])>,
+    module_hashes: Vec<(CompactString, Hash)>,
 }
 
 impl<'a> SlangLinker<'a> {
@@ -189,7 +189,7 @@ impl<'a> SlangLinker<'a> {
     fn add_module_if_missing(&mut self, module: &SlangModule) {
         let identity: CompactString = module.unique_identity().into();
         if self.modules.insert(identity.clone()) {
-            self.module_hashes.push((identity, *module.content_hash()));
+            self.module_hashes.push((identity, module.content_hash()));
         }
     }
 
@@ -217,15 +217,12 @@ impl<'a> SlangLinker<'a> {
     }
 
     pub fn add_entrypoint(mut self, entrypoint: SlangEntrypoint) -> Self {
-        // Add the module if not already present
         let identity: CompactString = entrypoint.module_identity().into();
         if !self.modules.contains(&identity) {
             if let Some(hash) = self.compiler.module_hash(&identity) {
                 self.modules.insert(identity.clone());
-                self.module_hashes.push((identity, *hash));
+                self.module_hashes.push((identity, hash));
             }
-            // If module not found in compiler, it's a usage error but we continue
-            // (the entrypoint came from somewhere, the module should exist)
         }
         self.entrypoints.insert(entrypoint);
         self
@@ -255,20 +252,17 @@ impl<'a> SlangLinker<'a> {
     fn compute_program_key(&mut self) -> SlangProgramKey {
         let mut hasher = Hasher::new();
 
-        // Include compiler options hash
-        hasher.update(&self.compiler.options_hash().0);
+        hasher.update(self.compiler.options_hash().0.as_bytes());
 
-        // Include modules (sorted by identity for determinism)
         self.module_hashes.sort_by(|a, b| a.0.cmp(&b.0));
         hasher.update(&(self.module_hashes.len() as u32).to_le_bytes());
 
         for (identity, hash) in &self.module_hashes {
             hasher.update(identity.as_bytes());
-            hasher.update(&[0]); // null separator
-            hasher.update(hash);
+            hasher.update(&[0]);
+            hasher.update(hash.as_bytes());
         }
 
-        // Include entrypoints (already in canonical order via BTreeSet)
         hasher.update(&(self.entrypoints.len() as u32).to_le_bytes());
 
         for ep in &self.entrypoints {
@@ -279,7 +273,7 @@ impl<'a> SlangLinker<'a> {
             hasher.update(&[0]);
         }
 
-        SlangProgramKey(hasher.finalize().into())
+        SlangProgramKey(hasher.finalize())
     }
 }
 
