@@ -285,6 +285,7 @@ trait ArrayLike {
     fn stride_bytes(&self) -> u32;
 }
 
+#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct SlangUnit {
     set_spaces: u32,
     binding_slots: u32,
@@ -335,7 +336,10 @@ still need to decide which bindless implementation we want to map to on the vulk
 - VK_EXT_descriptor_buffer
 - something else?
 
-can decide on this later, it doesn't really block finishing the `slang` crate. so for now: *skip building `BindlessHeapLayout` and always set `SlangLayout::bindless_heap` to `None`*
+can decide on this later, it doesn't really block finishing the `slang` crate
+
+bindless heap extraction is unimplemented initially; `bindless_heap` will be `None` until supported
+
 
 ```rust
 // impl ByteLike
@@ -372,7 +376,7 @@ enum DescriptorCount {
 struct ParameterBlockLayout {
     scope: ParameterBlockScope,
     name: CompactString,
-    ty: SlangStruct,
+    ty: SlangType,
     set: u32,
     ordinary: Option<OrdinaryParameterBinding>,
     bindings: Vec<DescriptorBindingLayout>,
@@ -549,7 +553,7 @@ struct TrailingArray {
 ## notes on the slang reflection API
 
 - need to translate from slang offsets to [_actual_ vulkan descriptor indices](#shader-slang-issue-7598)
-- be careful choosing between `getElementTypeLayout()` and `getElementVarLayout()` when getting the correct offsets within `ConstantBuffer<T>`s and `ParameterBlock<T>` (see `docs/slang-docs-md/08-compiling.md#reflection` locally or https://shader-slang.org/slang/user-guide/reflection)
+- be careful choosing between `getElementTypeLayout()` and `getElementVarLayout()` when getting the correct offsets within `ConstantBuffer<T>`s and `ParameterBlock<T>` (see `docs/slang-docs-md/08-compiling.md#reflection` locally or https://shader-slang.org/slang/user-guide/reflection). always prefer var-layout when extracting offsets for container members
 
 ## struct generation macros / shader cursor generation
 
