@@ -1,13 +1,13 @@
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use blake3::{Hash, Hasher};
-use compact_str::CompactString;
 use shader_slang as slang;
 
-use crate::compiler::slang_linker::{SlangLinker, SlangModule};
+use crate::compiler::slang_linker::{ModuleId, SlangLinker, SlangModule};
 
 pub const SLANG_CACHE_KEY_VERSION: u8 = 1;
 
@@ -127,7 +127,7 @@ impl SlangCompilerBuilder {
             options_hash,
             cache_path: self.cache_path,
             search_paths: self.search_paths,
-            module_hashes: HashMap::new(),
+            modules: HashMap::new(),
         })
     }
 
@@ -148,7 +148,7 @@ impl SlangCompilerBuilder {
 
         for name in cap_names {
             hasher.update(name.as_bytes());
-            hasher.update(&[0]); // null separator
+            hasher.update(&[0]);
         }
 
         match self.bindless_space_index {
@@ -174,7 +174,7 @@ pub struct SlangCompiler {
     options_hash: CompilerOptionsHash,
     cache_path: Option<PathBuf>,
     search_paths: Vec<PathBuf>,
-    module_hashes: HashMap<CompactString, Hash>,
+    modules: HashMap<ModuleId, SlangModule>,
 }
 
 impl SlangCompiler {
@@ -182,7 +182,7 @@ impl SlangCompiler {
         self.options_hash
     }
 
-    pub fn load_module<P: AsRef<Path>>(&mut self, path: P) -> Result<SlangModule> {
+    pub fn load_module<P: AsRef<Path>>(&mut self, path: P) -> Result<&SlangModule> {
         let path = path.as_ref();
 
         let module_name = path
@@ -196,19 +196,19 @@ impl SlangCompiler {
             .map_err(|e| anyhow!("failed to load module '{}': {}", module_name, e))?;
 
         let slang_module = SlangModule::new(module);
+        let id = slang_module.id().clone();
 
-        let identity: CompactString = slang_module.unique_identity().into();
-        self.module_hashes
-            .insert(identity, slang_module.content_hash());
-
-        Ok(slang_module)
+        Ok(match self.modules.entry(id) {
+            Entry::Occupied(e) => e.into_mut(),
+            Entry::Vacant(e) => e.insert(slang_module),
+        })
     }
 
-    pub fn module_hash(&self, identity: &str) -> Option<Hash> {
-        self.module_hashes.get(identity).copied()
+    pub fn module(&self, id: &ModuleId) -> Option<&SlangModule> {
+        self.modules.get(id)
     }
 
-    pub fn linker(&mut self) -> SlangLinker<'_> {
+    pub fn linker(&self) -> SlangLinker<'_> {
         SlangLinker::new(self)
     }
 }

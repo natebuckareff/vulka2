@@ -40,26 +40,33 @@ fn main() -> Result<()> {
         &compiler.options_hash().0.as_bytes()[..8]
     );
 
-    // Load the module
+    // Load the module (mutable borrow)
     let module = compiler.load_module(shader_path)?;
-    println!("\nLoaded module: {}", module.name());
-    println!("  file: {}", module.file_path());
-    println!("  identity: {}", module.unique_identity());
-    println!("  content hash: {:02x?}", &module.content_hash().as_bytes()[..8]);
+    let module_id = module.id().clone();
+    let name = module.name().to_owned();
+    let file_path = module.file_path().to_owned();
+    let content_hash = module.content_hash();
+    let entrypoints: Vec<_> = module.entrypoints().to_vec();
+    // mutable borrow ends here
+
+    println!("\nLoaded module: {}", name);
+    println!("  file: {}", file_path);
+    println!("  id: {}", module_id);
+    println!("  content hash: {:02x?}", &content_hash.as_bytes()[..8]);
 
     // List entrypoints
     println!("\nEntrypoints:");
-    for ep in module.entrypoints() {
+    for ep in &entrypoints {
         println!(
             "  {:?} {} (module: {})",
             ep.stage(),
             ep.name(),
-            ep.module_identity()
+            ep.module_id()
         );
     }
 
     // Link all entrypoints
-    let program = compiler.linker().add_all_entrypoints(&module).link()?;
+    let program = compiler.linker().add_all_entrypoints(&module_id)?.link()?;
 
     println!("\nLinked program:");
     println!("  key: {:02x?}", &program.key().0.as_bytes()[..8]);

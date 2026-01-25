@@ -9,6 +9,27 @@ use shader_slang as slang;
 
 use crate::SlangCompiler;
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ModuleId(CompactString);
+
+impl ModuleId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for ModuleId {
+    fn from(s: &str) -> Self {
+        ModuleId(s.into())
+    }
+}
+
+impl std::fmt::Display for ModuleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SlangShaderStage {
     Vertex,
@@ -29,14 +50,14 @@ impl SlangShaderStage {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SlangEntrypoint {
-    module_identity: CompactString,
+    module_id: ModuleId,
     name: CompactString,
     stage: SlangShaderStage,
 }
 
 impl SlangEntrypoint {
-    pub fn module_identity(&self) -> &str {
-        &self.module_identity
+    pub fn module_id(&self) -> &ModuleId {
+        &self.module_id
     }
 
     pub fn name(&self) -> &str {
@@ -56,15 +77,16 @@ impl PartialOrd for SlangEntrypoint {
 
 impl Ord for SlangEntrypoint {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.stage, &self.name, &self.module_identity).cmp(&(
+        (&self.stage, &self.name, &self.module_id).cmp(&(
             &other.stage,
             &other.name,
-            &other.module_identity,
+            &other.module_id,
         ))
     }
 }
 
 pub struct SlangModule {
+    id: ModuleId,
     module: slang::Module,
     content_hash: Hash,
     entrypoints: OnceCell<Vec<SlangEntrypoint>>,
@@ -72,12 +94,18 @@ pub struct SlangModule {
 
 impl SlangModule {
     pub(crate) fn new(module: slang::Module) -> Self {
+        let id = ModuleId::from(module.unique_identity());
         let content_hash = Self::compute_content_hash(&module);
         Self {
+            id,
             module,
             content_hash,
             entrypoints: OnceCell::new(),
         }
+    }
+
+    pub fn id(&self) -> &ModuleId {
+        &self.id
     }
 
     pub fn name(&self) -> &str {
@@ -86,10 +114,6 @@ impl SlangModule {
 
     pub fn file_path(&self) -> &str {
         self.module.file_path()
-    }
-
-    pub fn unique_identity(&self) -> &str {
-        self.module.unique_identity()
     }
 
     pub fn content_hash(&self) -> Hash {
@@ -116,7 +140,6 @@ impl SlangModule {
     }
 
     fn compute_entrypoints(&self) -> Vec<SlangEntrypoint> {
-        let module_identity: CompactString = self.unique_identity().into();
         let mut result = Vec::new();
 
         for slang_ep in self.module.entry_points() {
@@ -127,7 +150,7 @@ impl SlangModule {
                     if let Some(ep_layout) = layout.entry_point_by_index(0) {
                         if let Some(stage) = SlangShaderStage::from_slang(ep_layout.stage()) {
                             result.push(SlangEntrypoint {
-                                module_identity: module_identity.clone(),
+                                module_id: self.id.clone(),
                                 name: name.into(),
                                 stage,
                             });
@@ -170,78 +193,75 @@ impl SlangModule {
 pub struct SlangProgramKey(pub Hash);
 
 pub struct SlangLinker<'a> {
-    compiler: &'a mut SlangCompiler,
-    modules: BTreeSet<CompactString>,
+    compiler: &'a SlangCompiler,
+    modules: BTreeSet<ModuleId>,
     entrypoints: BTreeSet<SlangEntrypoint>,
-    module_hashes: Vec<(CompactString, Hash)>,
 }
 
 impl<'a> SlangLinker<'a> {
-    pub(crate) fn new(compiler: &'a mut SlangCompiler) -> Self {
+    pub(crate) fn new(compiler: &'a SlangCompiler) -> Self {
         Self {
             compiler,
             modules: BTreeSet::new(),
             entrypoints: BTreeSet::new(),
-            module_hashes: Vec::new(),
         }
     }
 
-    fn add_module_if_missing(&mut self, module: &SlangModule) {
-        let identity: CompactString = module.unique_identity().into();
-        if self.modules.insert(identity.clone()) {
-            self.module_hashes.push((identity, module.content_hash()));
-        }
+    fn require_module(&self, id: &ModuleId) -> Result<&SlangModule> {
+        self.compiler
+            .module(id)
+            .ok_or_else(|| anyhow::anyhow!("module '{}' not loaded in compiler", id))
     }
 
-    pub fn add_module(mut self, module: &SlangModule) -> Self {
-        self.add_module_if_missing(module);
-        self
+    pub fn add_module(mut self, id: &ModuleId) -> Result<Self> {
+        self.require_module(id)?;
+        self.modules.insert(id.clone());
+        Ok(self)
     }
 
-    pub fn add_stage(mut self, module: &SlangModule, stage: SlangShaderStage) -> Self {
-        self.add_module_if_missing(module);
-        for ep in module.entrypoints() {
-            if ep.stage == stage {
-                self.entrypoints.insert(ep.clone());
-            }
+    pub fn add_stage(mut self, id: &ModuleId, stage: SlangShaderStage) -> Result<Self> {
+        let module = self.require_module(id)?;
+        let stage_eps: Vec<_> = module
+            .entrypoints()
+            .iter()
+            .filter(|ep| ep.stage == stage)
+            .cloned()
+            .collect();
+
+        self.modules.insert(id.clone());
+        for ep in stage_eps {
+            self.entrypoints.insert(ep);
         }
-        self
+        Ok(self)
     }
 
-    pub fn add_all_entrypoints(mut self, module: &SlangModule) -> Self {
-        self.add_module_if_missing(module);
-        for ep in module.entrypoints() {
-            self.entrypoints.insert(ep.clone());
+    pub fn add_all_entrypoints(mut self, id: &ModuleId) -> Result<Self> {
+        let module = self.require_module(id)?;
+        let all_eps: Vec<_> = module.entrypoints().to_vec();
+
+        self.modules.insert(id.clone());
+        for ep in all_eps {
+            self.entrypoints.insert(ep);
         }
-        self
+        Ok(self)
     }
 
-    pub fn add_entrypoint(mut self, entrypoint: SlangEntrypoint) -> Self {
-        let identity: CompactString = entrypoint.module_identity().into();
-        if !self.modules.contains(&identity) {
-            if let Some(hash) = self.compiler.module_hash(&identity) {
-                self.modules.insert(identity.clone());
-                self.module_hashes.push((identity, hash));
-            }
-        }
+    pub fn add_entrypoint(mut self, entrypoint: SlangEntrypoint) -> Result<Self> {
+        self.require_module(entrypoint.module_id())?;
+        self.modules.insert(entrypoint.module_id().clone());
         self.entrypoints.insert(entrypoint);
-        self
+        Ok(self)
     }
 
-    pub fn link(mut self) -> Result<SlangProgram> {
+    pub fn link(self) -> Result<SlangProgram> {
         if self.entrypoints.is_empty() {
             bail!("no entrypoints to link");
         }
 
-        // Compute the program key
         let program_key = self.compute_program_key();
 
         // TODO: Check cache for existing program
-        // For now, always compile
-
-        // Actually perform the linking via shader_slang
-        // TODO: Implement actual linking
-        // For now just return a stub
+        // TODO: Perform actual linking via shader_slang
 
         Ok(SlangProgram {
             key: program_key,
@@ -249,27 +269,26 @@ impl<'a> SlangLinker<'a> {
         })
     }
 
-    fn compute_program_key(&mut self) -> SlangProgramKey {
+    fn compute_program_key(&self) -> SlangProgramKey {
         let mut hasher = Hasher::new();
 
         hasher.update(self.compiler.options_hash().0.as_bytes());
+        hasher.update(&(self.modules.len() as u32).to_le_bytes());
 
-        self.module_hashes.sort_by(|a, b| a.0.cmp(&b.0));
-        hasher.update(&(self.module_hashes.len() as u32).to_le_bytes());
-
-        for (identity, hash) in &self.module_hashes {
-            hasher.update(identity.as_bytes());
+        for module_id in &self.modules {
+            hasher.update(module_id.as_str().as_bytes());
             hasher.update(&[0]);
-            hasher.update(hash.as_bytes());
+            if let Some(module) = self.compiler.module(module_id) {
+                hasher.update(module.content_hash().as_bytes());
+            }
         }
 
         hasher.update(&(self.entrypoints.len() as u32).to_le_bytes());
-
         for ep in &self.entrypoints {
             hasher.update(&[ep.stage as u8]);
             hasher.update(ep.name.as_bytes());
             hasher.update(&[0]);
-            hasher.update(ep.module_identity.as_bytes());
+            hasher.update(ep.module_id.as_str().as_bytes());
             hasher.update(&[0]);
         }
 
