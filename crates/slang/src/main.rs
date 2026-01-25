@@ -35,9 +35,11 @@ fn main() -> Result<()> {
     }
     let mut compiler = builder.build()?;
 
+    println!("Compiler options hash: {:02x?}", &compiler.options_hash().0[..8]);
+
     // Load the module
     let module = compiler.load_module(shader_path)?;
-    println!("Loaded module: {}", module.name());
+    println!("\nLoaded module: {}", module.name());
     println!("  file: {}", module.file_path());
     println!("  identity: {}", module.unique_identity());
 
