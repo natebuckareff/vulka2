@@ -18,14 +18,29 @@ pub enum SlangType {
     Matrix(SlangMatrix),
     Struct(SlangStruct),
     Array(SlangArray),
-    DescriptorHandle(Box<SlangResource>),
+
+    /// A bare opaque resource type within a ParameterBlock struct.
+    ///
+    /// When a `Texture2D`, `SamplerState`, etc. appears as a field in a struct
+    /// used with `ParameterBlock<T>`, Slang automatically allocates descriptor
+    /// bindings for it. This variant represents such fields in the type tree.
+    ResourceHandle(Box<SlangResource>),
+
+    /// A bindless heap handle (`Texture2D.Handle` / `DescriptorHandle<T>`).
+    ///
+    /// These are integer-like handles that index into a global bindless
+    /// descriptor heap. They appear as ordinary data (u32/u64) in the struct
+    /// layout, not as descriptor bindings.
+    BindlessHandle(Box<SlangResource>),
+
     DeviceAddress,
 }
 
 impl SlangType {
     /// Get the layout information for this type.
     ///
-    /// Returns `None` for opaque types (DescriptorHandle, DeviceAddress with default layout).
+    /// Returns `None` for opaque resource handles (ResourceHandle, BindlessHandle)
+    /// which don't have a byte layout in the traditional sense.
     pub fn layout(&self) -> Option<&TypeLayout> {
         match self {
             SlangType::Scalar(s) => Some(&s.layout),
@@ -33,15 +48,16 @@ impl SlangType {
             SlangType::Matrix(m) => Some(&m.layout),
             SlangType::Struct(s) => Some(&s.layout),
             SlangType::Array(a) => Some(&a.layout),
-            SlangType::DescriptorHandle(_) => None,
+            SlangType::ResourceHandle(_) => None,
+            SlangType::BindlessHandle(_) => None,
             SlangType::DeviceAddress => None,
         }
     }
 
-    // TODO: this API feels a bit flaky
     pub fn size_bytes(&self) -> Option<u32> {
         match self {
-            SlangType::DeviceAddress => Some(8), // Device addresses are always 8 bytes
+            SlangType::DeviceAddress => Some(8),
+            SlangType::BindlessHandle(_) => Some(4), // Bindless handles are u32 indices
             _ => self.layout().map(|l| l.size.bytes),
         }
     }

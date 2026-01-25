@@ -97,5 +97,10 @@ fn main() -> Result<()> {
         }
     }
 
+    // Print layout as JSON
+    println!("\nLayout JSON:");
+    let layout_json = serde_json::to_string_pretty(program.layout())?;
+    println!("{}", layout_json);
+
     Ok(())
 }
