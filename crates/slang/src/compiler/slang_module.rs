@@ -6,7 +6,7 @@ use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use shader_slang as slang;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
 pub struct ModuleId(CompactString);
 
 impl ModuleId {
@@ -196,6 +196,14 @@ pub struct SlangEntrypoint {
 }
 
 impl SlangEntrypoint {
+    pub(crate) fn new(module_id: ModuleId, name: CompactString, stage: SlangShaderStage) -> Self {
+        Self {
+            module_id,
+            name,
+            stage,
+        }
+    }
+
     pub fn module_id(&self) -> &ModuleId {
         &self.module_id
     }
