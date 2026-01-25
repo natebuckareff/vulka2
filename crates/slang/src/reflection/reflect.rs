@@ -10,9 +10,11 @@ use compact_str::CompactString;
 use shader_slang::{self as slang, ParameterCategory};
 use vulkanalia::vk;
 
-use super::layout::{DescriptorBindingLayout, DescriptorCount, DescriptorSetLayout, SlangLayout};
+use super::layout::{
+    DescriptorBindingLayout, DescriptorCount, DescriptorSetLayout, PushConstantLayout, SlangLayout,
+};
 use super::reflect_type::reflect_type;
-use super::types::SlangResource;
+use super::types::{SlangResource, SlangStruct, SlangType};
 
 /// Extract complete layout information from a linked Slang program.
 ///
@@ -24,31 +26,42 @@ pub fn reflect_layout(program: &slang::ComponentType) -> Result<SlangLayout> {
         .layout(0)
         .map_err(|e| anyhow::anyhow!("failed to get program layout: {}", e))?;
 
-    // Collector for descriptor bindings, keyed by (set, binding)
+    // Collectors
     let mut bindings: BTreeMap<(u32, u32), DescriptorBindingLayout> = BTreeMap::new();
-    let mut stages = vk::ShaderStageFlags::empty();
+    let mut push_constant: Option<(SlangStruct, vk::ShaderStageFlags)> = None;
 
     // Reflect global scope parameters
     if let Some(global_scope) = shader.global_params_var_layout() {
-        reflect_scope(global_scope, &mut bindings, vk::ShaderStageFlags::ALL)?;
+        reflect_scope(
+            global_scope,
+            &mut bindings,
+            &mut push_constant,
+            vk::ShaderStageFlags::ALL,
+        )?;
     }
 
     // Reflect entry point parameters
     for entry_point in shader.entry_points() {
         let stage_flag = stage_to_vk(entry_point.stage());
-        stages |= stage_flag;
 
         if let Some(var_layout) = entry_point.var_layout() {
-            reflect_scope(var_layout, &mut bindings, stage_flag)?;
+            reflect_scope(var_layout, &mut bindings, &mut push_constant, stage_flag)?;
         }
     }
 
     // Organize bindings into descriptor set layouts
     let descriptor_sets = organize_descriptor_sets(bindings);
 
+    // Build push constant layout
+    let push_constants = push_constant.map(|(ty, stages)| PushConstantLayout {
+        stages,
+        size_bytes: ty.layout.size.bytes,
+        ty,
+    });
+
     Ok(SlangLayout {
         bindless_heap: None,
-        push_constants: None,
+        push_constants,
         descriptor_sets,
         parameter_blocks: Vec::new(),
         entrypoints: Vec::new(),
@@ -87,6 +100,7 @@ fn stage_to_vk(stage: slang::Stage) -> vk::ShaderStageFlags {
 fn reflect_scope(
     scope_var_layout: &slang::reflection::VariableLayout,
     bindings: &mut BTreeMap<(u32, u32), DescriptorBindingLayout>,
+    push_constant: &mut Option<(SlangStruct, vk::ShaderStageFlags)>,
     stages: vk::ShaderStageFlags,
 ) -> Result<()> {
     let Some(scope_type_layout) = scope_var_layout.type_layout() else {
@@ -99,19 +113,19 @@ fn reflect_scope(
             // Global scope was wrapped in an implicit constant buffer
             // Container has the constant buffer binding, element has the parameters
             if let Some(element_var) = scope_type_layout.element_var_layout() {
-                reflect_scope_parameters(element_var, bindings, stages)?;
+                reflect_scope_parameters(element_var, bindings, push_constant, stages)?;
             }
         }
         slang::TypeKind::ParameterBlock => {
             // Global scope was wrapped in an implicit parameter block
             // This means a whole descriptor set was allocated
             if let Some(element_var) = scope_type_layout.element_var_layout() {
-                reflect_scope_parameters(element_var, bindings, stages)?;
+                reflect_scope_parameters(element_var, bindings, push_constant, stages)?;
             }
         }
         slang::TypeKind::Struct => {
             // Simple case: scope is just a struct of parameters
-            reflect_scope_parameters(scope_var_layout, bindings, stages)?;
+            reflect_scope_parameters(scope_var_layout, bindings, push_constant, stages)?;
         }
         _ => {
             // Unexpected scope type
@@ -125,6 +139,7 @@ fn reflect_scope(
 fn reflect_scope_parameters(
     scope_var_layout: &slang::reflection::VariableLayout,
     bindings: &mut BTreeMap<(u32, u32), DescriptorBindingLayout>,
+    push_constant: &mut Option<(SlangStruct, vk::ShaderStageFlags)>,
     stages: vk::ShaderStageFlags,
 ) -> Result<()> {
     let Some(scope_type_layout) = scope_var_layout.type_layout() else {
@@ -133,7 +148,7 @@ fn reflect_scope_parameters(
 
     // Walk fields of the scope struct
     for field in scope_type_layout.fields() {
-        reflect_parameter(field, bindings, stages)?;
+        reflect_parameter(field, bindings, push_constant, stages)?;
     }
 
     Ok(())
@@ -143,6 +158,7 @@ fn reflect_scope_parameters(
 fn reflect_parameter(
     var_layout: &slang::reflection::VariableLayout,
     bindings: &mut BTreeMap<(u32, u32), DescriptorBindingLayout>,
+    push_constant: &mut Option<(SlangStruct, vk::ShaderStageFlags)>,
     stages: vk::ShaderStageFlags,
 ) -> Result<()> {
     let Some(type_layout) = var_layout.type_layout() else {
@@ -153,6 +169,33 @@ fn reflect_parameter(
         .name()
         .map(CompactString::from)
         .unwrap_or_default();
+
+    // Check if this is a push constant
+    let is_push_constant = var_layout
+        .categories()
+        .any(|c| c == ParameterCategory::PushConstantBuffer);
+
+    if is_push_constant {
+        // Extract the push constant struct type
+        // Push constants are declared as `ConstantBuffer<T>`, so we need to get the element type
+        let type_to_reflect = if type_layout.kind() == slang::TypeKind::ConstantBuffer {
+            type_layout.element_type_layout().unwrap_or(type_layout)
+        } else {
+            type_layout
+        };
+
+        if let Ok(SlangType::Struct(struct_type)) = reflect_type(type_to_reflect) {
+            // Merge stages if we've already seen a push constant
+            if let Some((_, existing_stages)) = push_constant {
+                *existing_stages |= stages;
+            } else {
+                *push_constant = Some((struct_type, stages));
+            }
+        }
+
+        // Don't recurse into push constants
+        return Ok(());
+    }
 
     // Check if this is a descriptor binding
     let has_binding = var_layout
@@ -168,10 +211,10 @@ fn reflect_parameter(
         if let Ok(slang_type) = reflect_type(type_layout) {
             // Extract resource type - handle both direct resources and arrays of resources
             let (resource, count) = match &slang_type {
-                super::types::SlangType::ResourceHandle(res) => {
+                SlangType::ResourceHandle(res) => {
                     (Some((**res).clone()), DescriptorCount::Count(1))
                 }
-                super::types::SlangType::Array(arr) => {
+                SlangType::Array(arr) => {
                     // Check if element is a resource
                     if let Some(res) = extract_resource(&arr.element_type) {
                         let count = if arr.element_count == 0 || arr.element_count == u32::MAX {
@@ -217,12 +260,12 @@ fn reflect_parameter(
     match type_layout.kind() {
         slang::TypeKind::Struct => {
             for field in type_layout.fields() {
-                reflect_parameter(field, bindings, stages)?;
+                reflect_parameter(field, bindings, push_constant, stages)?;
             }
         }
         slang::TypeKind::ConstantBuffer | slang::TypeKind::ParameterBlock => {
             if let Some(element_var) = type_layout.element_var_layout() {
-                reflect_parameter(element_var, bindings, stages)?;
+                reflect_parameter(element_var, bindings, push_constant, stages)?;
             }
         }
         _ => {}
@@ -232,9 +275,9 @@ fn reflect_parameter(
 }
 
 /// Extract a SlangResource from a SlangType, if it's a resource handle.
-fn extract_resource(ty: &super::types::SlangType) -> Option<SlangResource> {
+fn extract_resource(ty: &SlangType) -> Option<SlangResource> {
     match ty {
-        super::types::SlangType::ResourceHandle(resource) => Some((**resource).clone()),
+        SlangType::ResourceHandle(resource) => Some((**resource).clone()),
         _ => None,
     }
 }

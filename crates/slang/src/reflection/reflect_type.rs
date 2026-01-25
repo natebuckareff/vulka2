@@ -28,6 +28,10 @@ pub fn reflect_type(type_layout: &slang::reflection::TypeLayout) -> Result<Slang
             }
             bail!("failed to get element type from container")
         }
+        TypeKind::Pointer => {
+            // Pointer types in Slang are GPU buffer device addresses (BDA)
+            Ok(SlangType::DeviceAddress)
+        }
         _ => {
             // For unknown types, try to get the name and bail
             let name = type_layout.name().unwrap_or("<unknown>");
