@@ -7,7 +7,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use blake3::{Hash, Hasher};
 use shader_slang as slang;
 
-use crate::compiler::slang_linker::{ModuleId, SlangLinker, SlangModule};
+use crate::{ModuleId, SlangLinker, SlangModule};
 
 pub const SLANG_CACHE_KEY_VERSION: u8 = 1;
 
