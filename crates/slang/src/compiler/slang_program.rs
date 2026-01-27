@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use blake3::{Hash, Hasher};
 
-use crate::{SlangEntrypoint, SlangLayout, SlangLayoutDirect, SlangShaderStage};
+use crate::{LayoutIr, SlangEntrypoint, SlangShaderStage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SlangProgramKey(pub Hash);
@@ -63,7 +63,7 @@ impl AsRef<[u32]> for SpirvCode {
 /// A compiled shader program containing SPIR-V code for all linked entrypoints.
 pub struct SlangProgram {
     key: SlangProgramKey,
-    layout: SlangLayoutDirect,
+    layout: LayoutIr,
     entrypoints: Vec<SlangEntrypoint>,
     code: HashMap<SlangEntrypoint, SpirvCode>,
 }
@@ -71,7 +71,7 @@ pub struct SlangProgram {
 impl SlangProgram {
     pub(crate) fn new(
         key: SlangProgramKey,
-        layout: SlangLayoutDirect,
+        layout: LayoutIr,
         entrypoints: Vec<SlangEntrypoint>,
         code: HashMap<SlangEntrypoint, SpirvCode>,
     ) -> Arc<Self> {
@@ -87,7 +87,7 @@ impl SlangProgram {
         self.key
     }
 
-    pub fn layout(&self) -> &SlangLayoutDirect {
+    pub fn layout(&self) -> &LayoutIr {
         &self.layout
     }
 
@@ -222,7 +222,7 @@ impl SlangPipelineProgram {
         self.program.key()
     }
 
-    pub fn layout(&self) -> &SlangLayoutDirect {
+    pub fn layout(&self) -> &LayoutIr {
         self.program.layout()
     }
 

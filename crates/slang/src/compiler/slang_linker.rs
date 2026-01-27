@@ -6,8 +6,8 @@ use blake3::Hasher;
 use shader_slang as slang;
 
 use crate::{
-    ModuleId, SlangCompiler, SlangEntrypoint, SlangLayout, SlangModule, SlangProgram,
-    SlangProgramKey, SlangShaderStage, SpirvCode, SpirvCodeKey, walk_program,
+    ModuleId, SlangCompiler, SlangEntrypoint, SlangModule, SlangProgram, SlangProgramKey,
+    SlangShaderStage, SpirvCode, SpirvCodeKey, walk_program,
 };
 
 pub struct SlangLinker<'a> {
