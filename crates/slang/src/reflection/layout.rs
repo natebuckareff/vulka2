@@ -213,6 +213,8 @@ pub enum ParameterBlockScope {
     Global,
     /// Scoped to a specific entrypoint.
     Entrypoint(SlangEntrypoint),
+    /// Nested within another parameter block.
+    Nested(Box<ParameterBlockScope>),
 }
 
 /// Binding information for ordinary (uniform/constant) data within a parameter block.
