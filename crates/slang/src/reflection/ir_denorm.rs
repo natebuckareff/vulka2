@@ -4,8 +4,8 @@ use shader_slang as slang;
 
 use super::{
     BindingRangeIr, CategoryLayoutIr, CategoryOffsetIr, DescriptorSetIr, EntryPointIr,
-    FieldIr as FieldIrNorm, LayoutIr, ScopeIr, SlangEnumValue,
-    TypeLayoutId, VarLayoutId,
+    FieldIr as FieldIrNorm, LayoutIr, ScopeIr, SlangEnumValue, TypeDeclId, TypeLayoutId,
+    VarLayoutId,
 };
 use super::SlangUnit;
 use crate::reflection::serde_slang::serde_binding_type;
@@ -145,6 +145,7 @@ impl<'a> Denormalizer<'a> {
             .types
             .get(id.0 as usize)
             .with_context(|| format!("missing type layout {id:?}"))?;
+        let type_decl = self.type_decl(type_layout.decl)?;
 
         let fields = type_layout
             .fields
@@ -194,8 +195,8 @@ impl<'a> Denormalizer<'a> {
             .collect::<Result<Vec<_>>>()?;
 
         Ok(TypeLayoutIrDenorm {
-            name: type_layout.name.clone(),
-            kind: type_layout.kind.clone(),
+            name: type_decl.name.clone(),
+            kind: type_decl.kind.clone(),
             categories: type_layout.categories.clone(),
             size: type_layout.size,
             alignment_bytes: type_layout.alignment_bytes,
@@ -215,8 +216,25 @@ impl<'a> Denormalizer<'a> {
 
     fn denorm_field(&self, field: &FieldIrNorm) -> Result<FieldIrDenorm> {
         Ok(FieldIrDenorm {
-            name: field.name.clone(),
+            name: self.var_name(field.var)?,
             var: self.denorm_var_layout(field.var, DenormContext::Full)?,
         })
     }
+
+    fn var_name(&self, var_layout: VarLayoutId) -> Result<String> {
+        let var_layout = self
+            .layout
+            .vars
+            .get(var_layout.0 as usize)
+            .with_context(|| format!("missing var layout {var_layout:?}"))?;
+        Ok(var_layout.name.clone().unwrap_or_default())
+    }
+
+    fn type_decl(&self, id: TypeDeclId) -> Result<&'a super::TypeDeclIr> {
+        self.layout
+            .type_decls
+            .get(id.0 as usize)
+            .with_context(|| format!("missing type decl {id:?}"))
+    }
+
 }

@@ -1,6 +1,5 @@
 ---
 source: crates/slang/tests/shader_slang_param_block_example_ir_normalized.rs
-assertion_line: 24
 expression: layout_json
 ---
 {
@@ -19,13 +18,214 @@ expression: layout_json
       }
     }
   ],
-  "types": [
+  "type_decls": [
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      }
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      }
+    },
+    {
+      "name": "PushData",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      }
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      }
+    },
+    {
+      "name": "DirectionalLight",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      }
+    },
+    {
+      "name": "_Texture",
+      "kind": {
+        "name": "Resource",
+        "value": 7
+      }
+    },
+    {
+      "name": "SamplerComparisonState",
+      "kind": {
+        "name": "SamplerState",
+        "value": 8
+      }
+    },
+    {
+      "name": "matrix",
+      "kind": {
+        "name": "Matrix",
+        "value": 3
+      }
+    },
+    {
+      "name": "ShadowedLight",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      }
+    },
+    {
+      "name": "_Texture",
+      "kind": {
+        "name": "Resource",
+        "value": 7
+      }
+    },
+    {
+      "name": "SamplerState",
+      "kind": {
+        "name": "SamplerState",
+        "value": 8
+      }
+    },
+    {
+      "name": "EnvironmentMap",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      }
+    },
+    {
+      "name": "RWStructuredBuffer",
+      "kind": {
+        "name": "Resource",
+        "value": 7
+      }
+    },
+    {
+      "name": "Environment",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      }
+    },
+    {
+      "name": "View",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      }
+    },
+    {
+      "name": "Material",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      }
+    },
+    {
+      "name": "Mesh",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      }
+    },
+    {
+      "name": "ConstantBuffer",
+      "kind": {
+        "name": "ConstantBuffer",
+        "value": 6
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      }
+    },
+    {
+      "name": "ParameterBlock",
+      "kind": {
+        "name": "ParameterBlock",
+        "value": 11
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      }
+    },
+    {
+      "name": "ParameterBlock",
+      "kind": {
+        "name": "ParameterBlock",
+        "value": 11
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      }
+    },
+    {
+      "name": "ParameterBlock",
+      "kind": {
+        "name": "ParameterBlock",
+        "value": 11
+      }
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      }
+    },
+    {
+      "name": "ParameterBlock",
+      "kind": {
+        "name": "ParameterBlock",
+        "value": 11
+      }
+    },
     {
       "name": null,
       "kind": {
         "name": "Struct",
         "value": 1
-      },
+      }
+    },
+    {
+      "name": "main",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      }
+    }
+  ],
+  "types": [
+    {
+      "decl": 27,
       "categories": [],
       "size": {
         "set_spaces": 0,
@@ -105,40 +305,35 @@ expression: layout_json
           "binding_range_index": 2,
           "binding_type": "ParameterBlock",
           "space_offset": 0,
-          "leaf_element_type_layout": 22
+          "leaf_element_type_layout": 16
         },
         {
           "binding_range_index": 3,
           "binding_type": "ParameterBlock",
           "space_offset": 0,
-          "leaf_element_type_layout": 29
+          "leaf_element_type_layout": 17
         },
         {
           "binding_range_index": 4,
           "binding_type": "ParameterBlock",
           "space_offset": 0,
-          "leaf_element_type_layout": 34
+          "leaf_element_type_layout": 18
         }
       ],
       "fields": [
         {
-          "name": "pushData",
           "var": 21
         },
         {
-          "name": "environment",
           "var": 24
         },
         {
-          "name": "view",
           "var": 30
         },
         {
-          "name": "material",
           "var": 33
         },
         {
-          "name": "mesh",
           "var": 40
         }
       ],
@@ -148,11 +343,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "PushData",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 2,
       "categories": [
         {
           "category": {
@@ -182,7 +373,6 @@ expression: layout_json
       "sub_object_ranges": [],
       "fields": [
         {
-          "name": "color",
           "var": 1
         }
       ],
@@ -192,11 +382,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "vector",
-      "kind": {
-        "name": "Vector",
-        "value": 4
-      },
+      "decl": 1,
       "categories": [
         {
           "category": {
@@ -231,11 +417,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "float",
-      "kind": {
-        "name": "Scalar",
-        "value": 5
-      },
+      "decl": 0,
       "categories": [
         {
           "category": {
@@ -270,11 +452,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "Environment",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 13,
       "categories": [
         {
           "category": {
@@ -393,20 +571,17 @@ expression: layout_json
           "binding_range_index": 4,
           "binding_type": "MutableRawBuffer",
           "space_offset": 0,
-          "leaf_element_type_layout": 5
+          "leaf_element_type_layout": 2
         }
       ],
       "fields": [
         {
-          "name": "sunLight",
           "var": 2
         },
         {
-          "name": "envMap",
           "var": 9
         },
         {
-          "name": "output",
           "var": 12
         }
       ],
@@ -416,89 +591,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "vector",
-      "kind": {
-        "name": "Vector",
-        "value": 4
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 16,
-          "alignment": 16,
-          "stride": 16
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "alignment_bytes": 16,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "stride_bytes": 16,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 6,
-      "element_count": 4,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "float",
-      "kind": {
-        "name": "Scalar",
-        "value": 5
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 4,
-          "alignment": 4,
-          "stride": 4
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "stride_bytes": 4,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "ShadowedLight",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 8,
       "categories": [
         {
           "category": {
@@ -573,19 +666,15 @@ expression: layout_json
       "sub_object_ranges": [],
       "fields": [
         {
-          "name": "light",
           "var": 3
         },
         {
-          "name": "shadowMap",
           "var": 6
         },
         {
-          "name": "shadowSampler",
           "var": 7
         },
         {
-          "name": "worldToShadow",
           "var": 8
         }
       ],
@@ -595,11 +684,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "DirectionalLight",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 4,
       "categories": [
         {
           "category": {
@@ -629,11 +714,9 @@ expression: layout_json
       "sub_object_ranges": [],
       "fields": [
         {
-          "name": "dir",
           "var": 4
         },
         {
-          "name": "intensity",
           "var": 5
         }
       ],
@@ -643,11 +726,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "vector",
-      "kind": {
-        "name": "Vector",
-        "value": 4
-      },
+      "decl": 3,
       "categories": [
         {
           "category": {
@@ -676,134 +755,13 @@ expression: layout_json
       "descriptor_sets": [],
       "sub_object_ranges": [],
       "fields": [],
-      "element": 10,
+      "element": 3,
       "element_count": 3,
       "container": null,
       "contained": null
     },
     {
-      "name": "float",
-      "kind": {
-        "name": "Scalar",
-        "value": 5
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 4,
-          "alignment": 4,
-          "stride": 4
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "stride_bytes": 4,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "vector",
-      "kind": {
-        "name": "Vector",
-        "value": 4
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 12,
-          "alignment": 16,
-          "stride": 16
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 12
-      },
-      "alignment_bytes": 16,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "stride_bytes": 16,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 12,
-      "element_count": 3,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "float",
-      "kind": {
-        "name": "Scalar",
-        "value": 5
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 4,
-          "alignment": 4,
-          "stride": 4
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "stride_bytes": 4,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "_Texture",
-      "kind": {
-        "name": "Resource",
-        "value": 7
-      },
+      "decl": 5,
       "categories": [
         {
           "category": {
@@ -860,11 +818,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "SamplerComparisonState",
-      "kind": {
-        "name": "SamplerState",
-        "value": 8
-      },
+      "decl": 6,
       "categories": [
         {
           "category": {
@@ -921,11 +875,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "matrix",
-      "kind": {
-        "name": "Matrix",
-        "value": 3
-      },
+      "decl": 7,
       "categories": [
         {
           "category": {
@@ -957,17 +907,13 @@ expression: layout_json
       "descriptor_sets": [],
       "sub_object_ranges": [],
       "fields": [],
-      "element": 16,
+      "element": 11,
       "element_count": 0,
       "container": null,
       "contained": null
     },
     {
-      "name": "vector",
-      "kind": {
-        "name": "Vector",
-        "value": 4
-      },
+      "decl": 1,
       "categories": [
         {
           "category": {
@@ -996,56 +942,13 @@ expression: layout_json
       "descriptor_sets": [],
       "sub_object_ranges": [],
       "fields": [],
-      "element": 17,
+      "element": 3,
       "element_count": 4,
       "container": null,
       "contained": null
     },
     {
-      "name": "float",
-      "kind": {
-        "name": "Scalar",
-        "value": 5
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 4,
-          "alignment": 4,
-          "stride": 4
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "stride_bytes": 4,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "EnvironmentMap",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 11,
       "categories": [
         {
           "category": {
@@ -1111,11 +1014,9 @@ expression: layout_json
       "sub_object_ranges": [],
       "fields": [
         {
-          "name": "texture",
           "var": 10
         },
         {
-          "name": "sampler",
           "var": 11
         }
       ],
@@ -1125,11 +1026,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "_Texture",
-      "kind": {
-        "name": "Resource",
-        "value": 7
-      },
+      "decl": 9,
       "categories": [
         {
           "category": {
@@ -1186,11 +1083,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "SamplerState",
-      "kind": {
-        "name": "SamplerState",
-        "value": 8
-      },
+      "decl": 10,
       "categories": [
         {
           "category": {
@@ -1247,11 +1140,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "RWStructuredBuffer",
-      "kind": {
-        "name": "Resource",
-        "value": 7
-      },
+      "decl": 12,
       "categories": [
         {
           "category": {
@@ -1305,21 +1194,17 @@ expression: layout_json
           "binding_range_index": 0,
           "binding_type": "MutableRawBuffer",
           "space_offset": 0,
-          "leaf_element_type_layout": 5
+          "leaf_element_type_layout": 2
         }
       ],
       "fields": [],
-      "element": 5,
+      "element": 2,
       "element_count": 0,
       "container": null,
       "contained": null
     },
     {
-      "name": "View",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 14,
       "categories": [
         {
           "category": {
@@ -1349,11 +1234,9 @@ expression: layout_json
       "sub_object_ranges": [],
       "fields": [
         {
-          "name": "worldToView",
           "var": 13
         },
         {
-          "name": "viewToProj",
           "var": 14
         }
       ],
@@ -1363,251 +1246,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "matrix",
-      "kind": {
-        "name": "Matrix",
-        "value": 3
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 64,
-          "alignment": 16,
-          "stride": 64
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 64
-      },
-      "alignment_bytes": 16,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 64
-      },
-      "stride_bytes": 64,
-      "matrix_layout_mode": {
-        "name": "RowMajor",
-        "value": 1
-      },
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 24,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "vector",
-      "kind": {
-        "name": "Vector",
-        "value": 4
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 16,
-          "alignment": 4,
-          "stride": 16
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "stride_bytes": 16,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 25,
-      "element_count": 4,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "float",
-      "kind": {
-        "name": "Scalar",
-        "value": 5
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 4,
-          "alignment": 4,
-          "stride": 4
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "stride_bytes": 4,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "matrix",
-      "kind": {
-        "name": "Matrix",
-        "value": 3
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 64,
-          "alignment": 16,
-          "stride": 64
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 64
-      },
-      "alignment_bytes": 16,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 64
-      },
-      "stride_bytes": 64,
-      "matrix_layout_mode": {
-        "name": "RowMajor",
-        "value": 1
-      },
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 27,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "vector",
-      "kind": {
-        "name": "Vector",
-        "value": 4
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 16,
-          "alignment": 4,
-          "stride": 16
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "stride_bytes": 16,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 28,
-      "element_count": 4,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "float",
-      "kind": {
-        "name": "Scalar",
-        "value": 5
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 4,
-          "alignment": 4,
-          "stride": 4
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "stride_bytes": 4,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "Material",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 15,
       "categories": [
         {
           "category": {
@@ -1701,19 +1340,15 @@ expression: layout_json
       "sub_object_ranges": [],
       "fields": [
         {
-          "name": "albedoMap",
           "var": 15
         },
         {
-          "name": "glossMap",
           "var": 16
         },
         {
-          "name": "normalMap",
           "var": 17
         },
         {
-          "name": "sampler",
           "var": 18
         }
       ],
@@ -1723,255 +1358,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "_Texture",
-      "kind": {
-        "name": "Resource",
-        "value": 7
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "DescriptorTableSlot",
-            "value": 9
-          },
-          "size": 1,
-          "alignment": 1,
-          "stride": 1
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 1,
-        "bytes": 0
-      },
-      "alignment_bytes": 1,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 1,
-        "bytes": 0
-      },
-      "stride_bytes": 0,
-      "matrix_layout_mode": null,
-      "binding_ranges": [
-        {
-          "binding_range_index": 0,
-          "binding_type": "Texture",
-          "count": 1,
-          "first_descriptor_range_index": 0
-        }
-      ],
-      "descriptor_sets": [
-        {
-          "set_index": 0,
-          "space_offset": 0,
-          "ranges": [
-            {
-              "binding_type": "Texture",
-              "descriptor_count": 1,
-              "category": {
-                "name": "DescriptorTableSlot",
-                "value": 9
-              }
-            }
-          ]
-        }
-      ],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "_Texture",
-      "kind": {
-        "name": "Resource",
-        "value": 7
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "DescriptorTableSlot",
-            "value": 9
-          },
-          "size": 1,
-          "alignment": 1,
-          "stride": 1
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 1,
-        "bytes": 0
-      },
-      "alignment_bytes": 1,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 1,
-        "bytes": 0
-      },
-      "stride_bytes": 0,
-      "matrix_layout_mode": null,
-      "binding_ranges": [
-        {
-          "binding_range_index": 0,
-          "binding_type": "Texture",
-          "count": 1,
-          "first_descriptor_range_index": 0
-        }
-      ],
-      "descriptor_sets": [
-        {
-          "set_index": 0,
-          "space_offset": 0,
-          "ranges": [
-            {
-              "binding_type": "Texture",
-              "descriptor_count": 1,
-              "category": {
-                "name": "DescriptorTableSlot",
-                "value": 9
-              }
-            }
-          ]
-        }
-      ],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "_Texture",
-      "kind": {
-        "name": "Resource",
-        "value": 7
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "DescriptorTableSlot",
-            "value": 9
-          },
-          "size": 1,
-          "alignment": 1,
-          "stride": 1
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 1,
-        "bytes": 0
-      },
-      "alignment_bytes": 1,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 1,
-        "bytes": 0
-      },
-      "stride_bytes": 0,
-      "matrix_layout_mode": null,
-      "binding_ranges": [
-        {
-          "binding_range_index": 0,
-          "binding_type": "Texture",
-          "count": 1,
-          "first_descriptor_range_index": 0
-        }
-      ],
-      "descriptor_sets": [
-        {
-          "set_index": 0,
-          "space_offset": 0,
-          "ranges": [
-            {
-              "binding_type": "Texture",
-              "descriptor_count": 1,
-              "category": {
-                "name": "DescriptorTableSlot",
-                "value": 9
-              }
-            }
-          ]
-        }
-      ],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "SamplerState",
-      "kind": {
-        "name": "SamplerState",
-        "value": 8
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "DescriptorTableSlot",
-            "value": 9
-          },
-          "size": 1,
-          "alignment": 1,
-          "stride": 1
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 1,
-        "bytes": 0
-      },
-      "alignment_bytes": 1,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 1,
-        "bytes": 0
-      },
-      "stride_bytes": 0,
-      "matrix_layout_mode": null,
-      "binding_ranges": [
-        {
-          "binding_range_index": 0,
-          "binding_type": "Sampler",
-          "count": 1,
-          "first_descriptor_range_index": 0
-        }
-      ],
-      "descriptor_sets": [
-        {
-          "set_index": 0,
-          "space_offset": 0,
-          "ranges": [
-            {
-              "binding_type": "Sampler",
-              "descriptor_count": 1,
-              "category": {
-                "name": "DescriptorTableSlot",
-                "value": 9
-              }
-            }
-          ]
-        }
-      ],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "Mesh",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 16,
       "categories": [
         {
           "category": {
@@ -2001,11 +1388,9 @@ expression: layout_json
       "sub_object_ranges": [],
       "fields": [
         {
-          "name": "modelToWorld",
           "var": 19
         },
         {
-          "name": "modelToWorld_inverseTranspose",
           "var": 20
         }
       ],
@@ -2015,251 +1400,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "matrix",
-      "kind": {
-        "name": "Matrix",
-        "value": 3
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 64,
-          "alignment": 16,
-          "stride": 64
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 64
-      },
-      "alignment_bytes": 16,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 64
-      },
-      "stride_bytes": 64,
-      "matrix_layout_mode": {
-        "name": "RowMajor",
-        "value": 1
-      },
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 36,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "vector",
-      "kind": {
-        "name": "Vector",
-        "value": 4
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 16,
-          "alignment": 4,
-          "stride": 16
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "stride_bytes": 16,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 37,
-      "element_count": 4,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "float",
-      "kind": {
-        "name": "Scalar",
-        "value": 5
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 4,
-          "alignment": 4,
-          "stride": 4
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "stride_bytes": 4,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "matrix",
-      "kind": {
-        "name": "Matrix",
-        "value": 3
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 64,
-          "alignment": 16,
-          "stride": 64
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 64
-      },
-      "alignment_bytes": 16,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 64
-      },
-      "stride_bytes": 64,
-      "matrix_layout_mode": {
-        "name": "RowMajor",
-        "value": 1
-      },
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 39,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "vector",
-      "kind": {
-        "name": "Vector",
-        "value": 4
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 16,
-          "alignment": 4,
-          "stride": 16
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 16
-      },
-      "stride_bytes": 16,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": 40,
-      "element_count": 4,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "float",
-      "kind": {
-        "name": "Scalar",
-        "value": 5
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "Uniform",
-            "value": 8
-          },
-          "size": 4,
-          "alignment": 4,
-          "stride": 4
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "alignment_bytes": 4,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 0,
-        "bytes": 4
-      },
-      "stride_bytes": 4,
-      "matrix_layout_mode": null,
-      "binding_ranges": [],
-      "descriptor_sets": [],
-      "sub_object_ranges": [],
-      "fields": [],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "ConstantBuffer",
-      "kind": {
-        "name": "ConstantBuffer",
-        "value": 6
-      },
+      "decl": 18,
       "categories": [
         {
           "category": {
@@ -2323,11 +1464,7 @@ expression: layout_json
       "contained": 23
     },
     {
-      "name": null,
-      "kind": {
-        "name": "None",
-        "value": 0
-      },
+      "decl": 17,
       "categories": [
         {
           "category": {
@@ -2384,11 +1521,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "ParameterBlock",
-      "kind": {
-        "name": "ParameterBlock",
-        "value": 11
-      },
+      "decl": 20,
       "categories": [
         {
           "category": {
@@ -2437,11 +1570,7 @@ expression: layout_json
       "contained": 26
     },
     {
-      "name": null,
-      "kind": {
-        "name": "None",
-        "value": 0
-      },
+      "decl": 19,
       "categories": [
         {
           "category": {
@@ -2485,11 +1614,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "Environment",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 13,
       "categories": [
         {
           "category": {
@@ -2608,20 +1733,17 @@ expression: layout_json
           "binding_range_index": 4,
           "binding_type": "MutableRawBuffer",
           "space_offset": 0,
-          "leaf_element_type_layout": 5
+          "leaf_element_type_layout": 2
         }
       ],
       "fields": [
         {
-          "name": "sunLight",
           "var": 27
         },
         {
-          "name": "envMap",
           "var": 28
         },
         {
-          "name": "output",
           "var": 29
         }
       ],
@@ -2631,11 +1753,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "ParameterBlock",
-      "kind": {
-        "name": "ParameterBlock",
-        "value": 11
-      },
+      "decl": 22,
       "categories": [
         {
           "category": {
@@ -2674,21 +1792,17 @@ expression: layout_json
           "binding_range_index": 0,
           "binding_type": "ParameterBlock",
           "space_offset": 0,
-          "leaf_element_type_layout": 22
+          "leaf_element_type_layout": 16
         }
       ],
       "fields": [],
-      "element": 22,
+      "element": 16,
       "element_count": 0,
       "container": 31,
       "contained": 32
     },
     {
-      "name": null,
-      "kind": {
-        "name": "None",
-        "value": 0
-      },
+      "decl": 21,
       "categories": [
         {
           "category": {
@@ -2732,11 +1846,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "ParameterBlock",
-      "kind": {
-        "name": "ParameterBlock",
-        "value": 11
-      },
+      "decl": 24,
       "categories": [
         {
           "category": {
@@ -2775,21 +1885,17 @@ expression: layout_json
           "binding_range_index": 0,
           "binding_type": "ParameterBlock",
           "space_offset": 0,
-          "leaf_element_type_layout": 29
+          "leaf_element_type_layout": 17
         }
       ],
       "fields": [],
-      "element": 29,
+      "element": 17,
       "element_count": 0,
       "container": 34,
       "contained": 35
     },
     {
-      "name": null,
-      "kind": {
-        "name": "None",
-        "value": 0
-      },
+      "decl": 23,
       "categories": [
         {
           "category": {
@@ -2824,131 +1930,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "Material",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
-      "categories": [
-        {
-          "category": {
-            "name": "DescriptorTableSlot",
-            "value": 9
-          },
-          "size": 4,
-          "alignment": 1,
-          "stride": 4
-        }
-      ],
-      "size": {
-        "set_spaces": 0,
-        "binding_slots": 4,
-        "bytes": 0
-      },
-      "alignment_bytes": 16,
-      "stride": {
-        "set_spaces": 0,
-        "binding_slots": 4,
-        "bytes": 0
-      },
-      "stride_bytes": 0,
-      "matrix_layout_mode": null,
-      "binding_ranges": [
-        {
-          "binding_range_index": 0,
-          "binding_type": "Texture",
-          "count": 1,
-          "first_descriptor_range_index": 0
-        },
-        {
-          "binding_range_index": 1,
-          "binding_type": "Texture",
-          "count": 1,
-          "first_descriptor_range_index": 1
-        },
-        {
-          "binding_range_index": 2,
-          "binding_type": "Texture",
-          "count": 1,
-          "first_descriptor_range_index": 2
-        },
-        {
-          "binding_range_index": 3,
-          "binding_type": "Sampler",
-          "count": 1,
-          "first_descriptor_range_index": 3
-        }
-      ],
-      "descriptor_sets": [
-        {
-          "set_index": 0,
-          "space_offset": 0,
-          "ranges": [
-            {
-              "binding_type": "Texture",
-              "descriptor_count": 1,
-              "category": {
-                "name": "DescriptorTableSlot",
-                "value": 9
-              }
-            },
-            {
-              "binding_type": "Texture",
-              "descriptor_count": 1,
-              "category": {
-                "name": "DescriptorTableSlot",
-                "value": 9
-              }
-            },
-            {
-              "binding_type": "Texture",
-              "descriptor_count": 1,
-              "category": {
-                "name": "DescriptorTableSlot",
-                "value": 9
-              }
-            },
-            {
-              "binding_type": "Sampler",
-              "descriptor_count": 1,
-              "category": {
-                "name": "DescriptorTableSlot",
-                "value": 9
-              }
-            }
-          ]
-        }
-      ],
-      "sub_object_ranges": [],
-      "fields": [
-        {
-          "name": "albedoMap",
-          "var": 36
-        },
-        {
-          "name": "glossMap",
-          "var": 37
-        },
-        {
-          "name": "normalMap",
-          "var": 38
-        },
-        {
-          "name": "sampler",
-          "var": 39
-        }
-      ],
-      "element": null,
-      "element_count": 0,
-      "container": null,
-      "contained": null
-    },
-    {
-      "name": "ParameterBlock",
-      "kind": {
-        "name": "ParameterBlock",
-        "value": 11
-      },
+      "decl": 26,
       "categories": [
         {
           "category": {
@@ -2987,21 +1969,17 @@ expression: layout_json
           "binding_range_index": 0,
           "binding_type": "ParameterBlock",
           "space_offset": 0,
-          "leaf_element_type_layout": 34
+          "leaf_element_type_layout": 18
         }
       ],
       "fields": [],
-      "element": 34,
+      "element": 18,
       "element_count": 0,
       "container": 41,
       "contained": 42
     },
     {
-      "name": null,
-      "kind": {
-        "name": "None",
-        "value": 0
-      },
+      "decl": 25,
       "categories": [
         {
           "category": {
@@ -3045,11 +2023,7 @@ expression: layout_json
       "contained": null
     },
     {
-      "name": "main",
-      "kind": {
-        "name": "Struct",
-        "value": 1
-      },
+      "decl": 28,
       "categories": [],
       "size": {
         "set_spaces": 0,
@@ -3120,7 +2094,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 7
+      "type_layout": 5
     },
     {
       "name": "light",
@@ -3136,7 +2110,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 8
+      "type_layout": 6
     },
     {
       "name": "dir",
@@ -3152,7 +2126,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 9
+      "type_layout": 7
     },
     {
       "name": "intensity",
@@ -3168,7 +2142,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 16,
       "binding_range_offset_delta": 0,
-      "type_layout": 11
+      "type_layout": 7
     },
     {
       "name": "shadowMap",
@@ -3184,7 +2158,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 13
+      "type_layout": 8
     },
     {
       "name": "shadowSampler",
@@ -3200,7 +2174,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 1,
-      "type_layout": 14
+      "type_layout": 9
     },
     {
       "name": "worldToShadow",
@@ -3216,7 +2190,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 32,
       "binding_range_offset_delta": 2,
-      "type_layout": 15
+      "type_layout": 10
     },
     {
       "name": "envMap",
@@ -3232,7 +2206,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 2,
-      "type_layout": 18
+      "type_layout": 12
     },
     {
       "name": "texture",
@@ -3248,7 +2222,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 19
+      "type_layout": 13
     },
     {
       "name": "sampler",
@@ -3264,7 +2238,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 1,
-      "type_layout": 20
+      "type_layout": 14
     },
     {
       "name": "output",
@@ -3280,7 +2254,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 4,
-      "type_layout": 21
+      "type_layout": 15
     },
     {
       "name": "worldToView",
@@ -3296,7 +2270,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 23
+      "type_layout": 10
     },
     {
       "name": "viewToProj",
@@ -3312,7 +2286,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 64,
       "binding_range_offset_delta": 0,
-      "type_layout": 26
+      "type_layout": 10
     },
     {
       "name": "albedoMap",
@@ -3328,7 +2302,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 30
+      "type_layout": 8
     },
     {
       "name": "glossMap",
@@ -3344,7 +2318,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 1,
-      "type_layout": 31
+      "type_layout": 8
     },
     {
       "name": "normalMap",
@@ -3360,7 +2334,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 2,
-      "type_layout": 32
+      "type_layout": 8
     },
     {
       "name": "sampler",
@@ -3376,7 +2350,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 3,
-      "type_layout": 33
+      "type_layout": 14
     },
     {
       "name": "modelToWorld",
@@ -3392,7 +2366,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 35
+      "type_layout": 10
     },
     {
       "name": "modelToWorld_inverseTranspose",
@@ -3408,7 +2382,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 64,
       "binding_range_offset_delta": 0,
-      "type_layout": 38
+      "type_layout": 10
     },
     {
       "name": "pushData",
@@ -3424,7 +2398,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 41
+      "type_layout": 19
     },
     {
       "name": null,
@@ -3440,7 +2414,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 42
+      "type_layout": 20
     },
     {
       "name": null,
@@ -3472,7 +2446,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 1,
-      "type_layout": 43
+      "type_layout": 21
     },
     {
       "name": null,
@@ -3496,7 +2470,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 44
+      "type_layout": 22
     },
     {
       "name": null,
@@ -3520,7 +2494,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 45
+      "type_layout": 23
     },
     {
       "name": "sunLight",
@@ -3544,7 +2518,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 7
+      "type_layout": 5
     },
     {
       "name": "envMap",
@@ -3560,7 +2534,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 2,
-      "type_layout": 18
+      "type_layout": 12
     },
     {
       "name": "output",
@@ -3576,7 +2550,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 4,
-      "type_layout": 21
+      "type_layout": 15
     },
     {
       "name": "view",
@@ -3592,7 +2566,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 2,
-      "type_layout": 46
+      "type_layout": 24
     },
     {
       "name": null,
@@ -3616,7 +2590,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 47
+      "type_layout": 25
     },
     {
       "name": null,
@@ -3632,7 +2606,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 22
+      "type_layout": 16
     },
     {
       "name": "material",
@@ -3648,7 +2622,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 3,
-      "type_layout": 48
+      "type_layout": 26
     },
     {
       "name": null,
@@ -3664,7 +2638,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 49
+      "type_layout": 27
     },
     {
       "name": null,
@@ -3680,7 +2654,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 50
+      "type_layout": 17
     },
     {
       "name": "albedoMap",
@@ -3696,7 +2670,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 30
+      "type_layout": 8
     },
     {
       "name": "glossMap",
@@ -3712,7 +2686,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 1,
-      "type_layout": 31
+      "type_layout": 8
     },
     {
       "name": "normalMap",
@@ -3728,7 +2702,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 2,
-      "type_layout": 32
+      "type_layout": 8
     },
     {
       "name": "sampler",
@@ -3744,7 +2718,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 3,
-      "type_layout": 33
+      "type_layout": 14
     },
     {
       "name": "mesh",
@@ -3760,7 +2734,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 4,
-      "type_layout": 51
+      "type_layout": 28
     },
     {
       "name": null,
@@ -3784,7 +2758,7 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 52
+      "type_layout": 29
     },
     {
       "name": null,
@@ -3800,14 +2774,14 @@ expression: layout_json
       ],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 34
+      "type_layout": 18
     },
     {
       "name": null,
       "offsets": [],
       "byte_offset_delta": 0,
       "binding_range_offset_delta": 0,
-      "type_layout": 53
+      "type_layout": 30
     }
   ]
 }

@@ -204,25 +204,300 @@ fn build_layout_ir_from_program_layout(
         });
     }
 
-    let (types, vars) = builder.finish()?;
-    Ok(LayoutIr {
+    let (type_decls, types, vars) = builder.finish()?;
+    let mut layout = LayoutIr {
         global_scope,
         entry_points,
+        type_decls,
         types,
         vars,
-    })
+    };
+    canonicalize_type_layouts(&mut layout)?;
+    Ok(layout)
+}
+
+fn canonicalize_type_layouts(layout: &mut LayoutIr) -> Result<()> {
+    if layout.types.is_empty() {
+        return Ok(());
+    }
+
+    let mut mapping: Vec<TypeLayoutId> = (0..layout.types.len())
+        .map(|index| TypeLayoutId(index as u32))
+        .collect();
+
+    for _ in 0..layout.types.len() {
+        let (new_mapping, unique_count) = build_type_layout_mapping(&layout.types, &layout.vars, &mapping);
+        if new_mapping == mapping {
+            break;
+        }
+        mapping = new_mapping;
+        if unique_count == layout.types.len() {
+            break;
+        }
+    }
+
+    let mut new_types = Vec::with_capacity(mapping.iter().map(|id| id.0 as usize).max().unwrap_or(0) + 1);
+    for (old_index, ty) in layout.types.iter().enumerate() {
+        let new_index = mapping[old_index].0 as usize;
+        if new_index == new_types.len() {
+            new_types.push(ty.clone());
+        }
+    }
+
+    remap_type_layout_ids(&mut new_types, &mapping);
+    for var in &mut layout.vars {
+        var.type_layout = mapping[var.type_layout.0 as usize];
+    }
+
+    layout.types = new_types;
+    Ok(())
+}
+
+fn build_type_layout_mapping(
+    types: &[TypeLayoutIr],
+    vars: &[VarLayoutIr],
+    mapping: &[TypeLayoutId],
+) -> (Vec<TypeLayoutId>, usize) {
+    let mut key_to_id: HashMap<TypeLayoutKey, TypeLayoutId> = HashMap::new();
+    let mut next_id: u32 = 0;
+    let mut new_mapping = vec![TypeLayoutId(0); types.len()];
+
+    for (old_index, ty) in types.iter().enumerate() {
+        let key = TypeLayoutKey::new(ty, vars, mapping);
+        let id = *key_to_id.entry(key).or_insert_with(|| {
+            let id = TypeLayoutId(next_id);
+            next_id += 1;
+            id
+        });
+        new_mapping[old_index] = id;
+    }
+
+    (new_mapping, next_id as usize)
+}
+
+fn remap_type_layout_ids(types: &mut [TypeLayoutIr], mapping: &[TypeLayoutId]) {
+    for ty in types {
+        if let Some(element) = ty.element {
+            ty.element = Some(mapping[element.0 as usize]);
+        }
+        for sub_object in &mut ty.sub_object_ranges {
+            if let Some(leaf) = sub_object.leaf_element_type_layout {
+                sub_object.leaf_element_type_layout = Some(mapping[leaf.0 as usize]);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct TypeLayoutKey {
+    decl: TypeDeclId,
+    categories: Vec<CategoryLayoutKey>,
+    size: SlangUnit,
+    alignment_bytes: u32,
+    stride: SlangUnit,
+    stride_bytes: u32,
+    matrix_layout_mode: Option<i32>,
+    binding_ranges: Vec<BindingRangeKey>,
+    descriptor_sets: Vec<DescriptorSetKey>,
+    sub_object_ranges: Vec<SubObjectRangeKey>,
+    fields: Vec<VarLayoutKey>,
+    element: Option<u32>,
+    element_count: Option<u32>,
+    container: Option<VarLayoutKey>,
+    contained: Option<VarLayoutKey>,
+}
+
+impl TypeLayoutKey {
+    fn new(
+        ty: &TypeLayoutIr,
+        vars: &[VarLayoutIr],
+        mapping: &[TypeLayoutId],
+    ) -> Self {
+        let fields = ty
+            .fields
+            .iter()
+            .map(|field| VarLayoutKey::new(field.var, vars, mapping))
+            .collect();
+        let container = ty
+            .container
+            .map(|var_id| VarLayoutKey::new(var_id, vars, mapping));
+        let contained = ty
+            .contained
+            .map(|var_id| VarLayoutKey::new(var_id, vars, mapping));
+        Self {
+            decl: ty.decl,
+            categories: ty.categories.iter().map(CategoryLayoutKey::from).collect(),
+            size: ty.size,
+            alignment_bytes: ty.alignment_bytes,
+            stride: ty.stride,
+            stride_bytes: ty.stride_bytes,
+            matrix_layout_mode: ty.matrix_layout_mode.as_ref().map(|mode| mode.value),
+            binding_ranges: ty.binding_ranges.iter().map(BindingRangeKey::from).collect(),
+            descriptor_sets: ty.descriptor_sets.iter().map(DescriptorSetKey::from).collect(),
+            sub_object_ranges: ty
+                .sub_object_ranges
+                .iter()
+                .map(|range| SubObjectRangeKey::new(range, mapping))
+                .collect(),
+            fields,
+            element: ty.element.map(|id| mapping[id.0 as usize].0),
+            element_count: ty.element_count,
+            container,
+            contained,
+        }
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct VarLayoutKey {
+    offsets: Vec<CategoryOffsetKey>,
+    byte_offset_delta: u32,
+    binding_range_offset_delta: u32,
+    type_layout: u32,
+}
+
+impl VarLayoutKey {
+    fn new(var_id: VarLayoutId, vars: &[VarLayoutIr], mapping: &[TypeLayoutId]) -> Self {
+        let var = &vars[var_id.0 as usize];
+        Self {
+            offsets: var.offsets.iter().map(CategoryOffsetKey::from).collect(),
+            byte_offset_delta: var.byte_offset_delta,
+            binding_range_offset_delta: var.binding_range_offset_delta,
+            type_layout: mapping[var.type_layout.0 as usize].0,
+        }
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct CategoryLayoutKey {
+    category: i32,
+    size: u32,
+    alignment: u32,
+    stride: u32,
+}
+
+impl From<&CategoryLayoutIr> for CategoryLayoutKey {
+    fn from(category: &CategoryLayoutIr) -> Self {
+        Self {
+            category: category.category.value,
+            size: category.size,
+            alignment: category.alignment,
+            stride: category.stride,
+        }
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct CategoryOffsetKey {
+    category: i32,
+    offset: u32,
+    space: u32,
+}
+
+impl From<&CategoryOffsetIr> for CategoryOffsetKey {
+    fn from(offset: &CategoryOffsetIr) -> Self {
+        Self {
+            category: offset.category.value,
+            offset: offset.offset,
+            space: offset.space,
+        }
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct BindingRangeKey {
+    binding_range_index: u32,
+    binding_type: i32,
+    count: u32,
+    first_descriptor_range_index: u32,
+}
+
+impl From<&BindingRangeIr> for BindingRangeKey {
+    fn from(range: &BindingRangeIr) -> Self {
+        Self {
+            binding_range_index: range.binding_range_index,
+            binding_type: range.binding_type as i32,
+            count: range.count,
+            first_descriptor_range_index: range.first_descriptor_range_index,
+        }
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct DescriptorSetKey {
+    set_index: u32,
+    space_offset: u32,
+    ranges: Vec<DescriptorSetRangeKey>,
+}
+
+impl From<&DescriptorSetIr> for DescriptorSetKey {
+    fn from(set: &DescriptorSetIr) -> Self {
+        Self {
+            set_index: set.set_index,
+            space_offset: set.space_offset,
+            ranges: set.ranges.iter().map(DescriptorSetRangeKey::from).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct DescriptorSetRangeKey {
+    binding_type: i32,
+    descriptor_count: i64,
+    category: i32,
+}
+
+impl From<&DescriptorSetRangeIr> for DescriptorSetRangeKey {
+    fn from(range: &DescriptorSetRangeIr) -> Self {
+        Self {
+            binding_type: range.binding_type as i32,
+            descriptor_count: range.descriptor_count,
+            category: range.category.value,
+        }
+    }
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct SubObjectRangeKey {
+    binding_range_index: u32,
+    binding_type: i32,
+    space_offset: u32,
+    leaf_element_type_layout: Option<u32>,
+}
+
+impl SubObjectRangeKey {
+    fn new(range: &SubObjectRangeIr, mapping: &[TypeLayoutId]) -> Self {
+        Self {
+            binding_range_index: range.binding_range_index,
+            binding_type: range.binding_type as i32,
+            space_offset: range.space_offset,
+            leaf_element_type_layout: range
+                .leaf_element_type_layout
+                .map(|id| mapping[id.0 as usize].0),
+        }
+    }
 }
 
 #[derive(Default)]
 struct LayoutIrBuilder {
+    type_decls: Vec<Option<TypeDeclIr>>,
     types: Vec<Option<TypeLayoutIr>>,
     vars: Vec<Option<VarLayoutIr>>,
+    type_decl_ids: HashMap<usize, TypeDeclId>,
     type_ids: HashMap<usize, TypeLayoutId>,
     var_ids: HashMap<(usize, u32), VarLayoutId>,
 }
 
 impl LayoutIrBuilder {
-    fn finish(self) -> Result<(Vec<TypeLayoutIr>, Vec<VarLayoutIr>)> {
+    fn finish(self) -> Result<(Vec<TypeDeclIr>, Vec<TypeLayoutIr>, Vec<VarLayoutIr>)> {
+        let type_decls = self
+            .type_decls
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| {
+                value.with_context(|| format!("missing type decl {index}"))
+            })
+            .collect::<Result<Vec<_>>>()?;
         let types = self
             .types
             .into_iter()
@@ -237,7 +512,7 @@ impl LayoutIrBuilder {
             .enumerate()
             .map(|(index, value)| value.with_context(|| format!("missing var layout {index}")))
             .collect::<Result<Vec<_>>>()?;
-        Ok((types, vars))
+        Ok((type_decls, types, vars))
     }
 
     fn intern_var_layout(
@@ -388,7 +663,6 @@ impl LayoutIrBuilder {
                     let binding_range_offset_delta =
                         type_layout.field_binding_range_offset(field_index as i64);
                     Ok(FieldIr {
-                        name: field_layout.name().unwrap_or_default().to_string(),
                         var: self.intern_var_layout(
                             field_layout,
                             binding_range_offset_delta as u32,
@@ -426,8 +700,7 @@ impl LayoutIrBuilder {
         };
 
         Ok(TypeLayoutIr {
-            name: type_layout.name().map(|name| name.to_string()),
-            kind: SlangEnumValue::from(kind),
+            decl: self.intern_type_decl(type_layout)?,
             categories,
             size: slang_unit_from_type_layout(type_layout),
             alignment_bytes: type_layout
@@ -447,6 +720,38 @@ impl LayoutIrBuilder {
             contained,
         })
     }
+
+    fn intern_type_decl(
+        &mut self,
+        type_layout: &slang::reflection::TypeLayout,
+    ) -> Result<TypeDeclId> {
+        let key = type_layout
+            .ty()
+            .map(|ty| ty as *const _ as usize)
+            .unwrap_or(type_layout as *const _ as usize);
+        if let Some(id) = self.type_decl_ids.get(&key) {
+            return Ok(*id);
+        }
+
+        let id = TypeDeclId(self.type_decls.len() as u32);
+        self.type_decl_ids.insert(key, id);
+        self.type_decls.push(None);
+
+        let ty = type_layout.ty();
+        let name = ty
+            .and_then(|ty| ty.name())
+            .or_else(|| type_layout.name())
+            .map(|name| name.to_string());
+        let kind = ty.map(|ty| ty.kind()).unwrap_or(type_layout.kind());
+
+        self.type_decls[id.0 as usize] = Some(TypeDeclIr {
+            name,
+            kind: SlangEnumValue::from(kind),
+        });
+
+        Ok(id)
+    }
+
 }
 
 fn slang_unit_from_type_layout(type_layout: &slang::reflection::TypeLayout) -> SlangUnit {

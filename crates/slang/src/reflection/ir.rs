@@ -52,10 +52,14 @@ pub struct TypeLayoutId(pub u32);
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VarLayoutId(pub u32);
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct TypeDeclId(pub u32);
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LayoutIr {
     pub global_scope: ScopeIr,
     pub entry_points: Vec<EntryPointIr>,
+    pub type_decls: Vec<TypeDeclIr>,
     pub types: Vec<TypeLayoutIr>,
     pub vars: Vec<VarLayoutIr>,
 }
@@ -128,9 +132,14 @@ pub struct SubObjectRangeIr {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TypeLayoutIr {
+pub struct TypeDeclIr {
     pub name: Option<String>,
     pub kind: SlangEnumValue,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TypeLayoutIr {
+    pub decl: TypeDeclId,
     pub categories: Vec<CategoryLayoutIr>,
     pub size: SlangUnit,
     pub alignment_bytes: u32,
@@ -158,6 +167,5 @@ pub struct VarLayoutIr {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FieldIr {
-    pub name: String,
     pub var: VarLayoutId,
 }
