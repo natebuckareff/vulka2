@@ -46,15 +46,23 @@ impl From<slang::Stage> for SlangEnumValue {
     }
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct TypeLayoutId(pub u32);
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct VarLayoutId(pub u32);
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LayoutIr {
     pub global_scope: ScopeIr,
     pub entry_points: Vec<EntryPointIr>,
+    pub types: Vec<TypeLayoutIr>,
+    pub vars: Vec<VarLayoutIr>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ScopeIr {
-    pub var_layout: VarLayoutIr,
+    pub var_layout: VarLayoutId,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -116,7 +124,7 @@ pub struct SubObjectRangeIr {
     #[serde(with = "serde_binding_type")]
     pub binding_type: slang::BindingType,
     pub space_offset: u32,
-    pub leaf_element_type_layout: Option<Box<TypeLayoutIr>>,
+    pub leaf_element_type_layout: Option<TypeLayoutId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -133,10 +141,10 @@ pub struct TypeLayoutIr {
     pub descriptor_sets: Vec<DescriptorSetIr>,
     pub sub_object_ranges: Vec<SubObjectRangeIr>,
     pub fields: Vec<FieldIr>,
-    pub element: Option<Box<TypeLayoutIr>>,
+    pub element: Option<TypeLayoutId>,
     pub element_count: Option<u32>,
-    pub container: Option<Box<VarLayoutIr>>,
-    pub contained: Option<Box<VarLayoutIr>>,
+    pub container: Option<VarLayoutId>,
+    pub contained: Option<VarLayoutId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -145,11 +153,11 @@ pub struct VarLayoutIr {
     pub offsets: Vec<CategoryOffsetIr>,
     pub byte_offset_delta: u32,
     pub binding_range_offset_delta: u32,
-    pub type_layout: Box<TypeLayoutIr>,
+    pub type_layout: TypeLayoutId,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FieldIr {
     pub name: String,
-    pub var: VarLayoutIr,
+    pub var: VarLayoutId,
 }

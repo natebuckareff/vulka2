@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result};
@@ -5,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use shader_slang as slang;
 
 use crate::reflection::ir::*;
+use crate::reflection::{
+    denormalize_layout_ir, ScopeIrDenorm, SubObjectRangeIrDenorm, TypeLayoutIrDenorm,
+};
 use crate::reflection::serde_slang::serde_binding_type;
 use crate::reflection::SlangUnit;
 
@@ -126,6 +130,8 @@ pub fn walk_program(program: &slang::ComponentType) -> Result<LayoutIr> {
 }
 
 pub fn lower_layout_ir_to_pipeline(layout_ir: &LayoutIr) -> SlangLayoutDirect {
+    let denorm_layout =
+        denormalize_layout_ir(layout_ir).expect("failed to denormalize layout ir");
     let mut pipeline = PipelineLayoutBuilder::default();
     let descriptor_set = DescriptorSetLayoutBuilder::start_building(&mut pipeline);
     let builder = LayoutBuilder {
@@ -133,8 +139,8 @@ pub fn lower_layout_ir_to_pipeline(layout_ir: &LayoutIr) -> SlangLayoutDirect {
         descriptor_set: Arc::new(RwLock::new(descriptor_set)),
     };
 
-    add_scope_parameters(builder.clone(), &layout_ir.global_scope);
-    for entry_point in &layout_ir.entry_points {
+    add_scope_parameters(builder.clone(), &denorm_layout.global_scope);
+    for entry_point in &denorm_layout.entry_points {
         add_scope_parameters(builder.clone(), &entry_point.parameters);
     }
 
@@ -157,11 +163,11 @@ pub fn lower_layout_ir_to_pipeline(layout_ir: &LayoutIr) -> SlangLayoutDirect {
     }
 }
 
-fn add_scope_parameters(builder: LayoutBuilder, scope: &ScopeIr) {
+fn add_scope_parameters(builder: LayoutBuilder, scope: &ScopeIrDenorm) {
     add_ranges_for_parameter_block_element(builder, &scope.var_layout.type_layout);
 }
 
-fn add_ranges_for_parameter_block_element(builder: LayoutBuilder, type_layout: &TypeLayoutIr) {
+fn add_ranges_for_parameter_block_element(builder: LayoutBuilder, type_layout: &TypeLayoutIrDenorm) {
     if type_layout.size.bytes > 0 {
         // NOTE: for entrypoint uniform ParameterBlocks slang
         add_automatically_introduced_uniform_buffer(builder.clone());
@@ -173,10 +179,13 @@ fn add_ranges_for_parameter_block_element(builder: LayoutBuilder, type_layout: &
 fn build_layout_ir_from_program_layout(
     program_layout: &slang::reflection::Shader,
 ) -> Result<LayoutIr> {
+    let mut builder = LayoutIrBuilder::default();
     let global_var_layout = program_layout
         .global_params_var_layout()
         .context("missing global params var layout")?;
-    let global_scope = reflect_scope(global_var_layout)?;
+    let global_scope = ScopeIr {
+        var_layout: builder.intern_var_layout(global_var_layout, 0)?,
+    };
 
     let mut entry_points = Vec::with_capacity(program_layout.entry_point_count() as usize);
     for i in 0..program_layout.entry_point_count() {
@@ -189,202 +198,255 @@ fn build_layout_ir_from_program_layout(
         entry_points.push(EntryPointIr {
             name: entry_point.name().unwrap_or_default().to_string(),
             stage: SlangEnumValue::from(entry_point.stage()),
-            parameters: reflect_scope(var_layout)?,
+            parameters: ScopeIr {
+                var_layout: builder.intern_var_layout(var_layout, 0)?,
+            },
         });
     }
 
+    let (types, vars) = builder.finish()?;
     Ok(LayoutIr {
         global_scope,
         entry_points,
+        types,
+        vars,
     })
 }
 
-fn reflect_scope(var_layout: &slang::reflection::VariableLayout) -> Result<ScopeIr> {
-    Ok(ScopeIr {
-        var_layout: reflect_var_layout(var_layout, 0, ReflectContext::Full)?,
-    })
+#[derive(Default)]
+struct LayoutIrBuilder {
+    types: Vec<Option<TypeLayoutIr>>,
+    vars: Vec<Option<VarLayoutIr>>,
+    type_ids: HashMap<usize, TypeLayoutId>,
+    var_ids: HashMap<(usize, u32), VarLayoutId>,
 }
 
-fn reflect_var_layout(
-    var_layout: &slang::reflection::VariableLayout,
-    binding_range_offset_delta: u32,
-    context: ReflectContext,
-) -> Result<VarLayoutIr> {
-    let type_layout = var_layout
-        .type_layout()
-        .context("missing variable type layout")?;
-    let offsets = var_layout
-        .categories()
-        .map(|category| CategoryOffsetIr {
-            category: SlangEnumValue::from(category),
-            offset: var_layout.offset(category) as u32,
-            space: var_layout.binding_space_with_category(category) as u32,
-        })
-        .collect();
-    let byte_offset_delta = var_layout.offset(slang::ParameterCategory::Uniform) as u32;
-    Ok(VarLayoutIr {
-        name: var_layout.name().map(|name| name.to_string()),
-        offsets,
-        byte_offset_delta,
-        binding_range_offset_delta,
-        type_layout: Box::new(reflect_type_layout(type_layout, context)?),
-    })
-}
-
-#[derive(Clone, Copy)]
-enum ReflectContext {
-    Full,
-    SkipContainerLayouts,
-}
-
-fn reflect_type_layout(
-    type_layout: &slang::reflection::TypeLayout,
-    context: ReflectContext,
-) -> Result<TypeLayoutIr> {
-    let kind = type_layout.kind();
-    let categories = type_layout
-        .categories()
-        .map(|category| CategoryLayoutIr {
-            category: SlangEnumValue::from(category),
-            size: type_layout.size(category) as u32,
-            alignment: type_layout.alignment(category).max(0) as u32,
-            stride: type_layout.stride(category) as u32,
-        })
-        .collect();
-
-    let binding_ranges = (0..type_layout.binding_range_count())
-        .map(|binding_range_index| {
-            let binding_type = type_layout.binding_range_type(binding_range_index);
-            Ok(BindingRangeIr {
-                binding_range_index: binding_range_index as u32,
-                binding_type,
-                count: type_layout.binding_range_binding_count(binding_range_index) as u32,
-                first_descriptor_range_index: type_layout
-                    .binding_range_first_descriptor_range_index(binding_range_index)
-                    as u32,
+impl LayoutIrBuilder {
+    fn finish(self) -> Result<(Vec<TypeLayoutIr>, Vec<VarLayoutIr>)> {
+        let types = self
+            .types
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| {
+                value.with_context(|| format!("missing type layout {index}"))
             })
-        })
-        .collect::<Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>>>()?;
+        let vars = self
+            .vars
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| value.with_context(|| format!("missing var layout {index}")))
+            .collect::<Result<Vec<_>>>()?;
+        Ok((types, vars))
+    }
 
-    let descriptor_sets = (0..type_layout.descriptor_set_count())
-        .map(|set_index| {
-            let ranges = (0..type_layout.descriptor_set_descriptor_range_count(set_index))
-                .map(|range_index| DescriptorSetRangeIr {
-                    binding_type: type_layout
-                        .descriptor_set_descriptor_range_type(set_index, range_index),
-                    descriptor_count: type_layout
-                        .descriptor_set_descriptor_range_descriptor_count(set_index, range_index),
-                    category: SlangEnumValue::from(
-                        type_layout.descriptor_set_descriptor_range_category(
-                            set_index,
-                            range_index,
-                        ),
-                    ),
-                })
-                .collect();
-            DescriptorSetIr {
-                set_index: set_index as u32,
-                space_offset: type_layout.descriptor_set_space_offset(set_index) as u32,
-                ranges,
-            }
-        })
-        .collect();
-
-    let sub_object_ranges = (0..type_layout.sub_object_range_count())
-        .map(|sub_object_range_index| {
-            let binding_range_index =
-                type_layout.sub_object_range_binding_range_index(sub_object_range_index);
-            let leaf_element_type_layout = type_layout
-                .binding_range_leaf_type_layout(binding_range_index)
-                .and_then(|layout| layout.element_type_layout())
-                .map(|layout| reflect_type_layout(layout, ReflectContext::Full))
-                .transpose()?;
-            Ok(SubObjectRangeIr {
-                binding_range_index: binding_range_index as u32,
-                binding_type: type_layout.binding_range_type(binding_range_index),
-                space_offset: type_layout.sub_object_range_space_offset(sub_object_range_index)
-                    as u32,
-                leaf_element_type_layout: leaf_element_type_layout.map(Box::new),
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    let fields = if kind == slang::TypeKind::Struct {
-        (0..type_layout.field_count())
-            .map(|field_index| {
-                let field_layout = type_layout
-                    .field_by_index(field_index)
-                    .context("missing field layout")?;
-                let binding_range_offset_delta =
-                    type_layout.field_binding_range_offset(field_index as i64);
-                Ok(FieldIr {
-                    name: field_layout.name().unwrap_or_default().to_string(),
-                    var: reflect_var_layout(
-                        field_layout,
-                        binding_range_offset_delta as u32,
-                        ReflectContext::Full,
-                    )?,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?
-    } else {
-        Vec::new()
-    };
-
-    let element = type_layout
-        .element_type_layout()
-        .map(|layout| reflect_type_layout(layout, ReflectContext::Full))
-        .transpose()?
-        .map(Box::new);
-
-    let element_count = type_layout
-        .element_count()
-        .and_then(|count| (count != usize::MAX).then_some(count as u32));
-
-    let (container, contained) = match context {
-        ReflectContext::Full => {
-            let container = type_layout
-                .container_var_layout()
-                .map(|layout| reflect_var_layout(layout, 0, ReflectContext::SkipContainerLayouts))
-                .transpose()?
-                .map(Box::new);
-            let contained = type_layout
-                .element_var_layout()
-                .map(|layout| reflect_var_layout(layout, 0, ReflectContext::Full))
-                .transpose()?
-                .map(Box::new);
-            (container, contained)
+    fn intern_var_layout(
+        &mut self,
+        var_layout: &slang::reflection::VariableLayout,
+        binding_range_offset_delta: u32,
+    ) -> Result<VarLayoutId> {
+        let key = (var_layout as *const _ as usize, binding_range_offset_delta);
+        if let Some(id) = self.var_ids.get(&key) {
+            return Ok(*id);
         }
-        ReflectContext::SkipContainerLayouts => (None, None),
-    };
 
-    let matrix_layout_mode = if kind == slang::TypeKind::Matrix {
-        Some(SlangEnumValue::from(type_layout.matrix_layout_mode()))
-    } else {
-        None
-    };
+        let id = VarLayoutId(self.vars.len() as u32);
+        self.var_ids.insert(key, id);
+        self.vars.push(None);
 
-    Ok(TypeLayoutIr {
-        name: type_layout.name().map(|name| name.to_string()),
-        kind: SlangEnumValue::from(kind),
-        categories,
-        size: slang_unit_from_type_layout(type_layout),
-        alignment_bytes: type_layout
-            .alignment(slang::ParameterCategory::Uniform)
-            .max(0) as u32,
-        stride: slang_unit_from_stride(type_layout),
-        stride_bytes: type_layout
-            .stride(slang::ParameterCategory::Uniform) as u32,
-        matrix_layout_mode,
-        binding_ranges,
-        descriptor_sets,
-        sub_object_ranges,
-        fields,
-        element,
-        element_count,
-        container,
-        contained,
-    })
+        let layout = self.build_var_layout(var_layout, binding_range_offset_delta)?;
+        self.vars[id.0 as usize] = Some(layout);
+        Ok(id)
+    }
+
+    fn build_var_layout(
+        &mut self,
+        var_layout: &slang::reflection::VariableLayout,
+        binding_range_offset_delta: u32,
+    ) -> Result<VarLayoutIr> {
+        let type_layout = var_layout
+            .type_layout()
+            .context("missing variable type layout")?;
+        let offsets = var_layout
+            .categories()
+            .map(|category| CategoryOffsetIr {
+                category: SlangEnumValue::from(category),
+                offset: var_layout.offset(category) as u32,
+                space: var_layout.binding_space_with_category(category) as u32,
+            })
+            .collect();
+        let byte_offset_delta = var_layout.offset(slang::ParameterCategory::Uniform) as u32;
+        Ok(VarLayoutIr {
+            name: var_layout.name().map(|name| name.to_string()),
+            offsets,
+            byte_offset_delta,
+            binding_range_offset_delta,
+            type_layout: self.intern_type_layout(type_layout)?,
+        })
+    }
+
+    fn intern_type_layout(
+        &mut self,
+        type_layout: &slang::reflection::TypeLayout,
+    ) -> Result<TypeLayoutId> {
+        let key = type_layout as *const _ as usize;
+        if let Some(id) = self.type_ids.get(&key) {
+            return Ok(*id);
+        }
+
+        let id = TypeLayoutId(self.types.len() as u32);
+        self.type_ids.insert(key, id);
+        self.types.push(None);
+
+        let layout = self.build_type_layout(type_layout)?;
+        self.types[id.0 as usize] = Some(layout);
+        Ok(id)
+    }
+
+    fn build_type_layout(
+        &mut self,
+        type_layout: &slang::reflection::TypeLayout,
+    ) -> Result<TypeLayoutIr> {
+        let kind = type_layout.kind();
+        let categories = type_layout
+            .categories()
+            .map(|category| CategoryLayoutIr {
+                category: SlangEnumValue::from(category),
+                size: type_layout.size(category) as u32,
+                alignment: type_layout.alignment(category).max(0) as u32,
+                stride: type_layout.stride(category) as u32,
+            })
+            .collect();
+
+        let binding_ranges = (0..type_layout.binding_range_count())
+            .map(|binding_range_index| {
+                let binding_type = type_layout.binding_range_type(binding_range_index);
+                Ok(BindingRangeIr {
+                    binding_range_index: binding_range_index as u32,
+                    binding_type,
+                    count: type_layout.binding_range_binding_count(binding_range_index) as u32,
+                    first_descriptor_range_index: type_layout
+                        .binding_range_first_descriptor_range_index(binding_range_index)
+                        as u32,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let descriptor_sets = (0..type_layout.descriptor_set_count())
+            .map(|set_index| {
+                let ranges = (0..type_layout.descriptor_set_descriptor_range_count(set_index))
+                    .map(|range_index| DescriptorSetRangeIr {
+                        binding_type: type_layout
+                            .descriptor_set_descriptor_range_type(set_index, range_index),
+                        descriptor_count: type_layout
+                            .descriptor_set_descriptor_range_descriptor_count(
+                                set_index,
+                                range_index,
+                            ),
+                        category: SlangEnumValue::from(
+                            type_layout.descriptor_set_descriptor_range_category(
+                                set_index,
+                                range_index,
+                            ),
+                        ),
+                    })
+                    .collect();
+                DescriptorSetIr {
+                    set_index: set_index as u32,
+                    space_offset: type_layout.descriptor_set_space_offset(set_index) as u32,
+                    ranges,
+                }
+            })
+            .collect();
+
+        let sub_object_ranges = (0..type_layout.sub_object_range_count())
+            .map(|sub_object_range_index| {
+                let binding_range_index =
+                    type_layout.sub_object_range_binding_range_index(sub_object_range_index);
+                let leaf_element_type_layout = type_layout
+                    .binding_range_leaf_type_layout(binding_range_index)
+                    .and_then(|layout| layout.element_type_layout())
+                    .map(|layout| self.intern_type_layout(layout))
+                    .transpose()?;
+                Ok(SubObjectRangeIr {
+                    binding_range_index: binding_range_index as u32,
+                    binding_type: type_layout.binding_range_type(binding_range_index),
+                    space_offset: type_layout.sub_object_range_space_offset(
+                        sub_object_range_index,
+                    ) as u32,
+                    leaf_element_type_layout,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let fields = if kind == slang::TypeKind::Struct {
+            (0..type_layout.field_count())
+                .map(|field_index| {
+                    let field_layout = type_layout
+                        .field_by_index(field_index)
+                        .context("missing field layout")?;
+                    let binding_range_offset_delta =
+                        type_layout.field_binding_range_offset(field_index as i64);
+                    Ok(FieldIr {
+                        name: field_layout.name().unwrap_or_default().to_string(),
+                        var: self.intern_var_layout(
+                            field_layout,
+                            binding_range_offset_delta as u32,
+                        )?,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            Vec::new()
+        };
+
+        let element = type_layout
+            .element_type_layout()
+            .map(|layout| self.intern_type_layout(layout))
+            .transpose()?;
+
+        let element_count = type_layout
+            .element_count()
+            .and_then(|count| (count != usize::MAX).then_some(count as u32));
+
+        let container = type_layout
+            .container_var_layout()
+            .map(|layout| self.intern_var_layout(layout, 0))
+            .transpose()?;
+
+        let contained = type_layout
+            .element_var_layout()
+            .map(|layout| self.intern_var_layout(layout, 0))
+            .transpose()?;
+
+        let matrix_layout_mode = if kind == slang::TypeKind::Matrix {
+            Some(SlangEnumValue::from(type_layout.matrix_layout_mode()))
+        } else {
+            None
+        };
+
+        Ok(TypeLayoutIr {
+            name: type_layout.name().map(|name| name.to_string()),
+            kind: SlangEnumValue::from(kind),
+            categories,
+            size: slang_unit_from_type_layout(type_layout),
+            alignment_bytes: type_layout
+                .alignment(slang::ParameterCategory::Uniform)
+                .max(0) as u32,
+            stride: slang_unit_from_stride(type_layout),
+            stride_bytes: type_layout
+                .stride(slang::ParameterCategory::Uniform) as u32,
+            matrix_layout_mode,
+            binding_ranges,
+            descriptor_sets,
+            sub_object_ranges,
+            fields,
+            element,
+            element_count,
+            container,
+            contained,
+        })
+    }
 }
 
 fn slang_unit_from_type_layout(type_layout: &slang::reflection::TypeLayout) -> SlangUnit {
@@ -437,7 +499,7 @@ fn add_automatically_introduced_uniform_buffer(builder: LayoutBuilder) {
         .push(descriptor_range);
 }
 
-fn add_ranges(builder: LayoutBuilder, type_layout: &TypeLayoutIr) {
+fn add_ranges(builder: LayoutBuilder, type_layout: &TypeLayoutIrDenorm) {
     {
         let mut descriptor_set = builder.descriptor_set.write().unwrap();
         add_descriptor_ranges(&mut descriptor_set, type_layout);
@@ -445,7 +507,10 @@ fn add_ranges(builder: LayoutBuilder, type_layout: &TypeLayoutIr) {
     add_sub_object_ranges(builder, type_layout);
 }
 
-fn add_descriptor_ranges(builder: &mut DescriptorSetLayoutBuilder, type_layout: &TypeLayoutIr) {
+fn add_descriptor_ranges(
+    builder: &mut DescriptorSetLayoutBuilder,
+    type_layout: &TypeLayoutIrDenorm,
+) {
     // NOTE: assumes that there are no explicit bindings, otherwise we would not
     // be able to assume set indices start at 0
     let relative_set_index = 0;
@@ -488,7 +553,7 @@ fn add_descriptor_range(
     builder.descriptor_ranges.push(descriptor_range);
 }
 
-fn add_sub_object_ranges(builder: LayoutBuilder, type_layout: &TypeLayoutIr) {
+fn add_sub_object_ranges(builder: LayoutBuilder, type_layout: &TypeLayoutIrDenorm) {
     for sub_object_range in &type_layout.sub_object_ranges {
         add_sub_object_range(builder.clone(), type_layout, sub_object_range);
     }
@@ -496,8 +561,8 @@ fn add_sub_object_ranges(builder: LayoutBuilder, type_layout: &TypeLayoutIr) {
 
 fn add_sub_object_range(
     builder: LayoutBuilder,
-    type_layout: &TypeLayoutIr,
-    sub_object_range: &SubObjectRangeIr,
+    type_layout: &TypeLayoutIrDenorm,
+    sub_object_range: &SubObjectRangeIrDenorm,
 ) {
     let binding_range = type_layout
         .binding_ranges
@@ -536,7 +601,7 @@ fn add_sub_object_range(
 
 fn add_descriptor_set_for_parameter_block(
     pipeline: Arc<RwLock<PipelineLayoutBuilder>>,
-    element_type_layout: &TypeLayoutIr,
+    element_type_layout: &TypeLayoutIrDenorm,
 ) {
     let descriptor_set = DescriptorSetLayoutBuilder::start_building(&mut pipeline.write().unwrap());
 
@@ -556,7 +621,7 @@ fn add_descriptor_set_for_parameter_block(
 
 fn add_push_constant_range_for_constant_buffer(
     builder: LayoutBuilder,
-    element_type_layout: &TypeLayoutIr,
+    element_type_layout: &TypeLayoutIrDenorm,
 ) {
     let element_size = element_type_layout.size.bytes as usize;
 

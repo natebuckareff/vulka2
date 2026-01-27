@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use slang::{denormalize_layout_ir, SlangCompilerBuilder};
+use slang::SlangCompilerBuilder;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -10,7 +10,7 @@ fn fixtures_dir() -> PathBuf {
 }
 
 #[test]
-fn shader_slang_param_block_example_ir() -> Result<()> {
+fn shader_slang_param_block_example_ir_normalized() -> Result<()> {
     let mut compiler = SlangCompilerBuilder::new()?
         .search_path(fixtures_dir())
         .build()?;
@@ -20,8 +20,7 @@ fn shader_slang_param_block_example_ir() -> Result<()> {
 
     let program = compiler.linker().add_all_entrypoints(&module_id)?.link()?;
 
-    let denorm_layout = denormalize_layout_ir(program.layout())?;
-    let layout_json = serde_json::to_string_pretty(&denorm_layout)?;
+    let layout_json = serde_json::to_string_pretty(program.layout())?;
     insta::assert_snapshot!(layout_json);
 
     Ok(())

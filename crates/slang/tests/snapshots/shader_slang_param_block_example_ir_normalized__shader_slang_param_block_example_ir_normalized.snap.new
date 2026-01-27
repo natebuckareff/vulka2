@@ -1,0 +1,3813 @@
+---
+source: crates/slang/tests/shader_slang_param_block_example_ir_normalized.rs
+assertion_line: 24
+expression: layout_json
+---
+{
+  "global_scope": {
+    "var_layout": 0
+  },
+  "entry_points": [
+    {
+      "name": "main",
+      "stage": {
+        "name": "Compute",
+        "value": 6
+      },
+      "parameters": {
+        "var_layout": 43
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": null,
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "PushConstant",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 1,
+          "binding_type": "ParameterBlock",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 2,
+          "binding_type": "ParameterBlock",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 3,
+          "binding_type": "ParameterBlock",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 4,
+          "binding_type": "ParameterBlock",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "PushConstant",
+              "descriptor_count": 1,
+              "category": {
+                "name": "PushConstantBuffer",
+                "value": 11
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "PushConstant",
+          "space_offset": 0,
+          "leaf_element_type_layout": 1
+        },
+        {
+          "binding_range_index": 1,
+          "binding_type": "ParameterBlock",
+          "space_offset": 0,
+          "leaf_element_type_layout": 4
+        },
+        {
+          "binding_range_index": 2,
+          "binding_type": "ParameterBlock",
+          "space_offset": 0,
+          "leaf_element_type_layout": 22
+        },
+        {
+          "binding_range_index": 3,
+          "binding_type": "ParameterBlock",
+          "space_offset": 0,
+          "leaf_element_type_layout": 29
+        },
+        {
+          "binding_range_index": 4,
+          "binding_type": "ParameterBlock",
+          "space_offset": 0,
+          "leaf_element_type_layout": 34
+        }
+      ],
+      "fields": [
+        {
+          "name": "pushData",
+          "var": 21
+        },
+        {
+          "name": "environment",
+          "var": 24
+        },
+        {
+          "name": "view",
+          "var": 30
+        },
+        {
+          "name": "material",
+          "var": 33
+        },
+        {
+          "name": "mesh",
+          "var": 40
+        }
+      ],
+      "element": null,
+      "element_count": null,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "PushData",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 16,
+          "alignment": 16,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [
+        {
+          "name": "color",
+          "var": 1
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 16,
+          "alignment": 16,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 3,
+      "element_count": 4,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 4,
+          "alignment": 4,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "stride_bytes": 4,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "Environment",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 5,
+          "alignment": 1,
+          "stride": 5
+        },
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 96,
+          "alignment": 16,
+          "stride": 96
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 5,
+        "bytes": 96
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 5,
+        "bytes": 96
+      },
+      "stride_bytes": 96,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 1,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 1
+        },
+        {
+          "binding_range_index": 2,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 2
+        },
+        {
+          "binding_range_index": 3,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 3
+        },
+        {
+          "binding_range_index": 4,
+          "binding_type": "MutableRawBuffer",
+          "count": 1,
+          "first_descriptor_range_index": 4
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "MutableRawBuffer",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [
+        {
+          "binding_range_index": 4,
+          "binding_type": "MutableRawBuffer",
+          "space_offset": 0,
+          "leaf_element_type_layout": 5
+        }
+      ],
+      "fields": [
+        {
+          "name": "sunLight",
+          "var": 2
+        },
+        {
+          "name": "envMap",
+          "var": 9
+        },
+        {
+          "name": "output",
+          "var": 12
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 16,
+          "alignment": 16,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 6,
+      "element_count": 4,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 4,
+          "alignment": 4,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "stride_bytes": 4,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "ShadowedLight",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 2,
+          "alignment": 1,
+          "stride": 2
+        },
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 96,
+          "alignment": 16,
+          "stride": 96
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 2,
+        "bytes": 96
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 2,
+        "bytes": 96
+      },
+      "stride_bytes": 96,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 1,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 1
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [
+        {
+          "name": "light",
+          "var": 3
+        },
+        {
+          "name": "shadowMap",
+          "var": 6
+        },
+        {
+          "name": "shadowSampler",
+          "var": 7
+        },
+        {
+          "name": "worldToShadow",
+          "var": 8
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "DirectionalLight",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 32,
+          "alignment": 16,
+          "stride": 32
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 32
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 32
+      },
+      "stride_bytes": 32,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [
+        {
+          "name": "dir",
+          "var": 4
+        },
+        {
+          "name": "intensity",
+          "var": 5
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 12,
+          "alignment": 16,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 12
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 10,
+      "element_count": 3,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 4,
+          "alignment": 4,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "stride_bytes": 4,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 12,
+          "alignment": 16,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 12
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 12,
+      "element_count": 3,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 4,
+          "alignment": 4,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "stride_bytes": 4,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "_Texture",
+      "kind": {
+        "name": "Resource",
+        "value": 7
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "SamplerComparisonState",
+      "kind": {
+        "name": "SamplerState",
+        "value": 8
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "matrix",
+      "kind": {
+        "name": "Matrix",
+        "value": 3
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 64,
+          "alignment": 16,
+          "stride": 64
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "stride_bytes": 64,
+      "matrix_layout_mode": {
+        "name": "RowMajor",
+        "value": 1
+      },
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 16,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 16,
+          "alignment": 4,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 17,
+      "element_count": 4,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 4,
+          "alignment": 4,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "stride_bytes": 4,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "EnvironmentMap",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 2,
+          "alignment": 1,
+          "stride": 2
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 2,
+        "bytes": 0
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 2,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 1,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 1
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [
+        {
+          "name": "texture",
+          "var": 10
+        },
+        {
+          "name": "sampler",
+          "var": 11
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "_Texture",
+      "kind": {
+        "name": "Resource",
+        "value": 7
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "SamplerState",
+      "kind": {
+        "name": "SamplerState",
+        "value": 8
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "RWStructuredBuffer",
+      "kind": {
+        "name": "Resource",
+        "value": 7
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "MutableRawBuffer",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "MutableRawBuffer",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "MutableRawBuffer",
+          "space_offset": 0,
+          "leaf_element_type_layout": 5
+        }
+      ],
+      "fields": [],
+      "element": 5,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "View",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 128,
+          "alignment": 16,
+          "stride": 128
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 128
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 128
+      },
+      "stride_bytes": 128,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [
+        {
+          "name": "worldToView",
+          "var": 13
+        },
+        {
+          "name": "viewToProj",
+          "var": 14
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "matrix",
+      "kind": {
+        "name": "Matrix",
+        "value": 3
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 64,
+          "alignment": 16,
+          "stride": 64
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "stride_bytes": 64,
+      "matrix_layout_mode": {
+        "name": "RowMajor",
+        "value": 1
+      },
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 24,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 16,
+          "alignment": 4,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 25,
+      "element_count": 4,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 4,
+          "alignment": 4,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "stride_bytes": 4,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "matrix",
+      "kind": {
+        "name": "Matrix",
+        "value": 3
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 64,
+          "alignment": 16,
+          "stride": 64
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "stride_bytes": 64,
+      "matrix_layout_mode": {
+        "name": "RowMajor",
+        "value": 1
+      },
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 27,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 16,
+          "alignment": 4,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 28,
+      "element_count": 4,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 4,
+          "alignment": 4,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "stride_bytes": 4,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "Material",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 4,
+          "alignment": 1,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 4,
+        "bytes": 0
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 4,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 1,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 1
+        },
+        {
+          "binding_range_index": 2,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 2
+        },
+        {
+          "binding_range_index": 3,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 3
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [
+        {
+          "name": "albedoMap",
+          "var": 15
+        },
+        {
+          "name": "glossMap",
+          "var": 16
+        },
+        {
+          "name": "normalMap",
+          "var": 17
+        },
+        {
+          "name": "sampler",
+          "var": 18
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "_Texture",
+      "kind": {
+        "name": "Resource",
+        "value": 7
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "_Texture",
+      "kind": {
+        "name": "Resource",
+        "value": 7
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "_Texture",
+      "kind": {
+        "name": "Resource",
+        "value": 7
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "SamplerState",
+      "kind": {
+        "name": "SamplerState",
+        "value": 8
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "Mesh",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 128,
+          "alignment": 16,
+          "stride": 128
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 128
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 128
+      },
+      "stride_bytes": 128,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [
+        {
+          "name": "modelToWorld",
+          "var": 19
+        },
+        {
+          "name": "modelToWorld_inverseTranspose",
+          "var": 20
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "matrix",
+      "kind": {
+        "name": "Matrix",
+        "value": 3
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 64,
+          "alignment": 16,
+          "stride": 64
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "stride_bytes": 64,
+      "matrix_layout_mode": {
+        "name": "RowMajor",
+        "value": 1
+      },
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 36,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 16,
+          "alignment": 4,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 37,
+      "element_count": 4,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 4,
+          "alignment": 4,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "stride_bytes": 4,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "matrix",
+      "kind": {
+        "name": "Matrix",
+        "value": 3
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 64,
+          "alignment": 16,
+          "stride": 64
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 64
+      },
+      "stride_bytes": 64,
+      "matrix_layout_mode": {
+        "name": "RowMajor",
+        "value": 1
+      },
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 39,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "vector",
+      "kind": {
+        "name": "Vector",
+        "value": 4
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 16,
+          "alignment": 4,
+          "stride": 16
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 16
+      },
+      "stride_bytes": 16,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": 40,
+      "element_count": 4,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "float",
+      "kind": {
+        "name": "Scalar",
+        "value": 5
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 4,
+          "alignment": 4,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "alignment_bytes": 4,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 4
+      },
+      "stride_bytes": 4,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "ConstantBuffer",
+      "kind": {
+        "name": "ConstantBuffer",
+        "value": 6
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "PushConstantBuffer",
+            "value": 11
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "PushConstant",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "PushConstant",
+              "descriptor_count": 1,
+              "category": {
+                "name": "PushConstantBuffer",
+                "value": 11
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "PushConstant",
+          "space_offset": 0,
+          "leaf_element_type_layout": 1
+        }
+      ],
+      "fields": [],
+      "element": 1,
+      "element_count": 0,
+      "container": 22,
+      "contained": 23
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "PushConstantBuffer",
+            "value": 11
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "PushConstant",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "PushConstant",
+              "descriptor_count": 1,
+              "category": {
+                "name": "PushConstantBuffer",
+                "value": 11
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": null,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "ParameterBlock",
+      "kind": {
+        "name": "ParameterBlock",
+        "value": 11
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "ParameterBlock",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [],
+      "sub_object_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "ParameterBlock",
+          "space_offset": 0,
+          "leaf_element_type_layout": 4
+        }
+      ],
+      "fields": [],
+      "element": 4,
+      "element_count": 0,
+      "container": 25,
+      "contained": 26
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        },
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 1,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 1,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": null,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "Environment",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 5,
+          "alignment": 1,
+          "stride": 5
+        },
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "size": 96,
+          "alignment": 16,
+          "stride": 96
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 5,
+        "bytes": 96
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 5,
+        "bytes": 96
+      },
+      "stride_bytes": 96,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 1,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 1
+        },
+        {
+          "binding_range_index": 2,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 2
+        },
+        {
+          "binding_range_index": 3,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 3
+        },
+        {
+          "binding_range_index": 4,
+          "binding_type": "MutableRawBuffer",
+          "count": 1,
+          "first_descriptor_range_index": 4
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "MutableRawBuffer",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [
+        {
+          "binding_range_index": 4,
+          "binding_type": "MutableRawBuffer",
+          "space_offset": 0,
+          "leaf_element_type_layout": 5
+        }
+      ],
+      "fields": [
+        {
+          "name": "sunLight",
+          "var": 27
+        },
+        {
+          "name": "envMap",
+          "var": 28
+        },
+        {
+          "name": "output",
+          "var": 29
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "ParameterBlock",
+      "kind": {
+        "name": "ParameterBlock",
+        "value": 11
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "ParameterBlock",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [],
+      "sub_object_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "ParameterBlock",
+          "space_offset": 0,
+          "leaf_element_type_layout": 22
+        }
+      ],
+      "fields": [],
+      "element": 22,
+      "element_count": 0,
+      "container": 31,
+      "contained": 32
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        },
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 1,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 1,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": null,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "ParameterBlock",
+      "kind": {
+        "name": "ParameterBlock",
+        "value": 11
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "ParameterBlock",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [],
+      "sub_object_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "ParameterBlock",
+          "space_offset": 0,
+          "leaf_element_type_layout": 29
+        }
+      ],
+      "fields": [],
+      "element": 29,
+      "element_count": 0,
+      "container": 34,
+      "contained": 35
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": null,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "Material",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 4,
+          "alignment": 1,
+          "stride": 4
+        }
+      ],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 4,
+        "bytes": 0
+      },
+      "alignment_bytes": 16,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 4,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        },
+        {
+          "binding_range_index": 1,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 1
+        },
+        {
+          "binding_range_index": 2,
+          "binding_type": "Texture",
+          "count": 1,
+          "first_descriptor_range_index": 2
+        },
+        {
+          "binding_range_index": 3,
+          "binding_type": "Sampler",
+          "count": 1,
+          "first_descriptor_range_index": 3
+        }
+      ],
+      "descriptor_sets": [
+        {
+          "set_index": 0,
+          "space_offset": 0,
+          "ranges": [
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Texture",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            },
+            {
+              "binding_type": "Sampler",
+              "descriptor_count": 1,
+              "category": {
+                "name": "DescriptorTableSlot",
+                "value": 9
+              }
+            }
+          ]
+        }
+      ],
+      "sub_object_ranges": [],
+      "fields": [
+        {
+          "name": "albedoMap",
+          "var": 36
+        },
+        {
+          "name": "glossMap",
+          "var": 37
+        },
+        {
+          "name": "normalMap",
+          "var": 38
+        },
+        {
+          "name": "sampler",
+          "var": 39
+        }
+      ],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "ParameterBlock",
+      "kind": {
+        "name": "ParameterBlock",
+        "value": 11
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 1,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "ParameterBlock",
+          "count": 1,
+          "first_descriptor_range_index": 0
+        }
+      ],
+      "descriptor_sets": [],
+      "sub_object_ranges": [
+        {
+          "binding_range_index": 0,
+          "binding_type": "ParameterBlock",
+          "space_offset": 0,
+          "leaf_element_type_layout": 34
+        }
+      ],
+      "fields": [],
+      "element": 34,
+      "element_count": 0,
+      "container": 41,
+      "contained": 42
+    },
+    {
+      "name": null,
+      "kind": {
+        "name": "None",
+        "value": 0
+      },
+      "categories": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        },
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "size": 1,
+          "alignment": 1,
+          "stride": 1
+        }
+      ],
+      "size": {
+        "set_spaces": 1,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 1,
+        "binding_slots": 1,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": null,
+      "container": null,
+      "contained": null
+    },
+    {
+      "name": "main",
+      "kind": {
+        "name": "Struct",
+        "value": 1
+      },
+      "categories": [],
+      "size": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "alignment_bytes": 1,
+      "stride": {
+        "set_spaces": 0,
+        "binding_slots": 0,
+        "bytes": 0
+      },
+      "stride_bytes": 0,
+      "matrix_layout_mode": null,
+      "binding_ranges": [],
+      "descriptor_sets": [],
+      "sub_object_ranges": [],
+      "fields": [],
+      "element": null,
+      "element_count": 0,
+      "container": null,
+      "contained": null
+    }
+  ],
+  "vars": [
+    {
+      "name": null,
+      "offsets": [],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 0
+    },
+    {
+      "name": "color",
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 2
+    },
+    {
+      "name": "sunLight",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 1,
+          "space": 0
+        },
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 7
+    },
+    {
+      "name": "light",
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 8
+    },
+    {
+      "name": "dir",
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 9
+    },
+    {
+      "name": "intensity",
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 16,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 16,
+      "binding_range_offset_delta": 0,
+      "type_layout": 11
+    },
+    {
+      "name": "shadowMap",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 13
+    },
+    {
+      "name": "shadowSampler",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 1,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 1,
+      "type_layout": 14
+    },
+    {
+      "name": "worldToShadow",
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 32,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 32,
+      "binding_range_offset_delta": 2,
+      "type_layout": 15
+    },
+    {
+      "name": "envMap",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 3,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 2,
+      "type_layout": 18
+    },
+    {
+      "name": "texture",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 19
+    },
+    {
+      "name": "sampler",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 1,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 1,
+      "type_layout": 20
+    },
+    {
+      "name": "output",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 5,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 4,
+      "type_layout": 21
+    },
+    {
+      "name": "worldToView",
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 23
+    },
+    {
+      "name": "viewToProj",
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 64,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 64,
+      "binding_range_offset_delta": 0,
+      "type_layout": 26
+    },
+    {
+      "name": "albedoMap",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 30
+    },
+    {
+      "name": "glossMap",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 1,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 1,
+      "type_layout": 31
+    },
+    {
+      "name": "normalMap",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 2,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 2,
+      "type_layout": 32
+    },
+    {
+      "name": "sampler",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 3,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 3,
+      "type_layout": 33
+    },
+    {
+      "name": "modelToWorld",
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 35
+    },
+    {
+      "name": "modelToWorld_inverseTranspose",
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 64,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 64,
+      "binding_range_offset_delta": 0,
+      "type_layout": 38
+    },
+    {
+      "name": "pushData",
+      "offsets": [
+        {
+          "category": {
+            "name": "PushConstantBuffer",
+            "value": 11
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 41
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "PushConstantBuffer",
+            "value": 11
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 42
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 1
+    },
+    {
+      "name": "environment",
+      "offsets": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 1,
+      "type_layout": 43
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 0,
+          "space": 0
+        },
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 44
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 1,
+          "space": 0
+        },
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 45
+    },
+    {
+      "name": "sunLight",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 0,
+          "space": 0
+        },
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 7
+    },
+    {
+      "name": "envMap",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 2,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 2,
+      "type_layout": 18
+    },
+    {
+      "name": "output",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 4,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 4,
+      "type_layout": 21
+    },
+    {
+      "name": "view",
+      "offsets": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "offset": 1,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 2,
+      "type_layout": 46
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 0,
+          "space": 0
+        },
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 47
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 22
+    },
+    {
+      "name": "material",
+      "offsets": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "offset": 2,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 3,
+      "type_layout": 48
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 49
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 50
+    },
+    {
+      "name": "albedoMap",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 30
+    },
+    {
+      "name": "glossMap",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 1,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 1,
+      "type_layout": 31
+    },
+    {
+      "name": "normalMap",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 2,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 2,
+      "type_layout": 32
+    },
+    {
+      "name": "sampler",
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 3,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 3,
+      "type_layout": 33
+    },
+    {
+      "name": "mesh",
+      "offsets": [
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "offset": 3,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 4,
+      "type_layout": 51
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "DescriptorTableSlot",
+            "value": 9
+          },
+          "offset": 0,
+          "space": 0
+        },
+        {
+          "category": {
+            "name": "SubElementRegisterSpace",
+            "value": 20
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 52
+    },
+    {
+      "name": null,
+      "offsets": [
+        {
+          "category": {
+            "name": "Uniform",
+            "value": 8
+          },
+          "offset": 0,
+          "space": 0
+        }
+      ],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 34
+    },
+    {
+      "name": null,
+      "offsets": [],
+      "byte_offset_delta": 0,
+      "binding_range_offset_delta": 0,
+      "type_layout": 53
+    }
+  ]
+}
