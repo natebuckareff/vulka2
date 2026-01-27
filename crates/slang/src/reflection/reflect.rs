@@ -1,42 +1,10 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use shader_slang as slang;
 
-/// Describes the extent of a shader value. Tells us _how many_ resource units
-/// the shader value consumes for its layout. Like a multi-dimensional size.
-struct LayoutExtent {
-    sets: u32,
-    bindings: u32,
-    bytes: usize,
-}
-
-// TODO
-struct ShaderCursor {
-    object: (), // TODO
-    offset: ShaderOffset,
-}
-
-/// Describes the location of a shader value. Tells us _where_ a shader value or
-/// resource is located, in terms of resource units. Like a multi-dimensional
-/// pointer.
-struct ShaderOffset {
-    byte_offset: usize,
-    binding_range_index: u32,
-    array_index_in_range: u32,
-}
-
-struct VariableLayout {
-    offset: ShaderOffset,
-    // TODO
-}
-
-struct TypeLayout {
-    size: LayoutExtent,
-    stride: LayoutExtent,
-    alignment_bytes: u32,
-    // TODO
-}
+use crate::reflection::serde_slang::serde_binding_type;
 
 #[derive(Default)]
 struct PipelineLayoutBuilder {
@@ -72,10 +40,10 @@ impl PipelineLayoutBuilder {
     }
 }
 
-#[derive(Clone)]
-struct DescriptorSetLayoutBuilder {
-    set_index: u32,
-    descriptor_ranges: Vec<DescriptorRange>,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DescriptorSetLayoutBuilder {
+    pub set_index: u32, // XXX
+    pub descriptor_ranges: Vec<DescriptorRange>,
 }
 
 impl DescriptorSetLayoutBuilder {
@@ -104,26 +72,54 @@ struct LayoutBuilder {
     descriptor_set: Arc<RwLock<DescriptorSetLayoutBuilder>>,
 }
 
-#[derive(Clone)]
-struct DescriptorRange {
-    binding_index: u32,
-    descriptor_count: i64,
-    binding_type: slang::BindingType,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DescriptorRange {
+    pub binding_index: u32,
+    pub descriptor_count: i64,
+    #[serde(with = "serde_binding_type")]
+    pub binding_type: slang::BindingType,
 }
 
-#[derive(Clone)]
-struct PushConstantRange {
-    offset: u32,
-    size: usize,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PushConstantRange {
+    pub offset: u32,
+    pub size: usize,
 }
 
-pub fn walk_program(program: &slang::ComponentType) -> Result<()> {
+#[derive(Serialize, Deserialize)]
+pub struct SlangLayoutDirect {
+    pub descriptor_set_layouts: Vec<DescriptorSetLayoutBuilder>,
+    pub push_constant_ranges: Vec<PushConstantRange>,
+}
+
+pub fn walk_program(program: &slang::ComponentType) -> Result<SlangLayoutDirect> {
     let program_layout = program.layout(0)?;
-    create_pipeline_layout(program_layout);
-    Ok(())
+
+    let slang_layout = create_pipeline_layout(program_layout)?;
+
+    for (i, descriptor_set_layout) in slang_layout.descriptor_set_layouts.iter().enumerate() {
+        for descriptor_range in &descriptor_set_layout.descriptor_ranges {
+            println!(
+                "### descriptor set: set={}, binding={}, count={}, type={:?}",
+                i,
+                descriptor_range.binding_index,
+                descriptor_range.descriptor_count,
+                descriptor_range.binding_type
+            );
+        }
+    }
+
+    for push_constant_range in &slang_layout.push_constant_ranges {
+        println!(
+            "### push constant: offset={}, size={}",
+            push_constant_range.offset, push_constant_range.size
+        );
+    }
+
+    Ok(slang_layout)
 }
 
-fn create_pipeline_layout(program_layout: &slang::reflection::Shader) {
+fn create_pipeline_layout(program_layout: &slang::reflection::Shader) -> Result<SlangLayoutDirect> {
     let mut pipeline = PipelineLayoutBuilder::default();
     let descriptor_set = DescriptorSetLayoutBuilder::start_building(&mut pipeline);
     let builder = LayoutBuilder {
@@ -142,24 +138,17 @@ fn create_pipeline_layout(program_layout: &slang::reflection::Shader) {
 
     let descriptor_set_layouts = builder.pipeline.write().unwrap().finish_building();
 
-    for (i, descriptor_set_layout) in descriptor_set_layouts.iter().enumerate() {
-        for descriptor_range in &descriptor_set_layout.descriptor_ranges {
-            println!(
-                "### descriptor set: set={}, binding={}, count={}, type={:?}",
-                i,
-                descriptor_range.binding_index,
-                descriptor_range.descriptor_count,
-                descriptor_range.binding_type
-            );
-        }
-    }
+    let program_layout = SlangLayoutDirect {
+        descriptor_set_layouts,
+        push_constant_ranges: builder
+            .pipeline
+            .write()
+            .unwrap()
+            .push_constant_ranges
+            .clone(),
+    };
 
-    for push_constant_range in &builder.pipeline.write().unwrap().push_constant_ranges {
-        println!(
-            "### push constant: offset={}, size={}",
-            push_constant_range.offset, push_constant_range.size
-        );
-    }
+    Ok(program_layout)
 }
 
 fn add_global_scope_parameters(builder: LayoutBuilder, program_layout: &slang::reflection::Shader) {
