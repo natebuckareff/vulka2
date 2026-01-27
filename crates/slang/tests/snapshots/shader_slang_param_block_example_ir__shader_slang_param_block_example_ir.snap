@@ -1,6 +1,5 @@
 ---
 source: crates/slang/tests/shader_slang_param_block_example_ir.rs
-assertion_line: 24
 expression: layout_json
 ---
 {
