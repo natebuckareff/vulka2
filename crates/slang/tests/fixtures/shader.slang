@@ -9,13 +9,16 @@
 
 import common;
 
+[[vk::push_constant]]
+ConstantBuffer<PushData> pushData;
+
 ParameterBlock<Environment> environment;
 ParameterBlock<View> view;
 ParameterBlock<Material> material;
 ParameterBlock<Mesh> mesh;
 
 [shader("compute")]
-void main(uniform PushData pushData)
+void main()
 {
     float4 r = 0;
 
