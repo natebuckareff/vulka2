@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use slang::{SlangCompilerBuilder, lower_layout_ir_to_pipeline};
+use slang::SlangCompilerBuilder;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -20,7 +20,7 @@ fn shader_slang_param_block_example() -> Result<()> {
 
     let program = compiler.linker().add_all_entrypoints(&module_id)?.link()?;
 
-    let pipeline_layout = lower_layout_ir_to_pipeline(program.layout());
+    let pipeline_layout = program.layout();
     let layout_json = serde_json::to_string_pretty(&pipeline_layout)?;
     insta::assert_snapshot!(layout_json);
 
