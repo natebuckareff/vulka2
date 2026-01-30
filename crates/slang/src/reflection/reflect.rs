@@ -1,375 +1,188 @@
-use std::sync::{Arc, RwLock};
-
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, Ok, Result};
 use shader_slang as slang;
 
-use crate::reflection::serde_slang::serde_binding_type;
+use crate::reflection::print::PrintObject;
 
-#[derive(Default)]
-struct PipelineLayoutBuilder {
-    descriptor_set_layouts: Vec<Option<DescriptorSetLayoutBuilder>>,
-    push_constant_ranges: Vec<PushConstantRange>,
+struct State {
+    print: PrintObject,
+    base_set: usize,
 }
 
-impl PipelineLayoutBuilder {
-    fn finish_building(&self) -> Vec<DescriptorSetLayoutBuilder> {
-        let filtered: Vec<DescriptorSetLayoutBuilder> = self
-            .descriptor_set_layouts
-            .iter()
-            .filter_map(|layout| layout.clone())
-            .collect();
-
-        filtered
-
-        // filterOutEmptyDescriptorSets(&mut self.descriptor_set_layouts);
-
-        // VkPipelineLayoutCreateInfo pipelineLayoutInfo = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-
-        // pipelineLayoutInfo.setLayoutCount = builder.descriptorSetLayouts.size();
-        // pipelineLayoutInfo.pSetLayouts = builder.descriptorSetLayouts.data();
-
-        // pipelineLayoutInfo.pushConstantRangeCount = builder.pushConstantRanges.size();
-        // pipelineLayoutInfo.pPushConstantRanges = builder.pushConstantRanges.data();
-
-        // VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-        // vkAPI.vkCreatePipelineLayout(vkAPI.device, &pipelineLayoutInfo, nullptr, &pipelineLayout);
-
-        // *outPipelineLayout = pipelineLayout;
-        // return SLANG_OK;
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct DescriptorSetLayoutBuilder {
-    pub set_index: u32, // XXX
-    pub descriptor_ranges: Vec<DescriptorRange>,
-}
-
-impl DescriptorSetLayoutBuilder {
-    fn start_building(pipeline: &mut PipelineLayoutBuilder) -> Self {
-        let descriptor_set = Self {
-            set_index: pipeline.descriptor_set_layouts.len() as u32,
-            descriptor_ranges: vec![],
-        };
-        pipeline.descriptor_set_layouts.push(None);
-        descriptor_set
+impl State {
+    fn new(print: PrintObject) -> Self {
+        Self { print, base_set: 0 }
     }
 
-    fn finish_building(&self, pipeline: &mut PipelineLayoutBuilder) {
-        if self.descriptor_ranges.is_empty() {
-            return;
+    fn increment_set(&mut self, value: usize) {
+        self.base_set += value;
+    }
+
+    fn clone(&self, print: PrintObject) -> Self {
+        Self {
+            print,
+            base_set: self.base_set,
         }
-
-        let i = self.set_index as usize;
-        pipeline.descriptor_set_layouts[i] = Some(self.clone());
     }
 }
 
-#[derive(Clone)]
-struct LayoutBuilder {
-    pipeline: Arc<RwLock<PipelineLayoutBuilder>>,
-    descriptor_set: Arc<RwLock<DescriptorSetLayoutBuilder>>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct DescriptorRange {
-    pub binding_index: u32,
-    pub descriptor_count: i64,
-    #[serde(with = "serde_binding_type")]
-    pub binding_type: slang::BindingType,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct PushConstantRange {
-    pub offset: u32,
-    pub size: usize,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SlangLayoutDirect {
-    pub descriptor_set_layouts: Vec<DescriptorSetLayoutBuilder>,
-    pub push_constant_ranges: Vec<PushConstantRange>,
-}
-
-pub fn walk_program(program: &slang::ComponentType) -> Result<SlangLayoutDirect> {
+pub fn walk_program(program: &slang::ComponentType) -> Result<()> {
     let program_layout = program.layout(0)?;
+    let global_vars = program_layout
+        .global_params_var_layout()
+        .context("global_params_var_layout failed")?;
 
-    let slang_layout = create_pipeline_layout(program_layout)?;
+    // TODO
+    // let layout = ShaderLayout {
+    //     push_constants: vec![],
+    //     descriptor_sets: vec![],
+    //     globals: vec![],
+    //     entrypoints: vec![],
+    // };
 
-    for (i, descriptor_set_layout) in slang_layout.descriptor_set_layouts.iter().enumerate() {
-        for descriptor_range in &descriptor_set_layout.descriptor_ranges {
-            println!(
-                "### descriptor set: set={}, binding={}, count={}, type={:?}",
-                i,
-                descriptor_range.binding_index,
-                descriptor_range.descriptor_count,
-                descriptor_range.binding_type
-            );
+    let print = PrintObject::new(0).object("globals");
+    let state = State::new(print);
+    print_var_layout(state, global_vars)?;
+
+    Ok(())
+}
+
+fn print_var_layout(
+    mut state: State,
+    var_layout: &slang::reflection::VariableLayout,
+) -> Result<()> {
+    if let Some(name) = var_layout.name() {
+        state.print.value("name", name);
+    }
+
+    let categories = var_layout.categories();
+    if categories.len() > 0 {
+        let print_array = state.print.array("offset");
+        for category in categories {
+            let value = var_layout.offset(category);
+            let unit = format!("{:?}", category);
+
+            if category == slang::ParameterCategory::SubElementRegisterSpace {
+                state.increment_set(value);
+            }
+
+            let mut print_object = print_array.object();
+            print_object.value("value", &value.to_string());
+            print_object.value("unit", &unit);
         }
     }
 
-    for push_constant_range in &slang_layout.push_constant_ranges {
-        println!(
-            "### push constant: offset={}, size={}",
-            push_constant_range.offset, push_constant_range.size
-        );
+    if let Some(type_layout) = var_layout.type_layout() {
+        print_type_layout(state, type_layout, false)?;
     }
 
-    Ok(slang_layout)
+    Ok(())
 }
 
-fn create_pipeline_layout(program_layout: &slang::reflection::Shader) -> Result<SlangLayoutDirect> {
-    let mut pipeline = PipelineLayoutBuilder::default();
-    let descriptor_set = DescriptorSetLayoutBuilder::start_building(&mut pipeline);
-    let builder = LayoutBuilder {
-        pipeline: Arc::new(RwLock::new(pipeline)),
-        descriptor_set: Arc::new(RwLock::new(descriptor_set)),
-    };
-
-    add_global_scope_parameters(builder.clone(), program_layout);
-    add_entry_point_parameters(builder.clone(), program_layout);
-
-    builder
-        .descriptor_set
-        .write()
-        .unwrap()
-        .finish_building(&mut builder.pipeline.write().unwrap());
-
-    let descriptor_set_layouts = builder.pipeline.write().unwrap().finish_building();
-
-    let program_layout = SlangLayoutDirect {
-        descriptor_set_layouts,
-        push_constant_ranges: builder
-            .pipeline
-            .write()
-            .unwrap()
-            .push_constant_ranges
-            .clone(),
-    };
-
-    Ok(program_layout)
-}
-
-fn add_global_scope_parameters(builder: LayoutBuilder, program_layout: &slang::reflection::Shader) {
-    // _currentStageFlags = VK_SHADER_STAGE_ALL
-    add_ranges_for_parameter_block_element(
-        builder,
-        program_layout.global_params_type_layout().unwrap(),
-    );
-}
-
-fn add_entry_point_parameters(builder: LayoutBuilder, program_layout: &slang::reflection::Shader) {
-    let entry_point_count = program_layout.entry_point_count();
-
-    for i in 0..entry_point_count {
-        let entry_point_layout = program_layout.entry_point_by_index(i).unwrap();
-        // _currentStageFlags = getShaderStageFlags(entryPointLayout->getStage());
-        add_ranges_for_parameter_block_element(
-            builder.clone(),
-            entry_point_layout.type_layout().unwrap(),
-        );
-    }
-}
-
-fn add_ranges_for_parameter_block_element(
-    builder: LayoutBuilder,
+fn print_type_layout(
+    state: State,
     type_layout: &slang::reflection::TypeLayout,
-) {
-    // NOTE: which category to use???
-    if type_layout.size(slang::ParameterCategory::Uniform) > 0 {
-        add_automatically_introduced_uniform_buffer(builder.clone());
+    is_parameter_block: bool,
+) -> Result<()> {
+    let mut print = state.print.object("layout_type");
+
+    let kind = type_layout.kind();
+    print.value("kind", &format!("{:?}", kind));
+
+    if kind == slang::TypeKind::Struct {
+        if let Some(name) = type_layout.name() {
+            print.value("name", name);
+        }
     }
 
-    add_ranges(builder, type_layout);
-}
-
-fn add_automatically_introduced_uniform_buffer(builder: LayoutBuilder) {
-    let binding_index = builder
-        .descriptor_set
-        .read()
-        .unwrap()
-        .descriptor_ranges
-        .len() as u32;
-
-    // VkDescriptorSetLayoutBinding binding = {};
-    // binding.stageFlags = VK_SHADER_STAGE_ALL;
-    // binding.binding = vulkanBindingIndex; // <-- binding_index
-    // binding.descriptorCount = 1;
-    // binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-
-    let descriptor_range = DescriptorRange {
-        binding_index,
-        descriptor_count: 1,
-        binding_type: slang::BindingType::ConstantBuffer, // need slang->vk mapping
-    };
-
-    builder
-        .descriptor_set
-        .write()
-        .unwrap()
-        .descriptor_ranges
-        .push(descriptor_range);
-}
-
-fn add_ranges(builder: LayoutBuilder, type_layout: &slang::reflection::TypeLayout) {
-    {
-        let mut descriptor_set = builder.descriptor_set.write().unwrap();
-        add_descriptor_ranges(&mut descriptor_set, type_layout);
-    }
-    add_sub_object_ranges(builder, type_layout);
-}
-
-fn add_descriptor_ranges(
-    builder: &mut DescriptorSetLayoutBuilder,
-    type_layout: &slang::reflection::TypeLayout,
-) {
-    // NOTE: assumes that there are no explicit bindings, otherwise we would not
-    // be able to assume set indices start at 0
-    let relative_set_index = 0;
-    let range_count = type_layout.descriptor_set_descriptor_range_count(relative_set_index);
-
-    for range_index in 0..range_count {
-        add_descriptor_range(builder, type_layout, relative_set_index, range_index);
-    }
-}
-
-fn add_descriptor_range(
-    builder: &mut DescriptorSetLayoutBuilder,
-    type_layout: &slang::reflection::TypeLayout,
-    relative_set_index: i64,
-    range_index: i64,
-) {
-    let binding_type =
-        type_layout.descriptor_set_descriptor_range_type(relative_set_index, range_index);
-
-    let descriptor_count = type_layout
-        .descriptor_set_descriptor_range_descriptor_count(relative_set_index, range_index);
-
-    if binding_type == slang::BindingType::PushConstant {
-        // push constants do not consume a binding slot
-        return;
+    let categories = type_layout.categories();
+    if categories.len() > 0 {
+        let print_array = print.array("size");
+        for category in categories {
+            let value = type_layout.size(category);
+            let unit = format!("{:?}", category);
+            let mut print_object = print_array.object();
+            print_object.value("value", &value.to_string());
+            print_object.value("unit", &unit);
+        }
     }
 
-    let descriptor_range = DescriptorRange {
-        binding_index: builder.descriptor_ranges.len() as u32,
-        descriptor_count,
-        binding_type,
-    };
-
-    // VkDescriptorSetLayoutBinding vulkanBindingRange = {};
-    // vulkanBindingRange.binding = bindingIndex;
-    // vulkanBindingRange.descriptorCount = descriptorCount;
-    // vulkanBindingRange.stageFlags = _currentStageFlags;
-    // vulkanBindingRange.descriptorType = mapSlangBindingTypeToVulkanDescriptorType(bindingType);
-
-    builder.descriptor_ranges.push(descriptor_range);
-}
-
-fn add_sub_object_ranges(builder: LayoutBuilder, type_layout: &slang::reflection::TypeLayout) {
-    let sub_object_range_count = type_layout.sub_object_range_count();
-
-    for sub_object_range_index in 0..sub_object_range_count {
-        add_sub_object_range(builder.clone(), type_layout, sub_object_range_index);
+    let alignment = type_layout.alignment(slang::ParameterCategory::Uniform);
+    let stride = type_layout.stride(slang::ParameterCategory::Uniform);
+    if alignment != 1 || stride != 0 {
+        print.value("alignment", &alignment.to_string());
+        print.value("stride", &stride.to_string());
     }
-}
 
-fn add_sub_object_range(
-    builder: LayoutBuilder,
-    type_layout: &slang::reflection::TypeLayout,
-    sub_object_range_index: i64,
-) {
-    let binding_range_index =
-        type_layout.sub_object_range_binding_range_index(sub_object_range_index);
+    if is_parameter_block {
+        let has_implicit_uniform_binding = type_layout.size(slang::ParameterCategory::Uniform) > 0;
+        let mut emitted_uniform_binding = false;
 
-    let binding_type = type_layout.binding_range_type(binding_range_index);
+        let print = print.array("descriptors");
 
-    match binding_type {
-        shader_slang::BindingType::ParameterBlock => {
-            let parameter_block_type_layout =
-                type_layout.binding_range_leaf_type_layout(binding_range_index);
+        let binding_range_count = type_layout.binding_range_count();
+        for br in 0..binding_range_count {
+            let dr_count = type_layout.binding_range_descriptor_range_count(br);
+            if dr_count == 0 {
+                continue;
+            }
 
-            if let Some(parameter_block_type_layout) = parameter_block_type_layout {
-                add_descriptor_set_for_parameter_block(
-                    builder.pipeline.clone(),
-                    parameter_block_type_layout,
-                );
+            let set_index = type_layout.binding_range_descriptor_set_index(br);
+            let vk_set = state.base_set as i64 + type_layout.descriptor_set_space_offset(set_index);
+
+            if has_implicit_uniform_binding && !emitted_uniform_binding {
+                let mut print = print.object();
+                print.value("set", &vk_set.to_string());
+                print.value("binding", "0");
+                emitted_uniform_binding = true;
+            }
+
+            let first = type_layout.binding_range_first_descriptor_range_index(br);
+            for i in 0..dr_count {
+                let range_index = first + i;
+                let vk_binding = type_layout
+                    .descriptor_set_descriptor_range_index_offset(set_index, range_index);
+
+                let vk_binding_type =
+                    type_layout.descriptor_set_descriptor_range_type(set_index, range_index);
+
+                let vk_binding_count = type_layout
+                    .descriptor_set_descriptor_range_descriptor_count(set_index, range_index);
+
+                // if vk_binding_count < 0 -> runtime sized
+
+                let mut print = print.object();
+                print.value("set", &vk_set.to_string());
+                print.value("binding", &vk_binding.to_string());
+                print.value("type", &format!("{:?}", vk_binding_type));
+                print.value("count", &vk_binding_count.to_string());
             }
         }
-        shader_slang::BindingType::PushConstant => {
-            let constant_buffer_type_layout =
-                type_layout.binding_range_leaf_type_layout(binding_range_index);
-
-            if let Some(type_layout) = constant_buffer_type_layout {
-                add_push_constant_range_for_constant_buffer(builder.clone(), type_layout);
-                add_ranges(builder, type_layout.element_type_layout().unwrap());
-            }
-        }
-        shader_slang::BindingType::ConstantBuffer => {
-            let element_type_layout = type_layout
-                .binding_range_leaf_type_layout(binding_range_index)
-                .map(|type_layout| type_layout.element_type_layout())
-                .flatten();
-
-            if let Some(element_type_layout) = element_type_layout {
-                add_ranges_for_parameter_block_element(builder, element_type_layout);
-            }
-        }
-        _ => {
-            //
-        }
-    }
-}
-
-fn add_descriptor_set_for_parameter_block(
-    pipeline: Arc<RwLock<PipelineLayoutBuilder>>,
-    type_layout: &slang::reflection::TypeLayout,
-) {
-    let descriptor_set = DescriptorSetLayoutBuilder::start_building(&mut pipeline.write().unwrap());
-
-    let builder = LayoutBuilder {
-        pipeline,
-        descriptor_set: Arc::new(RwLock::new(descriptor_set)),
-    };
-
-    let element_type_layout = type_layout.element_type_layout().unwrap();
-
-    add_ranges_for_parameter_block_element(builder.clone(), element_type_layout);
-
-    builder
-        .descriptor_set
-        .write()
-        .unwrap()
-        .finish_building(&mut builder.pipeline.write().unwrap());
-}
-
-fn add_push_constant_range_for_constant_buffer(
-    builder: LayoutBuilder,
-    type_layout: &slang::reflection::TypeLayout,
-) {
-    let element_type_layout = type_layout.element_type_layout().unwrap();
-    let element_size = element_type_layout.size(slang::ParameterCategory::Uniform);
-
-    if element_size == 0 {
-        return;
     }
 
-    // VkPushConstantRange pushConstantRange = {};
-    // pushConstantRange.stageFlags = _currentStageFlags;
-    // pushConstantRange.offset = 0;
-    // pushConstantRange.size = elementSize;
+    match type_layout.kind() {
+        slang::TypeKind::Struct => {
+            let fields = type_layout.fields();
+            let print = print.array("fields");
+            for field in fields {
+                let print = print.object();
+                let next_state = state.clone(print);
+                print_var_layout(next_state, field)?;
+            }
+        }
+        slang::TypeKind::ParameterBlock => {
+            if let Some(element_type) = type_layout.element_type_layout() {
+                let print = print.object("element layout");
+                print_type_layout(state.clone(print), element_type, true)?;
+            }
+        }
+        slang::TypeKind::ConstantBuffer => {
+            if let Some(element_type) = type_layout.element_type_layout() {
+                let print = print.object("element layout");
+                print_type_layout(state.clone(print), element_type, false)?;
+            }
+        }
+        _ => {}
+    }
 
-    let push_constant_range = PushConstantRange {
-        offset: 0,
-        size: element_size,
-    };
-
-    builder
-        .pipeline
-        .write()
-        .unwrap()
-        .push_constant_ranges
-        .push(push_constant_range);
-
-    // TODO: builder.pipeline.push_constants.push(...)
+    Ok(())
 }
