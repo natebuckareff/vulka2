@@ -117,9 +117,8 @@ impl<'a> SlangLinker<'a> {
             code.insert(ep.clone(), spirv_code);
         }
 
-        // let layout = walk_program(&linked)?;
-        let layout = ShaderLayout::default();
-        walk_program(&linked)?;
+        let program_layout = linked.layout(0)?;
+        let layout = walk_program(&program_layout)?;
 
         Ok(SlangProgram::new(program_key, layout, entrypoints, code))
     }

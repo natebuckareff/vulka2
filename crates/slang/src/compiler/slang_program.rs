@@ -1,3 +1,4 @@
+use shader_slang as slang;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -63,7 +64,7 @@ impl AsRef<[u32]> for SpirvCode {
 /// A compiled shader program containing SPIR-V code for all linked entrypoints.
 pub struct SlangProgram {
     key: SlangProgramKey,
-    layout: ShaderLayout,
+    layout: String,
     entrypoints: Vec<SlangEntrypoint>,
     code: HashMap<SlangEntrypoint, SpirvCode>,
 }
@@ -71,7 +72,7 @@ pub struct SlangProgram {
 impl SlangProgram {
     pub(crate) fn new(
         key: SlangProgramKey,
-        layout: ShaderLayout,
+        layout: String,
         entrypoints: Vec<SlangEntrypoint>,
         code: HashMap<SlangEntrypoint, SpirvCode>,
     ) -> Arc<Self> {
@@ -87,7 +88,7 @@ impl SlangProgram {
         self.key
     }
 
-    pub fn layout(&self) -> &ShaderLayout {
+    pub fn layout(&self) -> &String {
         &self.layout
     }
 
@@ -222,7 +223,7 @@ impl SlangPipelineProgram {
         self.program.key()
     }
 
-    pub fn layout(&self) -> &ShaderLayout {
+    pub fn layout(&self) -> &String {
         self.program.layout()
     }
 

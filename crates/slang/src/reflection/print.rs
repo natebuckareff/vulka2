@@ -1,6 +1,10 @@
+use std::io::Write;
+use std::sync::{Arc, RwLock};
+
 pub struct PrintObject {
     newline: bool,
     depth: usize,
+    buffer: Arc<RwLock<Vec<u8>>>,
 }
 
 impl PrintObject {
@@ -8,31 +12,45 @@ impl PrintObject {
         Self {
             newline: true,
             depth,
+            buffer: Arc::new(RwLock::new(vec![])),
         }
+    }
+
+    pub fn read_buffer(&self) -> String {
+        let buffer = self.buffer.read().unwrap();
+        String::from_utf8(buffer.clone()).unwrap()
+    }
+
+    fn write_buffer(&self, value: &str) {
+        print!("{}", value);
+        let mut buffer = self.buffer.write().unwrap();
+        write!(buffer, "{}", value).unwrap();
     }
 
     pub fn value(&mut self, name: &str, value: &str) {
         if self.newline {
-            println!("{}{}: {}", " ".repeat(self.depth), name, value);
+            self.write_buffer(&format!("{}{}: {}\n", " ".repeat(self.depth), name, value));
         } else {
-            println!("{}: {}", name, value);
+            self.write_buffer(&format!("{}: {}\n", name, value));
         }
         self.newline = true;
     }
 
     pub fn object(&self, name: &str) -> PrintObject {
-        println!("{}{}:", " ".repeat(self.depth), name);
+        self.write_buffer(&format!("{}{}:\n", " ".repeat(self.depth), name));
         PrintObject {
             newline: true,
             depth: self.depth + 2,
+            buffer: self.buffer.clone(),
         }
     }
 
     pub fn array(&self, name: &str) -> PrintArray {
-        println!("{}{}:", " ".repeat(self.depth), name);
+        self.write_buffer(&format!("{}{}:\n", " ".repeat(self.depth), name));
         PrintArray {
             newline: true,
             depth: self.depth + 2,
+            buffer: self.buffer.clone(),
         }
     }
 }
@@ -40,38 +58,40 @@ impl PrintObject {
 pub struct PrintArray {
     newline: bool,
     depth: usize,
+    buffer: Arc<RwLock<Vec<u8>>>,
 }
 
 impl PrintArray {
-    pub fn new(depth: usize) -> Self {
-        Self {
-            newline: true,
-            depth,
-        }
+    fn write_buffer(&self, value: &str) {
+        print!("{}", value);
+        let mut buffer = self.buffer.write().unwrap();
+        write!(buffer, "{}", value).unwrap();
     }
 
     pub fn value(&mut self, value: &str) {
         if self.newline {
-            println!("{}- {}", " ".repeat(self.depth), value);
+            self.write_buffer(&format!("{}- {}\n", " ".repeat(self.depth), value));
         } else {
-            println!("- {}", value);
+            self.write_buffer(&format!("- {}\n", value));
         }
         self.newline = true;
     }
 
     pub fn object(&self) -> PrintObject {
-        print!("{}- ", " ".repeat(self.depth));
+        self.write_buffer(&format!("{}- ", " ".repeat(self.depth)));
         PrintObject {
             newline: false,
             depth: self.depth + 2,
+            buffer: self.buffer.clone(),
         }
     }
 
     pub fn array(&self) -> PrintArray {
-        print!("{}- ", " ".repeat(self.depth));
+        self.write_buffer(&format!("{}- ", " ".repeat(self.depth)));
         PrintArray {
             newline: false,
             depth: self.depth + 2,
+            buffer: self.buffer.clone(),
         }
     }
 }

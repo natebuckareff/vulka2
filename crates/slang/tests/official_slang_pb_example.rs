@@ -17,13 +17,7 @@ fn official_slang_pb_example() -> Result<()> {
 
     let module = compiler.load_module("shader.slang")?;
     let module_id = module.id().clone();
-
     let program = compiler.linker().add_all_entrypoints(&module_id)?.link()?;
-
-    // let pipeline_layout = slang::slang_layout_direct_from_shader_layout(program.layout())?;
-    let pipeline_layout = program.layout();
-    let _layout_json = serde_json::to_string_pretty(&pipeline_layout)?;
-    // insta::assert_snapshot!(layout_json);
-
+    insta::assert_snapshot!(program.layout());
     Ok(())
 }

@@ -1,5 +1,6 @@
-use anyhow::{Context, Ok, Result};
+use anyhow::{Context, Result, anyhow};
 use shader_slang as slang;
+use vulkanalia::vk;
 
 use crate::reflection::print::PrintObject;
 
@@ -25,11 +26,37 @@ impl State {
     }
 }
 
-pub fn walk_program(program: &slang::ComponentType) -> Result<()> {
-    let program_layout = program.layout(0)?;
+pub fn walk_program(program_layout: &slang::reflection::Shader) -> Result<String> {
     let global_vars = program_layout
         .global_params_var_layout()
         .context("global_params_var_layout failed")?;
+
+    let print = PrintObject::new(0).object("program");
+
+    let print_globals = print.object("globals");
+    let state = State::new(print_globals);
+    print_var_layout(state, global_vars)?;
+
+    let print_eps = print.array("entrypoints");
+    let entry_point_count = program_layout.entry_point_count();
+    for i in 0..entry_point_count {
+        let entry_point = program_layout
+            .entry_point_by_index(i)
+            .context("entry_point_by_index failed")?;
+
+        let entrypoint_vars = entry_point
+            .var_layout()
+            .context("entry_point.var_layout failed")?;
+
+        let mut print_ep = print_eps.object();
+        print_ep.value(
+            "name",
+            entry_point.name().context("entry_point.name failed")?,
+        );
+
+        let state = State::new(print_ep);
+        print_var_layout(state, entrypoint_vars)?;
+    }
 
     // TODO
     // let layout = ShaderLayout {
@@ -39,11 +66,7 @@ pub fn walk_program(program: &slang::ComponentType) -> Result<()> {
     //     entrypoints: vec![],
     // };
 
-    let print = PrintObject::new(0).object("globals");
-    let state = State::new(print);
-    print_var_layout(state, global_vars)?;
-
-    Ok(())
+    Ok(print.read_buffer())
 }
 
 fn print_var_layout(
@@ -114,12 +137,23 @@ fn print_type_layout(
     }
 
     if is_parameter_block {
-        let has_implicit_uniform_binding = type_layout.size(slang::ParameterCategory::Uniform) > 0;
-        let mut emitted_uniform_binding = false;
-
         let print = print.array("descriptors");
-
         let binding_range_count = type_layout.binding_range_count();
+
+        if type_layout.size(slang::ParameterCategory::Uniform) > 0 {
+            let range_index = 0;
+            let set_index = type_layout.binding_range_descriptor_set_index(range_index);
+            let vk_set = state.base_set as i64 + type_layout.descriptor_set_space_offset(set_index);
+            let vk_binding_type = vk::DescriptorType::UNIFORM_BUFFER;
+            let vk_binding_count = 1;
+
+            let mut print = print.object();
+            print.value("set", &vk_set.to_string());
+            print.value("binding", "0");
+            print.value("type", &format!("{:?}", vk_binding_type));
+            print.value("count", &vk_binding_count.to_string());
+        }
+
         for br in 0..binding_range_count {
             let dr_count = type_layout.binding_range_descriptor_range_count(br);
             if dr_count == 0 {
@@ -129,21 +163,16 @@ fn print_type_layout(
             let set_index = type_layout.binding_range_descriptor_set_index(br);
             let vk_set = state.base_set as i64 + type_layout.descriptor_set_space_offset(set_index);
 
-            if has_implicit_uniform_binding && !emitted_uniform_binding {
-                let mut print = print.object();
-                print.value("set", &vk_set.to_string());
-                print.value("binding", "0");
-                emitted_uniform_binding = true;
-            }
-
             let first = type_layout.binding_range_first_descriptor_range_index(br);
             for i in 0..dr_count {
                 let range_index = first + i;
                 let vk_binding = type_layout
                     .descriptor_set_descriptor_range_index_offset(set_index, range_index);
 
-                let vk_binding_type =
+                let binding_type =
                     type_layout.descriptor_set_descriptor_range_type(set_index, range_index);
+
+                let vk_binding_type = map_descriptor_type(binding_type)?;
 
                 let vk_binding_count = type_layout
                     .descriptor_set_descriptor_range_descriptor_count(set_index, range_index);
@@ -153,7 +182,10 @@ fn print_type_layout(
                 let mut print = print.object();
                 print.value("set", &vk_set.to_string());
                 print.value("binding", &vk_binding.to_string());
-                print.value("type", &format!("{:?}", vk_binding_type));
+                print.value(
+                    "type",
+                    &format!("{:?} / {:?}", binding_type, vk_binding_type),
+                );
                 print.value("count", &vk_binding_count.to_string());
             }
         }
@@ -185,4 +217,24 @@ fn print_type_layout(
     }
 
     Ok(())
+}
+
+fn map_descriptor_type(binding_type: slang::BindingType) -> Result<vk::DescriptorType> {
+    use slang::BindingType::*;
+    match binding_type {
+        Sampler => Ok(vk::DescriptorType::SAMPLER),
+        CombinedTextureSampler => Ok(vk::DescriptorType::COMBINED_IMAGE_SAMPLER),
+        Texture => Ok(vk::DescriptorType::SAMPLED_IMAGE),
+        MutableTeture => Ok(vk::DescriptorType::STORAGE_IMAGE),
+        TypedBuffer => Ok(vk::DescriptorType::UNIFORM_TEXEL_BUFFER),
+        MutableTypedBuffer => Ok(vk::DescriptorType::STORAGE_TEXEL_BUFFER),
+        RawBuffer => Ok(vk::DescriptorType::STORAGE_BUFFER),
+        MutableRawBuffer => Ok(vk::DescriptorType::STORAGE_BUFFER),
+        InputRenderTarget => Ok(vk::DescriptorType::INPUT_ATTACHMENT),
+        InlineUniformData => Ok(vk::DescriptorType::INLINE_UNIFORM_BLOCK),
+        RayTracingAccelerationStructure => Ok(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR),
+        ConstantBuffer => Ok(vk::DescriptorType::UNIFORM_BUFFER),
+        PushConstant => Err(anyhow!("push constant bindings are not descriptors")),
+        _ => Err(anyhow!("unsupported binding type")),
+    }
 }

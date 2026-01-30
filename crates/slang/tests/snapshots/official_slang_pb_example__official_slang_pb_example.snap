@@ -1,0 +1,384 @@
+---
+source: crates/slang/tests/official_slang_pb_example.rs
+expression: program.layout()
+---
+program:
+  globals:
+    layout_type:
+      kind: Struct
+      fields:
+        - name: environment
+          offset:
+            - value: 0
+              unit: SubElementRegisterSpace
+          layout_type:
+            kind: ParameterBlock
+            size:
+              - value: 1
+                unit: SubElementRegisterSpace
+            element layout:
+              layout_type:
+                kind: Struct
+                name: Environment
+                size:
+                  - value: 5
+                    unit: DescriptorTableSlot
+                  - value: 96
+                    unit: Uniform
+                alignment: 16
+                stride: 96
+                descriptors:
+                  - set: 0
+                    binding: 0
+                    type: UNIFORM_BUFFER
+                    count: 1
+                  - set: 0
+                    binding: 1
+                    type: Texture / SAMPLED_IMAGE
+                    count: 1
+                  - set: 0
+                    binding: 2
+                    type: Sampler / SAMPLER
+                    count: 1
+                  - set: 0
+                    binding: 3
+                    type: Texture / SAMPLED_IMAGE
+                    count: 1
+                  - set: 0
+                    binding: 4
+                    type: Sampler / SAMPLER
+                    count: 1
+                  - set: 0
+                    binding: 5
+                    type: MutableRawBuffer / STORAGE_BUFFER
+                    count: 1
+                fields:
+                  - name: sunLight
+                    offset:
+                      - value: 1
+                        unit: DescriptorTableSlot
+                      - value: 0
+                        unit: Uniform
+                    layout_type:
+                      kind: Struct
+                      name: ShadowedLight
+                      size:
+                        - value: 2
+                          unit: DescriptorTableSlot
+                        - value: 96
+                          unit: Uniform
+                      alignment: 16
+                      stride: 96
+                      fields:
+                        - name: light
+                          offset:
+                            - value: 0
+                              unit: Uniform
+                          layout_type:
+                            kind: Struct
+                            name: DirectionalLight
+                            size:
+                              - value: 32
+                                unit: Uniform
+                            alignment: 16
+                            stride: 32
+                            fields:
+                              - name: dir
+                                offset:
+                                  - value: 0
+                                    unit: Uniform
+                                layout_type:
+                                  kind: Vector
+                                  size:
+                                    - value: 12
+                                      unit: Uniform
+                                  alignment: 16
+                                  stride: 16
+                              - name: intensity
+                                offset:
+                                  - value: 16
+                                    unit: Uniform
+                                layout_type:
+                                  kind: Vector
+                                  size:
+                                    - value: 12
+                                      unit: Uniform
+                                  alignment: 16
+                                  stride: 16
+                        - name: shadowMap
+                          offset:
+                            - value: 0
+                              unit: DescriptorTableSlot
+                          layout_type:
+                            kind: Resource
+                            size:
+                              - value: 1
+                                unit: DescriptorTableSlot
+                        - name: shadowSampler
+                          offset:
+                            - value: 1
+                              unit: DescriptorTableSlot
+                          layout_type:
+                            kind: SamplerState
+                            size:
+                              - value: 1
+                                unit: DescriptorTableSlot
+                        - name: worldToShadow
+                          offset:
+                            - value: 32
+                              unit: Uniform
+                          layout_type:
+                            kind: Matrix
+                            size:
+                              - value: 64
+                                unit: Uniform
+                            alignment: 16
+                            stride: 64
+                  - name: envMap
+                    offset:
+                      - value: 3
+                        unit: DescriptorTableSlot
+                    layout_type:
+                      kind: Struct
+                      name: EnvironmentMap
+                      size:
+                        - value: 2
+                          unit: DescriptorTableSlot
+                      alignment: 16
+                      stride: 0
+                      fields:
+                        - name: texture
+                          offset:
+                            - value: 0
+                              unit: DescriptorTableSlot
+                          layout_type:
+                            kind: Resource
+                            size:
+                              - value: 1
+                                unit: DescriptorTableSlot
+                        - name: sampler
+                          offset:
+                            - value: 1
+                              unit: DescriptorTableSlot
+                          layout_type:
+                            kind: SamplerState
+                            size:
+                              - value: 1
+                                unit: DescriptorTableSlot
+                  - name: output
+                    offset:
+                      - value: 5
+                        unit: DescriptorTableSlot
+                    layout_type:
+                      kind: Resource
+                      size:
+                        - value: 1
+                          unit: DescriptorTableSlot
+        - name: view
+          offset:
+            - value: 1
+              unit: SubElementRegisterSpace
+          layout_type:
+            kind: ParameterBlock
+            size:
+              - value: 1
+                unit: SubElementRegisterSpace
+            element layout:
+              layout_type:
+                kind: Struct
+                name: View
+                size:
+                  - value: 128
+                    unit: Uniform
+                alignment: 16
+                stride: 128
+                descriptors:
+                  - set: 1
+                    binding: 0
+                    type: UNIFORM_BUFFER
+                    count: 1
+                fields:
+                  - name: worldToView
+                    offset:
+                      - value: 0
+                        unit: Uniform
+                    layout_type:
+                      kind: Matrix
+                      size:
+                        - value: 64
+                          unit: Uniform
+                      alignment: 16
+                      stride: 64
+                  - name: viewToProj
+                    offset:
+                      - value: 64
+                        unit: Uniform
+                    layout_type:
+                      kind: Matrix
+                      size:
+                        - value: 64
+                          unit: Uniform
+                      alignment: 16
+                      stride: 64
+        - name: material
+          offset:
+            - value: 2
+              unit: SubElementRegisterSpace
+          layout_type:
+            kind: ParameterBlock
+            size:
+              - value: 1
+                unit: SubElementRegisterSpace
+            element layout:
+              layout_type:
+                kind: Struct
+                name: Material
+                size:
+                  - value: 4
+                    unit: DescriptorTableSlot
+                alignment: 16
+                stride: 0
+                descriptors:
+                  - set: 2
+                    binding: 0
+                    type: Texture / SAMPLED_IMAGE
+                    count: 1
+                  - set: 2
+                    binding: 1
+                    type: Texture / SAMPLED_IMAGE
+                    count: 1
+                  - set: 2
+                    binding: 2
+                    type: Texture / SAMPLED_IMAGE
+                    count: 1
+                  - set: 2
+                    binding: 3
+                    type: Sampler / SAMPLER
+                    count: 1
+                fields:
+                  - name: albedoMap
+                    offset:
+                      - value: 0
+                        unit: DescriptorTableSlot
+                    layout_type:
+                      kind: Resource
+                      size:
+                        - value: 1
+                          unit: DescriptorTableSlot
+                  - name: glossMap
+                    offset:
+                      - value: 1
+                        unit: DescriptorTableSlot
+                    layout_type:
+                      kind: Resource
+                      size:
+                        - value: 1
+                          unit: DescriptorTableSlot
+                  - name: normalMap
+                    offset:
+                      - value: 2
+                        unit: DescriptorTableSlot
+                    layout_type:
+                      kind: Resource
+                      size:
+                        - value: 1
+                          unit: DescriptorTableSlot
+                  - name: sampler
+                    offset:
+                      - value: 3
+                        unit: DescriptorTableSlot
+                    layout_type:
+                      kind: SamplerState
+                      size:
+                        - value: 1
+                          unit: DescriptorTableSlot
+        - name: mesh
+          offset:
+            - value: 3
+              unit: SubElementRegisterSpace
+          layout_type:
+            kind: ParameterBlock
+            size:
+              - value: 1
+                unit: SubElementRegisterSpace
+            element layout:
+              layout_type:
+                kind: Struct
+                name: Mesh
+                size:
+                  - value: 128
+                    unit: Uniform
+                alignment: 16
+                stride: 128
+                descriptors:
+                  - set: 3
+                    binding: 0
+                    type: UNIFORM_BUFFER
+                    count: 1
+                fields:
+                  - name: modelToWorld
+                    offset:
+                      - value: 0
+                        unit: Uniform
+                    layout_type:
+                      kind: Matrix
+                      size:
+                        - value: 64
+                          unit: Uniform
+                      alignment: 16
+                      stride: 64
+                  - name: modelToWorld_inverseTranspose
+                    offset:
+                      - value: 64
+                        unit: Uniform
+                    layout_type:
+                      kind: Matrix
+                      size:
+                        - value: 64
+                          unit: Uniform
+                      alignment: 16
+                      stride: 64
+  entrypoints:
+    - name: main
+      offset:
+        - value: 0
+          unit: PushConstantBuffer
+      layout_type:
+        kind: ConstantBuffer
+        size:
+          - value: 1
+            unit: PushConstantBuffer
+        element layout:
+          layout_type:
+            kind: Struct
+            name: main
+            size:
+              - value: 16
+                unit: Uniform
+            alignment: 1
+            stride: 16
+            fields:
+              - name: pushData
+                offset:
+                  - value: 0
+                    unit: Uniform
+                layout_type:
+                  kind: Struct
+                  name: PushData
+                  size:
+                    - value: 16
+                      unit: Uniform
+                  alignment: 16
+                  stride: 16
+                  fields:
+                    - name: color
+                      offset:
+                        - value: 0
+                          unit: Uniform
+                      layout_type:
+                        kind: Vector
+                        size:
+                          - value: 16
+                            unit: Uniform
+                        alignment: 16
+                        stride: 16
