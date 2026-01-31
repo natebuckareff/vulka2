@@ -22,7 +22,6 @@ impl PrintObject {
     }
 
     fn write_buffer(&self, value: &str) {
-        print!("{}", value);
         let mut buffer = self.buffer.write().unwrap();
         write!(buffer, "{}", value).unwrap();
     }
@@ -63,7 +62,6 @@ pub struct PrintArray {
 
 impl PrintArray {
     fn write_buffer(&self, value: &str) {
-        print!("{}", value);
         let mut buffer = self.buffer.write().unwrap();
         write!(buffer, "{}", value).unwrap();
     }
