@@ -1,38 +1,53 @@
 use compact_str::CompactString;
+use serde::{Deserialize, Serialize};
+use shader_slang as slang;
 use vulkanalia::vk;
 
 use crate::SlangShaderStage;
+use crate::reflection::serde_slang::serde_binding_type;
 
-struct ShaderLayout {
-    push_constants: Vec<PushConstantLayout>,
-    descriptor_sets: Vec<DescriptorSet>,
-    globals: Vec<VarLayout>,
-    entrypoints: Vec<EntrypointLayout>,
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct ShaderLayout {
+    pub push_constants: Vec<PushConstantLayout>,
+    pub descriptor_sets: Vec<DescriptorSet>,
+    pub globals: Vec<VarLayout>,
+    pub entrypoints: Vec<EntrypointLayout>,
 }
 
 // TODO: think about aliasing
-struct PushConstantLayout {
-    name: CompactString,
-    offset_bytes: usize,
-    size_bytes: usize,
-    stages: vk::ShaderStageFlags,
-    layout: StructLayout,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PushConstantLayout {
+    pub name: CompactString,
+    pub offset_bytes: usize,
+    pub size_bytes: usize,
+    #[serde(with = "crate::reflection::serde_vk::serde_shader_stage_flags")]
+    pub stages: vk::ShaderStageFlags,
+    pub element: PushConstantElementLayout,
 }
 
-struct EntrypointLayout {
-    stage: SlangShaderStage,
-    params: Vec<VarLayout>,
+#[derive(Clone, Serialize, Deserialize)]
+pub enum PushConstantElementLayout {
+    Pod(PodLayout),
+    Struct(StructLayout),
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct EntrypointLayout {
+    pub stage: SlangShaderStage,
+    pub params: Vec<VarLayout>,
 }
 
 // ------------------------------
 
-struct VarLayout {
-    name: CompactString,
-    size: Size,
-    value: ValueLayout,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct VarLayout {
+    pub name: CompactString,
+    pub size: Size,
+    pub value: ValueLayout,
 }
 
-enum ValueLayout {
+#[derive(Clone, Serialize, Deserialize)]
+pub enum ValueLayout {
     Pod(PodLayout),
     Struct(StructLayout),
     Array(ArrayLayout),
@@ -43,135 +58,156 @@ enum ValueLayout {
 
 // ------------------------------
 
-struct PodLayout {
-    offset: PodOffset,
-    ty: PodType,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PodLayout {
+    pub offset: PodOffset,
+    pub ty: PodType,
 }
 
 // NOTE: pod data does not need a "layout" since layout is a property of the
 // container and pod data is always "inside" some kind of slang resource
 // container
-enum PodType {
+#[derive(Clone, Serialize, Deserialize)]
+pub enum PodType {
     Scalar(ScalarType),
     Vector(VectorType),
     Matrix(MatrixType),
 }
 
-struct ScalarType {
-    ty: CompactString,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ScalarType {
+    pub ty: CompactString,
 }
 
-struct VectorType {
-    element: ScalarType,
-    count: u32,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct VectorType {
+    pub element: ScalarType,
+    pub count: u32,
 }
 
-struct MatrixType {
-    element: ScalarType,
-    rows: u32,
-    cols: u32,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct MatrixType {
+    pub element: ScalarType,
+    pub rows: u32,
+    pub cols: u32,
 }
 
-struct StructLayout {
-    offset: AggregateOffset,
-    fields: Vec<VarLayout>,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct StructLayout {
+    pub offset: AggregateOffset,
+    pub fields: Vec<VarLayout>,
 }
 
-struct ArrayLayout {
-    offset: AggregateOffset,
-    element: Box<ValueLayout>,
-    count: ElementCount,
-    stride: Stride,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ArrayLayout {
+    pub offset: AggregateOffset,
+    pub element: Box<ValueLayout>,
+    pub count: ElementCount,
+    pub stride: Stride,
 }
 
-struct ResourceLayout {
-    offset: DescriptorOffset,
-    ty: CompactString,
-    kind: ResourceKind,
-    element: Box<ValueLayout>,
-    count: ElementCount,
-    stride: Stride,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ResourceLayout {
+    pub offset: DescriptorOffset,
+    pub ty: CompactString,
+    #[serde(with = "serde_binding_type")]
+    pub kind: ResourceKind,
+    pub element: Box<ValueLayout>,
+    pub count: ElementCount,
+    pub stride: Stride,
 }
 
 // slang resource types
 // NOTE: ParameterBlock and ConstantBuffer are excluded from this type since we
 // treat them specially in the layout tree. They're not "normal" resources but
 // more so "layout nodes"
-enum ResourceKind {
-    // TODO
-}
+// TODO: refine resource kind mapping beyond Slang binding types.
+pub type ResourceKind = slang::BindingType;
 
 // NOTE: Binding 0 is the PB's uniform buffer binding iff the PB contains any
 // ordinary (uniform) data that needs wrapping. If there are no ordinary bytes,
 // then there is no implicit UBO, and the first resource will be at binding 0.
-struct ParameterBlockLayout {
-    descriptor_set_index: usize, // unique for all `ParameterBlockLayout`s
-    element: Box<ValueLayout>,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ParameterBlockLayout {
+    pub descriptor_set_index: usize, // unique for all `ParameterBlockLayout`s
+    pub element: Box<ValueLayout>,
 }
 
 // resets byte offsets in the element layout
-struct ConstantBufferLayout {
-    offset: DescriptorOffset,
-    element: Box<ValueLayout>,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ConstantBufferLayout {
+    pub offset: DescriptorOffset,
+    pub element: Box<ValueLayout>,
 }
 
 // ------------------------------
 
-struct Size(usize); // bytes *excluding* padding
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct Size(pub usize); // bytes *excluding* padding
 
-struct Stride(usize); // bytes *including* padding
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct Stride(pub usize); // bytes *including* padding
 
-enum ElementCount {
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub enum ElementCount {
     Bounded(u32),
     Runtime,
 }
 
-enum AggregateOffset {
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub enum AggregateOffset {
     Pod(PodOffset),
     Descriptor(DescriptorOffset),
 }
 
-struct PodOffset {
-    offset_bytes: usize,
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct PodOffset {
+    pub offset_bytes: usize,
 }
 
 // NOTE: these are relative units, not addressible vulkan indices
-struct DescriptorOffset {
-    binding_index: u32, // indexes into current DescriptorSet::bindings
-    array_index: u32,   // indexes into current descriptor array
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub struct DescriptorOffset {
+    pub binding_index: u32, // indexes into current DescriptorSet::bindings
+    pub array_index: u32,   // indexes into current descriptor array
 }
 
 // ------------------------------
 
 // NOTE: set is None until at least one non-empty descriptor is added
-struct DescriptorSet {
-    set: Option<u32>,
-    bindings: Vec<DescriptorBinding>,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DescriptorSet {
+    pub set: Option<u32>,
+    pub bindings: Vec<DescriptorBinding>,
 }
 
 // NOTE: binding is None util the descriptor is known to not be empty. Empty
 // descriptors are filtered at the end of the relfection pass
-struct DescriptorBinding {
-    binding: Option<u32>,
-    stages: vk::ShaderStageFlags, // OR of all stages that use this descriptor
-    count: ElementCount,
-    descriptor: Descriptor,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct DescriptorBinding {
+    pub binding: Option<u32>,
+    #[serde(with = "crate::reflection::serde_vk::serde_shader_stage_flags")]
+    pub stages: vk::ShaderStageFlags, // OR of all stages that use this descriptor
+    pub count: ElementCount,
+    pub descriptor: Descriptor,
 }
 
-enum Descriptor {
+#[derive(Clone, Serialize, Deserialize)]
+pub enum Descriptor {
     Pod(PodDescriptor),
-    Opaque(DescriptorType), // non byte-addressible resources
+    Opaque(#[serde(with = "serde_binding_type")] DescriptorType), // non byte-addressible resources
 }
 
 // uniforms, ssbos, etc
-struct PodDescriptor {
-    size_bytes: usize,
-    alignment_bytes: usize,
-    ty: DescriptorType,
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PodDescriptor {
+    pub size_bytes: usize,
+    pub alignment_bytes: usize,
+    #[serde(with = "serde_binding_type")]
+    pub ty: DescriptorType,
     // TODO: buffer class?
 }
 
 // maps to vulkan descriptor types
-enum DescriptorType {
-    // TODO
-}
+// TODO: refine descriptor type mapping beyond Slang binding types.
+pub type DescriptorType = slang::BindingType;
