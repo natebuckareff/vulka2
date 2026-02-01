@@ -1,3 +1,4 @@
+use anyhow::Result;
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use shader_slang as slang;
@@ -5,6 +6,10 @@ use vulkanalia::vk;
 
 use crate::SlangShaderStage;
 use crate::reflection::serde_slang::serde_binding_type;
+use crate::reflection::serde_slang::serde_resource_access;
+use crate::reflection::serde_slang::serde_resource_shape;
+use crate::reflection::serde_vk::serde_descriptor_type;
+use crate::reflection::serde_vk::serde_shader_stage_flags;
 
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct ShaderLayout {
@@ -20,15 +25,34 @@ pub struct PushConstantLayout {
     pub name: CompactString,
     pub offset_bytes: usize,
     pub size_bytes: usize,
-    #[serde(with = "crate::reflection::serde_vk::serde_shader_stage_flags")]
+    #[serde(with = "serde_shader_stage_flags")]
     pub stages: vk::ShaderStageFlags,
-    pub element: PushConstantElementLayout,
+    element: ValueLayout,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub enum PushConstantElementLayout {
-    Pod(PodLayout),
-    Struct(StructLayout),
+impl PushConstantLayout {
+    pub fn new(
+        name: CompactString,
+        offset_bytes: usize,
+        size_bytes: usize,
+        stages: vk::ShaderStageFlags,
+        element: ValueLayout,
+    ) -> Result<Self> {
+        if !element.is_pod() {
+            return Err(anyhow::anyhow!("PushConstantLayout element must be pod"));
+        }
+        Ok(Self {
+            name,
+            offset_bytes,
+            size_bytes,
+            stages,
+            element,
+        })
+    }
+
+    pub fn element(&self) -> &ValueLayout {
+        &self.element
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -39,6 +63,10 @@ pub struct EntrypointLayout {
 
 // ------------------------------
 
+trait Layout {
+    fn is_pod(&self) -> bool;
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct VarLayout {
     pub name: CompactString,
@@ -46,9 +74,15 @@ pub struct VarLayout {
     pub value: ValueLayout,
 }
 
+impl Layout for VarLayout {
+    fn is_pod(&self) -> bool {
+        self.value.is_pod()
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum ValueLayout {
-    Pod(PodLayout),
+    Numeric(NumericLayout),
     Struct(StructLayout),
     Array(ArrayLayout),
     Resource(ResourceLayout),
@@ -56,19 +90,39 @@ pub enum ValueLayout {
     ConstantBuffer(ConstantBufferLayout),
 }
 
+impl Layout for ValueLayout {
+    fn is_pod(&self) -> bool {
+        use ValueLayout::*;
+        match self {
+            Numeric(layout) => layout.is_pod(),
+            Struct(layout) => layout.is_pod(),
+            Array(layout) => layout.is_pod(),
+            Resource(_) => false,
+            ParameterBlock(_) => false,
+            ConstantBuffer(_) => true,
+        }
+    }
+}
+
 // ------------------------------
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PodLayout {
+pub struct NumericLayout {
     pub offset: PodOffset,
-    pub ty: PodType,
+    pub ty: NumericType,
 }
 
-// NOTE: pod data does not need a "layout" since layout is a property of the
+impl Layout for NumericLayout {
+    fn is_pod(&self) -> bool {
+        true
+    }
+}
+
+// NOTE: numeric data does not need a "layout" since layout is a property of the
 // container and pod data is always "inside" some kind of slang resource
 // container
 #[derive(Clone, Serialize, Deserialize)]
-pub enum PodType {
+pub enum NumericType {
     Scalar(ScalarType),
     Vector(VectorType),
     Matrix(MatrixType),
@@ -98,6 +152,12 @@ pub struct StructLayout {
     pub fields: Vec<VarLayout>,
 }
 
+impl Layout for StructLayout {
+    fn is_pod(&self) -> bool {
+        self.fields.iter().all(|field| field.is_pod())
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ArrayLayout {
     pub offset: AggregateOffset,
@@ -106,15 +166,27 @@ pub struct ArrayLayout {
     pub stride: Stride,
 }
 
+impl Layout for ArrayLayout {
+    fn is_pod(&self) -> bool {
+        self.element.is_pod()
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ResourceLayout {
     pub offset: DescriptorOffset,
     pub ty: CompactString,
     #[serde(with = "serde_binding_type")]
     pub kind: ResourceKind,
-    pub element: Box<ValueLayout>,
+    pub element: Option<Box<ValueLayout>>,
     pub count: ElementCount,
     pub stride: Stride,
+}
+
+impl Layout for ResourceLayout {
+    fn is_pod(&self) -> bool {
+        false
+    }
 }
 
 // slang resource types
@@ -137,7 +209,23 @@ pub struct ParameterBlockLayout {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ConstantBufferLayout {
     pub offset: DescriptorOffset,
-    pub element: Box<ValueLayout>,
+    element: Box<ValueLayout>,
+}
+
+impl ConstantBufferLayout {
+    pub fn new(offset: DescriptorOffset, element: ValueLayout) -> Result<Self> {
+        if !element.is_pod() {
+            return Err(anyhow::anyhow!("ConstantBufferLayout element must be pod"));
+        }
+        Ok(Self {
+            offset,
+            element: Box::new(element),
+        })
+    }
+
+    pub fn element(&self) -> &ValueLayout {
+        &self.element
+    }
 }
 
 // ------------------------------
@@ -186,28 +274,19 @@ pub struct DescriptorSet {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DescriptorBinding {
     pub binding: Option<u32>,
-    #[serde(with = "crate::reflection::serde_vk::serde_shader_stage_flags")]
+    #[serde(with = "serde_shader_stage_flags")]
     pub stages: vk::ShaderStageFlags, // OR of all stages that use this descriptor
     pub count: ElementCount,
     pub descriptor: Descriptor,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub enum Descriptor {
-    Pod(PodDescriptor),
-    Opaque(#[serde(with = "serde_binding_type")] DescriptorType), // non byte-addressible resources
+pub struct Descriptor {
+    #[serde(with = "serde_descriptor_type")]
+    pub ty: vk::DescriptorType,
+    #[serde(with = "serde_resource_shape")]
+    pub shape: slang::ResourceShape,
+    #[serde(with = "serde_resource_access")]
+    pub access: slang::ResourceAccess,
+    pub element: Option<Box<ValueLayout>>,
 }
-
-// uniforms, ssbos, etc
-#[derive(Clone, Serialize, Deserialize)]
-pub struct PodDescriptor {
-    pub size_bytes: usize,
-    pub alignment_bytes: usize,
-    #[serde(with = "serde_binding_type")]
-    pub ty: DescriptorType,
-    // TODO: buffer class?
-}
-
-// maps to vulkan descriptor types
-// TODO: refine descriptor type mapping beyond Slang binding types.
-pub type DescriptorType = slang::BindingType;

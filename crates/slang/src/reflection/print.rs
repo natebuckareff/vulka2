@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::sync::{Arc, RwLock};
 
+#[derive(Clone)]
 pub struct PrintObject {
     newline: bool,
     depth: usize,

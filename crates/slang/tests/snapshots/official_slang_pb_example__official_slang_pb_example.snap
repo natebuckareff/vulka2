@@ -16,6 +16,7 @@ program:
             size:
               - value: 1
                 unit: SubElementRegisterSpace
+            element_count: 0
             element layout:
               layout_type:
                 kind: Struct
@@ -25,6 +26,7 @@ program:
                     unit: DescriptorTableSlot
                   - value: 96
                     unit: Uniform
+                element_count: 0
                 alignment: 16
                 stride: 96
                 descriptors:
@@ -67,6 +69,7 @@ program:
                           unit: DescriptorTableSlot
                         - value: 96
                           unit: Uniform
+                      element_count: 0
                       alignment: 16
                       stride: 96
                       fields:
@@ -80,6 +83,7 @@ program:
                             size:
                               - value: 32
                                 unit: Uniform
+                            element_count: 0
                             alignment: 16
                             stride: 32
                             fields:
@@ -92,6 +96,7 @@ program:
                                   size:
                                     - value: 12
                                       unit: Uniform
+                                  element_count: 3
                                   alignment: 16
                                   stride: 16
                               - name: intensity
@@ -103,6 +108,7 @@ program:
                                   size:
                                     - value: 12
                                       unit: Uniform
+                                  element_count: 3
                                   alignment: 16
                                   stride: 16
                         - name: shadowMap
@@ -114,6 +120,9 @@ program:
                             size:
                               - value: 1
                                 unit: DescriptorTableSlot
+                            element_count: 0
+                            shape: Some(SlangTexture2d)
+                            access: Some(Read)
                         - name: shadowSampler
                           offset:
                             - value: 1
@@ -123,6 +132,7 @@ program:
                             size:
                               - value: 1
                                 unit: DescriptorTableSlot
+                            element_count: 0
                         - name: worldToShadow
                           offset:
                             - value: 32
@@ -132,6 +142,7 @@ program:
                             size:
                               - value: 64
                                 unit: Uniform
+                            element_count: 0
                             alignment: 16
                             stride: 64
                   - name: envMap
@@ -144,6 +155,7 @@ program:
                       size:
                         - value: 2
                           unit: DescriptorTableSlot
+                      element_count: 0
                       alignment: 16
                       stride: 0
                       fields:
@@ -156,6 +168,9 @@ program:
                             size:
                               - value: 1
                                 unit: DescriptorTableSlot
+                            element_count: 0
+                            shape: Some(SlangTextureCube)
+                            access: Some(Read)
                         - name: sampler
                           offset:
                             - value: 1
@@ -165,6 +180,7 @@ program:
                             size:
                               - value: 1
                                 unit: DescriptorTableSlot
+                            element_count: 0
                   - name: output
                     offset:
                       - value: 5
@@ -174,6 +190,18 @@ program:
                       size:
                         - value: 1
                           unit: DescriptorTableSlot
+                      element_count: 0
+                      shape: Some(SlangStructuredBuffer)
+                      access: Some(ReadWrite)
+                      element layout:
+                        layout_type:
+                          kind: Vector
+                          size:
+                            - value: 16
+                              unit: Uniform
+                          element_count: 4
+                          alignment: 16
+                          stride: 16
         - name: view
           offset:
             - value: 1
@@ -183,6 +211,7 @@ program:
             size:
               - value: 1
                 unit: SubElementRegisterSpace
+            element_count: 0
             element layout:
               layout_type:
                 kind: Struct
@@ -190,6 +219,7 @@ program:
                 size:
                   - value: 128
                     unit: Uniform
+                element_count: 0
                 alignment: 16
                 stride: 128
                 descriptors:
@@ -207,6 +237,7 @@ program:
                       size:
                         - value: 64
                           unit: Uniform
+                      element_count: 0
                       alignment: 16
                       stride: 64
                   - name: viewToProj
@@ -218,6 +249,7 @@ program:
                       size:
                         - value: 64
                           unit: Uniform
+                      element_count: 0
                       alignment: 16
                       stride: 64
         - name: material
@@ -229,6 +261,7 @@ program:
             size:
               - value: 1
                 unit: SubElementRegisterSpace
+            element_count: 0
             element layout:
               layout_type:
                 kind: Struct
@@ -236,6 +269,7 @@ program:
                 size:
                   - value: 4
                     unit: DescriptorTableSlot
+                element_count: 0
                 alignment: 16
                 stride: 0
                 descriptors:
@@ -265,6 +299,9 @@ program:
                       size:
                         - value: 1
                           unit: DescriptorTableSlot
+                      element_count: 0
+                      shape: Some(SlangTexture2d)
+                      access: Some(Read)
                   - name: glossMap
                     offset:
                       - value: 1
@@ -274,6 +311,9 @@ program:
                       size:
                         - value: 1
                           unit: DescriptorTableSlot
+                      element_count: 0
+                      shape: Some(SlangTexture2d)
+                      access: Some(Read)
                   - name: normalMap
                     offset:
                       - value: 2
@@ -283,6 +323,9 @@ program:
                       size:
                         - value: 1
                           unit: DescriptorTableSlot
+                      element_count: 0
+                      shape: Some(SlangTexture2d)
+                      access: Some(Read)
                   - name: sampler
                     offset:
                       - value: 3
@@ -292,6 +335,7 @@ program:
                       size:
                         - value: 1
                           unit: DescriptorTableSlot
+                      element_count: 0
         - name: mesh
           offset:
             - value: 3
@@ -301,6 +345,7 @@ program:
             size:
               - value: 1
                 unit: SubElementRegisterSpace
+            element_count: 0
             element layout:
               layout_type:
                 kind: Struct
@@ -308,6 +353,7 @@ program:
                 size:
                   - value: 128
                     unit: Uniform
+                element_count: 0
                 alignment: 16
                 stride: 128
                 descriptors:
@@ -325,6 +371,7 @@ program:
                       size:
                         - value: 64
                           unit: Uniform
+                      element_count: 0
                       alignment: 16
                       stride: 64
                   - name: modelToWorld_inverseTranspose
@@ -336,6 +383,7 @@ program:
                       size:
                         - value: 64
                           unit: Uniform
+                      element_count: 0
                       alignment: 16
                       stride: 64
   entrypoints:
@@ -355,6 +403,7 @@ program:
             size:
               - value: 16
                 unit: Uniform
+            element_count: 0
             alignment: 1
             stride: 16
             fields:
@@ -368,6 +417,7 @@ program:
                   size:
                     - value: 16
                       unit: Uniform
+                  element_count: 0
                   alignment: 16
                   stride: 16
                   fields:
@@ -380,5 +430,6 @@ program:
                         size:
                           - value: 16
                             unit: Uniform
+                        element_count: 4
                         alignment: 16
                         stride: 16

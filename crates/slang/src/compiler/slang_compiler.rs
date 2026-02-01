@@ -14,10 +14,21 @@ pub const SLANG_CACHE_KEY_VERSION: u8 = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CompilerOptionsHash(pub Hash);
 
+pub struct BindlessConfig {
+    pub space_index: i32,
+    pub policy: BindlessPolicy,
+}
+
+pub enum BindlessPolicy {
+    Indexable,
+    Mutable,
+}
+
 pub struct SlangCompilerBuilder {
     global_session: slang::GlobalSession,
     capabilities: Vec<(String, slang::CapabilityID)>,
     bindless_space_index: Option<i32>,
+    bindless_policy: Option<BindlessPolicy>,
     optimization: slang::OptimizationLevel,
     matrix_layout_row: bool,
     cache_path: Option<PathBuf>,
@@ -33,6 +44,7 @@ impl SlangCompilerBuilder {
             global_session,
             capabilities: Vec::new(),
             bindless_space_index: None,
+            bindless_policy: None,
             optimization: slang::OptimizationLevel::Default,
             matrix_layout_row: true,
             cache_path: None,
@@ -51,6 +63,11 @@ impl SlangCompilerBuilder {
 
     pub fn bindless_space_index(mut self, index: i32) -> Self {
         self.bindless_space_index = Some(index);
+        self
+    }
+
+    pub fn bindless_policy(mut self, policy: BindlessPolicy) -> Self {
+        self.bindless_policy = Some(policy);
         self
     }
 
@@ -121,7 +138,13 @@ impl SlangCompilerBuilder {
             .create_session(&session_desc)
             .context("failed to create slang session")?;
 
+        let bindless_config = self.bindless_space_index.map(|space_index| BindlessConfig {
+            space_index,
+            policy: self.bindless_policy.unwrap_or(BindlessPolicy::Indexable),
+        });
+
         Ok(SlangCompiler {
+            bindless_config,
             global_session: self.global_session,
             session,
             options_hash,
@@ -169,6 +192,7 @@ impl SlangCompilerBuilder {
 }
 
 pub struct SlangCompiler {
+    bindless_config: Option<BindlessConfig>,
     global_session: slang::GlobalSession,
     session: slang::Session,
     options_hash: CompilerOptionsHash,
@@ -180,6 +204,10 @@ pub struct SlangCompiler {
 impl SlangCompiler {
     pub fn options_hash(&self) -> CompilerOptionsHash {
         self.options_hash
+    }
+
+    pub fn bindless_config(&self) -> &Option<BindlessConfig> {
+        &self.bindless_config
     }
 
     pub fn load_module<P: AsRef<Path>>(&mut self, path: P) -> Result<&SlangModule> {

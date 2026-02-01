@@ -52,3 +52,23 @@ pub(crate) mod serde_format {
         Ok(vk::Format::from_raw(raw))
     }
 }
+
+/// Serde support for `vk::DescriptorType` (serialized as i32).
+pub(crate) mod serde_descriptor_type {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use vulkanalia::vk;
+
+    pub fn serialize<S: Serializer>(
+        ty: &vk::DescriptorType,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        ty.as_raw().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<vk::DescriptorType, D::Error> {
+        let raw = i32::deserialize(deserializer)?;
+        Ok(vk::DescriptorType::from_raw(raw))
+    }
+}

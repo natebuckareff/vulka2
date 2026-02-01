@@ -1,6 +1,6 @@
 use std::{cell::OnceCell, fs};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use blake3::{Hash, Hasher};
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
@@ -34,13 +34,25 @@ pub enum SlangShaderStage {
     Compute,
 }
 
-impl SlangShaderStage {
-    pub(crate) fn from_slang(stage: slang::Stage) -> Option<Self> {
+impl Into<slang::Stage> for SlangShaderStage {
+    fn into(self) -> slang::Stage {
+        match self {
+            SlangShaderStage::Vertex => slang::Stage::Vertex,
+            SlangShaderStage::Fragment => slang::Stage::Fragment,
+            SlangShaderStage::Compute => slang::Stage::Compute,
+        }
+    }
+}
+
+impl TryFrom<slang::Stage> for SlangShaderStage {
+    type Error = anyhow::Error;
+
+    fn try_from(stage: slang::Stage) -> Result<Self, Self::Error> {
         match stage {
-            slang::Stage::Vertex => Some(SlangShaderStage::Vertex),
-            slang::Stage::Fragment => Some(SlangShaderStage::Fragment),
-            slang::Stage::Compute => Some(SlangShaderStage::Compute),
-            _ => None,
+            slang::Stage::Vertex => Ok(SlangShaderStage::Vertex),
+            slang::Stage::Fragment => Ok(SlangShaderStage::Fragment),
+            slang::Stage::Compute => Ok(SlangShaderStage::Compute),
+            _ => Err(anyhow!("unsupported stage: {:?}", stage)),
         }
     }
 }
@@ -102,7 +114,7 @@ impl SlangModule {
                     let component: slang::ComponentType = slang_ep.clone().into();
                     if let Ok(layout) = component.layout(0) {
                         if let Some(ep_layout) = layout.entry_point_by_index(0) {
-                            if SlangShaderStage::from_slang(ep_layout.stage()) == Some(ep.stage) {
+                            if ep_layout.stage() == ep.stage.into() {
                                 return Ok(slang_ep);
                             }
                         }
@@ -147,7 +159,7 @@ impl SlangModule {
                 let component: slang::ComponentType = slang_ep.clone().into();
                 if let Ok(layout) = component.layout(0) {
                     if let Some(ep_layout) = layout.entry_point_by_index(0) {
-                        if let Some(stage) = SlangShaderStage::from_slang(ep_layout.stage()) {
+                        if let Ok(stage) = SlangShaderStage::try_from(ep_layout.stage()) {
                             result.push(SlangEntrypoint {
                                 module_id: self.id.clone(),
                                 name: name.into(),

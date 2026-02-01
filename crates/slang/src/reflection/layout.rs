@@ -97,7 +97,7 @@ impl Mul<u32> for SlangUnit {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlangLayout {
     /// Bindless heap layout, if bindless mode is enabled.
-    pub bindless_heap: Option<BindlessHeapLayout>,
+    pub bindless_heap: Option<BindlessHeapLayoutDEPRECATED>,
     /// Push constant layout, if push constants are used.
     pub push_constants: Option<PushConstantLayout>,
     /// Flattened descriptor set layouts for Vulkan pipeline creation.
@@ -109,14 +109,14 @@ pub struct SlangLayout {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BindlessHeapLayout {
+pub struct BindlessHeapLayoutDEPRECATED {
     pub set: u32,
-    pub policy: BindlessPolicy,
+    pub policy: BindlessPolicyDEPRECATED,
     pub bindings: Vec<DescriptorBindingLayout>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum BindlessPolicy {
+pub enum BindlessPolicyDEPRECATED {
     /// Standard descriptor indexing on a runtime-sized descriptor set.
     DescriptorIndexing,
     /// VK_EXT_mutable_descriptor_type based approach.
