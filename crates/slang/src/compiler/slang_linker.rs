@@ -7,7 +7,7 @@ use shader_slang as slang;
 
 use crate::{
     LayoutBuilder, ModuleId, SlangCompiler, SlangEntrypoint, SlangModule, SlangProgram,
-    SlangProgramKey, SlangShaderStage, SpirvCode, SpirvCodeKey, walk_program,
+    SlangProgramKey, SlangShaderStage, SpirvCode, SpirvCodeKey,
 };
 
 pub struct SlangLinker<'a> {
