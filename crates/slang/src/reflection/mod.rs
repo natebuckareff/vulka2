@@ -1,9 +1,9 @@
-mod layout_bindless;
-mod layout_builder;
-mod layout_v3;
+mod bindless;
+mod builder;
+mod layout;
 mod serde_slang;
 mod serde_vk;
 
-pub use layout_bindless::*;
-pub use layout_builder::*;
-pub use layout_v3::*;
+pub use bindless::*;
+pub use builder::*;
+pub use layout::*;

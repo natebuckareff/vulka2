@@ -5,7 +5,7 @@ use compact_str::ToCompactString;
 use shader_slang as slang;
 use vulkanalia::vk;
 
-use crate::{BindlessConfig, BindlessLayout, SlangShaderStage, reflection::layout_v3::*};
+use crate::{BindlessConfig, BindlessLayout, SlangShaderStage, reflection::layout::*};
 
 #[derive(Debug)]
 enum BuilderLocation {
