@@ -6,8 +6,8 @@ use blake3::Hasher;
 use shader_slang as slang;
 
 use crate::{
-    ModuleId, SlangCompiler, SlangEntrypoint, SlangModule, SlangProgram, SlangProgramKey,
-    SlangShaderStage, SpirvCode, SpirvCodeKey, walk_program,
+    LayoutBuilder, ModuleId, SlangCompiler, SlangEntrypoint, SlangModule, SlangProgram,
+    SlangProgramKey, SlangShaderStage, SpirvCode, SpirvCodeKey, walk_program,
 };
 
 pub struct SlangLinker<'a> {
@@ -117,8 +117,10 @@ impl<'a> SlangLinker<'a> {
             code.insert(ep.clone(), spirv_code);
         }
 
+        let mut builder = LayoutBuilder::new();
         let program_layout = linked.layout(0)?;
-        let layout = walk_program(&program_layout, self.compiler.bindless_config())?;
+        let shader_layout = builder.build_shader(program_layout)?;
+        let layout = serde_json::to_string_pretty(&shader_layout)?;
 
         Ok(SlangProgram::new(program_key, layout, entrypoints, code))
     }

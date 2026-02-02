@@ -1,16 +1,10 @@
-mod ir;
-mod ir_denorm;
-mod layout;
-mod layout_v2;
+mod layout_builder;
+mod layout_v3;
 mod print;
 mod reflect;
 mod serde_slang;
 mod serde_vk;
-mod types;
 
-pub use ir::*;
-pub use ir_denorm::*;
-pub use layout::*;
-pub use layout_v2::ShaderLayout;
+pub use layout_builder::*;
+pub use layout_v3::*;
 pub use reflect::*;
-pub use types::*;

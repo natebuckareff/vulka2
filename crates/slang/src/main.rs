@@ -94,7 +94,7 @@ fn main() -> Result<()> {
 
     match output.unwrap_or(OutputArg::Debug) {
         OutputArg::Debug => {
-            print!("{}", program.layout());
+            println!("{}", program.layout());
         }
         OutputArg::Layout => {
             todo!();
