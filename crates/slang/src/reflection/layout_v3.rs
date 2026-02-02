@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use shader_slang as slang;
 use vulkanalia::vk;
 
+use crate::BindlessLayout;
 use crate::SlangShaderStage;
 use crate::reflection::serde_slang::serde_binding_type;
 use crate::reflection::serde_slang::serde_resource_access;
@@ -25,6 +26,7 @@ pub enum ElementCount {
 
 #[derive(Serialize, Deserialize)]
 pub struct ShaderLayout {
+    pub bindless: Option<BindlessLayout>,
     pub globals: Option<Box<TypeLayout>>,
     pub entrypoints: Vec<EntrypointLayout>,
 }

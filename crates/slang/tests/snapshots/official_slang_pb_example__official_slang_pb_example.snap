@@ -3,6 +3,7 @@ source: crates/slang/tests/official_slang_pb_example.rs
 expression: program.layout()
 ---
 {
+  "bindless": null,
   "globals": {
     "size": null,
     "alignment": 1,

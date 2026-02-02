@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use blake3::{Hash, Hasher};
+use serde::{Deserialize, Serialize};
 use shader_slang as slang;
 
 use crate::{ModuleId, SlangLinker, SlangModule};
@@ -14,11 +15,13 @@ pub const SLANG_CACHE_KEY_VERSION: u8 = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CompilerOptionsHash(pub Hash);
 
+#[derive(Clone, Copy)]
 pub struct BindlessConfig {
     pub space_index: i32,
     pub policy: BindlessPolicy,
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub enum BindlessPolicy {
     Indexable,
     Mutable,

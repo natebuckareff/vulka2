@@ -5,7 +5,7 @@ use compact_str::ToCompactString;
 use shader_slang as slang;
 use vulkanalia::vk;
 
-use crate::{SlangShaderStage, reflection::layout_v3::*};
+use crate::{BindlessConfig, BindlessLayout, SlangShaderStage, reflection::layout_v3::*};
 
 #[derive(Debug)]
 enum BuilderLocation {
@@ -13,41 +13,44 @@ enum BuilderLocation {
     Entrypoint(SlangShaderStage),
 }
 
-#[derive(Debug)]
 struct DescriptorMeta {
     shape: slang::ResourceShape,
     access: Option<ResourceAccess>,
 }
 
-#[derive(Debug)]
 pub struct LayoutBuilder {
     location: BuilderLocation,
     base_bytes: usize,
     base_set: usize,
     base_binding_range: i64,
     descriptors: HashMap<(i64, i64), DescriptorMeta>,
+    bindless_config: Option<BindlessConfig>,
 }
 
 impl LayoutBuilder {
-    pub fn new() -> Self {
+    pub fn new(bindless_config: Option<BindlessConfig>) -> Self {
         Self {
             location: BuilderLocation::Global,
             base_bytes: 0,
             base_set: 0,
             base_binding_range: 0,
             descriptors: HashMap::new(),
+            bindless_config,
         }
     }
 
-    pub fn build_shader(
-        &mut self,
-        program_layout: &slang::reflection::Shader,
-    ) -> Result<ShaderLayout> {
+    pub fn build(&mut self, program_layout: &slang::reflection::Shader) -> Result<ShaderLayout> {
+        let bindless = self.bindless_config.take().map(|config| BindlessLayout {
+            set: config.space_index as i64,
+            policy: config.policy,
+        });
+
         let slang_global_type = program_layout
             .global_params_type_layout()
             .context("global var layout not found")?;
 
         let shader_layout = ShaderLayout {
+            bindless,
             globals: self.build_type_layout(slang_global_type)?.map(Box::new),
             entrypoints: self.build_entrypoints(program_layout)?,
         };
