@@ -18,6 +18,8 @@ fn official_slang_pb_example() -> Result<()> {
     let module = compiler.load_module("shader.slang")?;
     let module_id = module.id().clone();
     let program = compiler.linker().add_all_entrypoints(&module_id)?.link()?;
-    insta::assert_snapshot!(program.layout());
+    let layout = program.layout();
+    let json = serde_json::to_string_pretty(layout)?;
+    insta::assert_snapshot!(json);
     Ok(())
 }

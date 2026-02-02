@@ -94,7 +94,8 @@ fn main() -> Result<()> {
 
     match output.unwrap_or(OutputArg::Debug) {
         OutputArg::Debug => {
-            println!("{}", program.layout());
+            let json = serde_json::to_string_pretty(&program.layout())?;
+            println!("{}", json);
         }
         OutputArg::Layout => {
             todo!();
