@@ -12,7 +12,10 @@ expression: json
     "value": {
       "size": null,
       "alignment": 1,
-      "stride": 0,
+      "stride": {
+        "bytes": 0,
+        "binding_range": 1
+      },
       "ty": {
         "Struct": {
           "name": "",
@@ -29,7 +32,10 @@ expression: json
                   "bindings": null
                 },
                 "alignment": 1,
-                "stride": 0,
+                "stride": {
+                  "bytes": 0,
+                  "binding_range": 1
+                },
                 "ty": {
                   "ParameterBlock": {
                     "descriptor_set": {
@@ -56,7 +62,10 @@ expression: json
                         "bindings": null
                       },
                       "alignment": 16,
-                      "stride": 16,
+                      "stride": {
+                        "bytes": 16,
+                        "binding_range": 0
+                      },
                       "ty": {
                         "Struct": {
                           "name": "Foo",
@@ -73,7 +82,10 @@ expression: json
                                   "bindings": null
                                 },
                                 "alignment": 16,
-                                "stride": 16,
+                                "stride": {
+                                  "bytes": 16,
+                                  "binding_range": 0
+                                },
                                 "ty": {
                                   "Numeric": {
                                     "Vector": {
@@ -113,7 +125,10 @@ expression: json
             "bindings": null
           },
           "alignment": 1,
-          "stride": 0,
+          "stride": {
+            "bytes": 0,
+            "binding_range": 1
+          },
           "ty": {
             "Struct": {
               "name": "main",
@@ -130,7 +145,10 @@ expression: json
                       "bindings": null
                     },
                     "alignment": 1,
-                    "stride": 0,
+                    "stride": {
+                      "bytes": 0,
+                      "binding_range": 1
+                    },
                     "ty": {
                       "ParameterBlock": {
                         "descriptor_set": {
@@ -157,7 +175,10 @@ expression: json
                             "bindings": null
                           },
                           "alignment": 16,
-                          "stride": 16,
+                          "stride": {
+                            "bytes": 16,
+                            "binding_range": 0
+                          },
                           "ty": {
                             "Struct": {
                               "name": "Foo",
@@ -174,7 +195,10 @@ expression: json
                                       "bindings": null
                                     },
                                     "alignment": 16,
-                                    "stride": 16,
+                                    "stride": {
+                                      "bytes": 16,
+                                      "binding_range": 0
+                                    },
                                     "ty": {
                                       "Numeric": {
                                         "Vector": {
