@@ -12,7 +12,10 @@ expression: json
     "value": {
       "size": null,
       "alignment": 1,
-      "stride": 0,
+      "stride": {
+        "bytes": 0,
+        "binding_range": 4
+      },
       "ty": {
         "Struct": {
           "name": "",
@@ -29,7 +32,10 @@ expression: json
                   "bindings": null
                 },
                 "alignment": 1,
-                "stride": 0,
+                "stride": {
+                  "bytes": 0,
+                  "binding_range": 1
+                },
                 "ty": {
                   "ParameterBlock": {
                     "descriptor_set": {
@@ -116,7 +122,10 @@ expression: json
                         "bindings": 5
                       },
                       "alignment": 16,
-                      "stride": 96,
+                      "stride": {
+                        "bytes": 96,
+                        "binding_range": 5
+                      },
                       "ty": {
                         "Struct": {
                           "name": "Environment",
@@ -133,7 +142,10 @@ expression: json
                                   "bindings": 2
                                 },
                                 "alignment": 16,
-                                "stride": 96,
+                                "stride": {
+                                  "bytes": 96,
+                                  "binding_range": 2
+                                },
                                 "ty": {
                                   "Struct": {
                                     "name": "ShadowedLight",
@@ -150,7 +162,10 @@ expression: json
                                             "bindings": null
                                           },
                                           "alignment": 16,
-                                          "stride": 32,
+                                          "stride": {
+                                            "bytes": 32,
+                                            "binding_range": 0
+                                          },
                                           "ty": {
                                             "Struct": {
                                               "name": "DirectionalLight",
@@ -167,7 +182,10 @@ expression: json
                                                       "bindings": null
                                                     },
                                                     "alignment": 16,
-                                                    "stride": 16,
+                                                    "stride": {
+                                                      "bytes": 16,
+                                                      "binding_range": 0
+                                                    },
                                                     "ty": {
                                                       "Numeric": {
                                                         "Vector": {
@@ -190,7 +208,10 @@ expression: json
                                                       "bindings": null
                                                     },
                                                     "alignment": 16,
-                                                    "stride": 16,
+                                                    "stride": {
+                                                      "bytes": 16,
+                                                      "binding_range": 0
+                                                    },
                                                     "ty": {
                                                       "Numeric": {
                                                         "Vector": {
@@ -218,7 +239,10 @@ expression: json
                                             "bindings": 1
                                           },
                                           "alignment": 1,
-                                          "stride": 0,
+                                          "stride": {
+                                            "bytes": 0,
+                                            "binding_range": 1
+                                          },
                                           "ty": {
                                             "Resource": {
                                               "ty": "_Texture",
@@ -242,7 +266,10 @@ expression: json
                                             "bindings": 1
                                           },
                                           "alignment": 1,
-                                          "stride": 0,
+                                          "stride": {
+                                            "bytes": 0,
+                                            "binding_range": 1
+                                          },
                                           "ty": {
                                             "SamplerState": {
                                               "is_comparison_state": true
@@ -262,7 +289,10 @@ expression: json
                                             "bindings": null
                                           },
                                           "alignment": 16,
-                                          "stride": 64,
+                                          "stride": {
+                                            "bytes": 64,
+                                            "binding_range": 0
+                                          },
                                           "ty": {
                                             "Numeric": {
                                               "Matrix": {
@@ -291,7 +321,10 @@ expression: json
                                   "bindings": 2
                                 },
                                 "alignment": 16,
-                                "stride": 0,
+                                "stride": {
+                                  "bytes": 0,
+                                  "binding_range": 2
+                                },
                                 "ty": {
                                   "Struct": {
                                     "name": "EnvironmentMap",
@@ -308,7 +341,10 @@ expression: json
                                             "bindings": 1
                                           },
                                           "alignment": 1,
-                                          "stride": 0,
+                                          "stride": {
+                                            "bytes": 0,
+                                            "binding_range": 1
+                                          },
                                           "ty": {
                                             "Resource": {
                                               "ty": "_Texture",
@@ -332,7 +368,10 @@ expression: json
                                             "bindings": 1
                                           },
                                           "alignment": 1,
-                                          "stride": 0,
+                                          "stride": {
+                                            "bytes": 0,
+                                            "binding_range": 1
+                                          },
                                           "ty": {
                                             "SamplerState": {
                                               "is_comparison_state": false
@@ -357,7 +396,10 @@ expression: json
                                   "bindings": 1
                                 },
                                 "alignment": 1,
-                                "stride": 0,
+                                "stride": {
+                                  "bytes": 0,
+                                  "binding_range": 1
+                                },
                                 "ty": {
                                   "Resource": {
                                     "ty": "RWStructuredBuffer",
@@ -371,7 +413,10 @@ expression: json
                                         "bindings": null
                                       },
                                       "alignment": 16,
-                                      "stride": 16,
+                                      "stride": {
+                                        "bytes": 16,
+                                        "binding_range": 0
+                                      },
                                       "ty": {
                                         "Numeric": {
                                           "Vector": {
@@ -405,7 +450,10 @@ expression: json
                   "bindings": null
                 },
                 "alignment": 1,
-                "stride": 0,
+                "stride": {
+                  "bytes": 0,
+                  "binding_range": 1
+                },
                 "ty": {
                   "ParameterBlock": {
                     "descriptor_set": {
@@ -432,7 +480,10 @@ expression: json
                         "bindings": null
                       },
                       "alignment": 16,
-                      "stride": 128,
+                      "stride": {
+                        "bytes": 128,
+                        "binding_range": 0
+                      },
                       "ty": {
                         "Struct": {
                           "name": "View",
@@ -449,7 +500,10 @@ expression: json
                                   "bindings": null
                                 },
                                 "alignment": 16,
-                                "stride": 64,
+                                "stride": {
+                                  "bytes": 64,
+                                  "binding_range": 0
+                                },
                                 "ty": {
                                   "Numeric": {
                                     "Matrix": {
@@ -473,7 +527,10 @@ expression: json
                                   "bindings": null
                                 },
                                 "alignment": 16,
-                                "stride": 64,
+                                "stride": {
+                                  "bytes": 64,
+                                  "binding_range": 0
+                                },
                                 "ty": {
                                   "Numeric": {
                                     "Matrix": {
@@ -505,7 +562,10 @@ expression: json
                   "bindings": null
                 },
                 "alignment": 1,
-                "stride": 0,
+                "stride": {
+                  "bytes": 0,
+                  "binding_range": 1
+                },
                 "ty": {
                   "ParameterBlock": {
                     "descriptor_set": {
@@ -568,7 +628,10 @@ expression: json
                         "bindings": 4
                       },
                       "alignment": 16,
-                      "stride": 0,
+                      "stride": {
+                        "bytes": 0,
+                        "binding_range": 4
+                      },
                       "ty": {
                         "Struct": {
                           "name": "Material",
@@ -585,7 +648,10 @@ expression: json
                                   "bindings": 1
                                 },
                                 "alignment": 1,
-                                "stride": 0,
+                                "stride": {
+                                  "bytes": 0,
+                                  "binding_range": 1
+                                },
                                 "ty": {
                                   "Resource": {
                                     "ty": "_Texture",
@@ -609,7 +675,10 @@ expression: json
                                   "bindings": 1
                                 },
                                 "alignment": 1,
-                                "stride": 0,
+                                "stride": {
+                                  "bytes": 0,
+                                  "binding_range": 1
+                                },
                                 "ty": {
                                   "Resource": {
                                     "ty": "_Texture",
@@ -633,7 +702,10 @@ expression: json
                                   "bindings": 1
                                 },
                                 "alignment": 1,
-                                "stride": 0,
+                                "stride": {
+                                  "bytes": 0,
+                                  "binding_range": 1
+                                },
                                 "ty": {
                                   "Resource": {
                                     "ty": "_Texture",
@@ -657,7 +729,10 @@ expression: json
                                   "bindings": 1
                                 },
                                 "alignment": 1,
-                                "stride": 0,
+                                "stride": {
+                                  "bytes": 0,
+                                  "binding_range": 1
+                                },
                                 "ty": {
                                   "SamplerState": {
                                     "is_comparison_state": false
@@ -685,7 +760,10 @@ expression: json
                   "bindings": null
                 },
                 "alignment": 1,
-                "stride": 0,
+                "stride": {
+                  "bytes": 0,
+                  "binding_range": 1
+                },
                 "ty": {
                   "ParameterBlock": {
                     "descriptor_set": {
@@ -712,7 +790,10 @@ expression: json
                         "bindings": null
                       },
                       "alignment": 16,
-                      "stride": 128,
+                      "stride": {
+                        "bytes": 128,
+                        "binding_range": 0
+                      },
                       "ty": {
                         "Struct": {
                           "name": "Mesh",
@@ -729,7 +810,10 @@ expression: json
                                   "bindings": null
                                 },
                                 "alignment": 16,
-                                "stride": 64,
+                                "stride": {
+                                  "bytes": 64,
+                                  "binding_range": 0
+                                },
                                 "ty": {
                                   "Numeric": {
                                     "Matrix": {
@@ -753,7 +837,10 @@ expression: json
                                   "bindings": null
                                 },
                                 "alignment": 16,
-                                "stride": 64,
+                                "stride": {
+                                  "bytes": 64,
+                                  "binding_range": 0
+                                },
                                 "ty": {
                                   "Numeric": {
                                     "Matrix": {
@@ -794,7 +881,10 @@ expression: json
             "bindings": null
           },
           "alignment": 1,
-          "stride": 0,
+          "stride": {
+            "bytes": 0,
+            "binding_range": 1
+          },
           "ty": {
             "ConstantBuffer": {
               "size": {
@@ -803,7 +893,10 @@ expression: json
                 "bindings": null
               },
               "alignment": 1,
-              "stride": 16,
+              "stride": {
+                "bytes": 16,
+                "binding_range": 0
+              },
               "ty": {
                 "Struct": {
                   "name": "main",
@@ -820,7 +913,10 @@ expression: json
                           "bindings": null
                         },
                         "alignment": 16,
-                        "stride": 16,
+                        "stride": {
+                          "bytes": 16,
+                          "binding_range": 0
+                        },
                         "ty": {
                           "Struct": {
                             "name": "PushData",
@@ -837,7 +933,10 @@ expression: json
                                     "bindings": null
                                   },
                                   "alignment": 16,
-                                  "stride": 16,
+                                  "stride": {
+                                    "bytes": 16,
+                                    "binding_range": 0
+                                  },
                                   "ty": {
                                     "Numeric": {
                                       "Vector": {
