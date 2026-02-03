@@ -1,837 +1,385 @@
 ---
 source: crates/slang/tests/official_slang_pb_example.rs
-expression: program.layout()
+expression: json
 ---
 {
   "bindless": null,
   "globals": {
-    "size": null,
-    "alignment": 1,
-    "stride": 0,
-    "ty": {
-      "Struct": {
-        "name": "",
-        "fields": [
-          {
-            "name": "environment",
-            "offset_bytes": 0,
-            "offset_set": 0,
-            "offset_binding_range": 0,
-            "value": {
-              "size": {
-                "push_constants": null,
-                "bytes": null,
-                "bindings": null
-              },
-              "alignment": 1,
-              "stride": 0,
-              "ty": {
-                "ParameterBlock": {
-                  "descriptor_set": {
-                    "set": 0,
-                    "bindings": [
-                      {
-                        "binding_range": null,
-                        "binding": 0,
-                        "stages": 2147483647,
-                        "binding_type": "ConstantBuffer",
-                        "descriptor_type": 6,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      },
-                      {
-                        "binding_range": 0,
-                        "binding": 1,
-                        "stages": 2147483647,
-                        "binding_type": "Texture",
-                        "descriptor_type": 2,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      },
-                      {
-                        "binding_range": 1,
-                        "binding": 2,
-                        "stages": 2147483647,
-                        "binding_type": "Sampler",
-                        "descriptor_type": 0,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      },
-                      {
-                        "binding_range": 2,
-                        "binding": 3,
-                        "stages": 2147483647,
-                        "binding_type": "Texture",
-                        "descriptor_type": 2,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      },
-                      {
-                        "binding_range": 3,
-                        "binding": 4,
-                        "stages": 2147483647,
-                        "binding_type": "Sampler",
-                        "descriptor_type": 0,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      },
-                      {
-                        "binding_range": 4,
-                        "binding": 5,
-                        "stages": 2147483647,
-                        "binding_type": "MutableRawBuffer",
-                        "descriptor_type": 7,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      }
-                    ]
-                  },
-                  "element": {
-                    "size": {
-                      "push_constants": null,
-                      "bytes": 96,
-                      "bindings": 5
-                    },
-                    "alignment": 16,
-                    "stride": 96,
-                    "ty": {
-                      "Struct": {
-                        "name": "Environment",
-                        "fields": [
-                          {
-                            "name": "sunLight",
-                            "offset_bytes": 0,
-                            "offset_set": 0,
-                            "offset_binding_range": 0,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": 96,
-                                "bindings": 2
-                              },
-                              "alignment": 16,
-                              "stride": 96,
-                              "ty": {
-                                "Struct": {
-                                  "name": "ShadowedLight",
-                                  "fields": [
-                                    {
-                                      "name": "light",
-                                      "offset_bytes": 0,
-                                      "offset_set": 0,
-                                      "offset_binding_range": 0,
-                                      "value": {
-                                        "size": {
-                                          "push_constants": null,
-                                          "bytes": 32,
-                                          "bindings": null
-                                        },
-                                        "alignment": 16,
-                                        "stride": 32,
-                                        "ty": {
-                                          "Struct": {
-                                            "name": "DirectionalLight",
-                                            "fields": [
-                                              {
-                                                "name": "dir",
-                                                "offset_bytes": 0,
-                                                "offset_set": 0,
-                                                "offset_binding_range": 0,
-                                                "value": {
-                                                  "size": {
-                                                    "push_constants": null,
-                                                    "bytes": 12,
-                                                    "bindings": null
-                                                  },
-                                                  "alignment": 16,
-                                                  "stride": 16,
-                                                  "ty": {
-                                                    "Numeric": {
-                                                      "Vector": {
-                                                        "ty": "float",
-                                                        "count": 3
-                                                      }
-                                                    }
-                                                  }
-                                                }
-                                              },
-                                              {
-                                                "name": "intensity",
-                                                "offset_bytes": 16,
-                                                "offset_set": 0,
-                                                "offset_binding_range": 0,
-                                                "value": {
-                                                  "size": {
-                                                    "push_constants": null,
-                                                    "bytes": 12,
-                                                    "bindings": null
-                                                  },
-                                                  "alignment": 16,
-                                                  "stride": 16,
-                                                  "ty": {
-                                                    "Numeric": {
-                                                      "Vector": {
-                                                        "ty": "float",
-                                                        "count": 3
-                                                      }
-                                                    }
-                                                  }
-                                                }
-                                              }
-                                            ]
-                                          }
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "shadowMap",
-                                      "offset_bytes": 0,
-                                      "offset_set": 0,
-                                      "offset_binding_range": 0,
-                                      "value": {
-                                        "size": {
-                                          "push_constants": null,
-                                          "bytes": null,
-                                          "bindings": 1
-                                        },
-                                        "alignment": 1,
-                                        "stride": 0,
-                                        "ty": {
-                                          "Resource": {
-                                            "ty": "_Texture",
-                                            "binding": null,
-                                            "shape": "SlangTexture2d",
-                                            "access": "Read",
-                                            "element": null
-                                          }
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "shadowSampler",
-                                      "offset_bytes": 0,
-                                      "offset_set": 0,
-                                      "offset_binding_range": 1,
-                                      "value": {
-                                        "size": {
-                                          "push_constants": null,
-                                          "bytes": null,
-                                          "bindings": 1
-                                        },
-                                        "alignment": 1,
-                                        "stride": 0,
-                                        "ty": {
-                                          "SamplerState": {
-                                            "is_comparison_state": true
-                                          }
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "worldToShadow",
-                                      "offset_bytes": 32,
-                                      "offset_set": 0,
-                                      "offset_binding_range": 2,
-                                      "value": {
-                                        "size": {
-                                          "push_constants": null,
-                                          "bytes": 64,
-                                          "bindings": null
-                                        },
-                                        "alignment": 16,
-                                        "stride": 64,
-                                        "ty": {
-                                          "Numeric": {
-                                            "Matrix": {
-                                              "ty": "float",
-                                              "rows": 4,
-                                              "cols": 4
-                                            }
-                                          }
-                                        }
-                                      }
-                                    }
-                                  ]
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "name": "envMap",
-                            "offset_bytes": 0,
-                            "offset_set": 0,
-                            "offset_binding_range": 2,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": null,
-                                "bindings": 2
-                              },
-                              "alignment": 16,
-                              "stride": 0,
-                              "ty": {
-                                "Struct": {
-                                  "name": "EnvironmentMap",
-                                  "fields": [
-                                    {
-                                      "name": "texture",
-                                      "offset_bytes": 0,
-                                      "offset_set": 0,
-                                      "offset_binding_range": 0,
-                                      "value": {
-                                        "size": {
-                                          "push_constants": null,
-                                          "bytes": null,
-                                          "bindings": 1
-                                        },
-                                        "alignment": 1,
-                                        "stride": 0,
-                                        "ty": {
-                                          "Resource": {
-                                            "ty": "_Texture",
-                                            "binding": null,
-                                            "shape": "SlangTextureCube",
-                                            "access": "Read",
-                                            "element": null
-                                          }
-                                        }
-                                      }
-                                    },
-                                    {
-                                      "name": "sampler",
-                                      "offset_bytes": 0,
-                                      "offset_set": 0,
-                                      "offset_binding_range": 1,
-                                      "value": {
-                                        "size": {
-                                          "push_constants": null,
-                                          "bytes": null,
-                                          "bindings": 1
-                                        },
-                                        "alignment": 1,
-                                        "stride": 0,
-                                        "ty": {
-                                          "SamplerState": {
-                                            "is_comparison_state": false
-                                          }
-                                        }
-                                      }
-                                    }
-                                  ]
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "name": "output",
-                            "offset_bytes": 0,
-                            "offset_set": 0,
-                            "offset_binding_range": 4,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": null,
-                                "bindings": 1
-                              },
-                              "alignment": 1,
-                              "stride": 0,
-                              "ty": {
-                                "Resource": {
-                                  "ty": "RWStructuredBuffer",
-                                  "binding": null,
-                                  "shape": "SlangStructuredBuffer",
-                                  "access": "ReadWrite",
-                                  "element": {
-                                    "size": {
-                                      "push_constants": null,
-                                      "bytes": 16,
-                                      "bindings": null
-                                    },
-                                    "alignment": 16,
-                                    "stride": 16,
-                                    "ty": {
-                                      "Numeric": {
-                                        "Vector": {
-                                          "ty": "float",
-                                          "count": 4
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
+    "name": null,
+    "offset_bytes": 0,
+    "offset_set": 0,
+    "offset_binding_range": 0,
+    "value": {
+      "size": null,
+      "alignment": 1,
+      "stride": 0,
+      "ty": {
+        "Struct": {
+          "name": "",
+          "fields": [
+            {
+              "name": "environment",
+              "offset_bytes": 0,
+              "offset_set": 0,
+              "offset_binding_range": 0,
+              "value": {
+                "size": {
+                  "push_constants": null,
+                  "bytes": null,
+                  "bindings": null
+                },
+                "alignment": 1,
+                "stride": 0,
+                "ty": {
+                  "ParameterBlock": {
+                    "descriptor_set": {
+                      "set": 0,
+                      "bindings": [
+                        {
+                          "binding_range": null,
+                          "binding": 0,
+                          "stages": 2147483647,
+                          "binding_type": "ConstantBuffer",
+                          "descriptor_type": 6,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
                           }
-                        ]
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          {
-            "name": "view",
-            "offset_bytes": 0,
-            "offset_set": 1,
-            "offset_binding_range": 1,
-            "value": {
-              "size": {
-                "push_constants": null,
-                "bytes": null,
-                "bindings": null
-              },
-              "alignment": 1,
-              "stride": 0,
-              "ty": {
-                "ParameterBlock": {
-                  "descriptor_set": {
-                    "set": 1,
-                    "bindings": [
-                      {
-                        "binding_range": null,
-                        "binding": 0,
-                        "stages": 2147483647,
-                        "binding_type": "ConstantBuffer",
-                        "descriptor_type": 6,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      }
-                    ]
-                  },
-                  "element": {
-                    "size": {
-                      "push_constants": null,
-                      "bytes": 128,
-                      "bindings": null
-                    },
-                    "alignment": 16,
-                    "stride": 128,
-                    "ty": {
-                      "Struct": {
-                        "name": "View",
-                        "fields": [
-                          {
-                            "name": "worldToView",
-                            "offset_bytes": 0,
-                            "offset_set": 0,
-                            "offset_binding_range": 0,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": 64,
-                                "bindings": null
-                              },
-                              "alignment": 16,
-                              "stride": 64,
-                              "ty": {
-                                "Numeric": {
-                                  "Matrix": {
-                                    "ty": "float",
-                                    "rows": 4,
-                                    "cols": 4
-                                  }
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "name": "viewToProj",
-                            "offset_bytes": 64,
-                            "offset_set": 0,
-                            "offset_binding_range": 0,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": 64,
-                                "bindings": null
-                              },
-                              "alignment": 16,
-                              "stride": 64,
-                              "ty": {
-                                "Numeric": {
-                                  "Matrix": {
-                                    "ty": "float",
-                                    "rows": 4,
-                                    "cols": 4
-                                  }
-                                }
-                              }
-                            }
+                        },
+                        {
+                          "binding_range": 0,
+                          "binding": 1,
+                          "stages": 2147483647,
+                          "binding_type": "Texture",
+                          "descriptor_type": 2,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
                           }
-                        ]
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          {
-            "name": "material",
-            "offset_bytes": 0,
-            "offset_set": 2,
-            "offset_binding_range": 2,
-            "value": {
-              "size": {
-                "push_constants": null,
-                "bytes": null,
-                "bindings": null
-              },
-              "alignment": 1,
-              "stride": 0,
-              "ty": {
-                "ParameterBlock": {
-                  "descriptor_set": {
-                    "set": 2,
-                    "bindings": [
-                      {
-                        "binding_range": 0,
-                        "binding": 0,
-                        "stages": 2147483647,
-                        "binding_type": "Texture",
-                        "descriptor_type": 2,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      },
-                      {
-                        "binding_range": 1,
-                        "binding": 1,
-                        "stages": 2147483647,
-                        "binding_type": "Texture",
-                        "descriptor_type": 2,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      },
-                      {
-                        "binding_range": 2,
-                        "binding": 2,
-                        "stages": 2147483647,
-                        "binding_type": "Texture",
-                        "descriptor_type": 2,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      },
-                      {
-                        "binding_range": 3,
-                        "binding": 3,
-                        "stages": 2147483647,
-                        "binding_type": "Sampler",
-                        "descriptor_type": 0,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      }
-                    ]
-                  },
-                  "element": {
-                    "size": {
-                      "push_constants": null,
-                      "bytes": null,
-                      "bindings": 4
-                    },
-                    "alignment": 16,
-                    "stride": 0,
-                    "ty": {
-                      "Struct": {
-                        "name": "Material",
-                        "fields": [
-                          {
-                            "name": "albedoMap",
-                            "offset_bytes": 0,
-                            "offset_set": 0,
-                            "offset_binding_range": 0,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": null,
-                                "bindings": 1
-                              },
-                              "alignment": 1,
-                              "stride": 0,
-                              "ty": {
-                                "Resource": {
-                                  "ty": "_Texture",
-                                  "binding": null,
-                                  "shape": "SlangTexture2d",
-                                  "access": "Read",
-                                  "element": null
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "name": "glossMap",
-                            "offset_bytes": 0,
-                            "offset_set": 0,
-                            "offset_binding_range": 1,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": null,
-                                "bindings": 1
-                              },
-                              "alignment": 1,
-                              "stride": 0,
-                              "ty": {
-                                "Resource": {
-                                  "ty": "_Texture",
-                                  "binding": null,
-                                  "shape": "SlangTexture2d",
-                                  "access": "Read",
-                                  "element": null
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "name": "normalMap",
-                            "offset_bytes": 0,
-                            "offset_set": 0,
-                            "offset_binding_range": 2,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": null,
-                                "bindings": 1
-                              },
-                              "alignment": 1,
-                              "stride": 0,
-                              "ty": {
-                                "Resource": {
-                                  "ty": "_Texture",
-                                  "binding": null,
-                                  "shape": "SlangTexture2d",
-                                  "access": "Read",
-                                  "element": null
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "name": "sampler",
-                            "offset_bytes": 0,
-                            "offset_set": 0,
-                            "offset_binding_range": 3,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": null,
-                                "bindings": 1
-                              },
-                              "alignment": 1,
-                              "stride": 0,
-                              "ty": {
-                                "SamplerState": {
-                                  "is_comparison_state": false
-                                }
-                              }
-                            }
+                        },
+                        {
+                          "binding_range": 1,
+                          "binding": 2,
+                          "stages": 2147483647,
+                          "binding_type": "Sampler",
+                          "descriptor_type": 0,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
                           }
-                        ]
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          {
-            "name": "mesh",
-            "offset_bytes": 0,
-            "offset_set": 3,
-            "offset_binding_range": 3,
-            "value": {
-              "size": {
-                "push_constants": null,
-                "bytes": null,
-                "bindings": null
-              },
-              "alignment": 1,
-              "stride": 0,
-              "ty": {
-                "ParameterBlock": {
-                  "descriptor_set": {
-                    "set": 3,
-                    "bindings": [
-                      {
-                        "binding_range": null,
-                        "binding": 0,
-                        "stages": 2147483647,
-                        "binding_type": "ConstantBuffer",
-                        "descriptor_type": 6,
-                        "shape": null,
-                        "access": null,
-                        "count": {
-                          "Bounded": 1
-                        }
-                      }
-                    ]
-                  },
-                  "element": {
-                    "size": {
-                      "push_constants": null,
-                      "bytes": 128,
-                      "bindings": null
-                    },
-                    "alignment": 16,
-                    "stride": 128,
-                    "ty": {
-                      "Struct": {
-                        "name": "Mesh",
-                        "fields": [
-                          {
-                            "name": "modelToWorld",
-                            "offset_bytes": 0,
-                            "offset_set": 0,
-                            "offset_binding_range": 0,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": 64,
-                                "bindings": null
-                              },
-                              "alignment": 16,
-                              "stride": 64,
-                              "ty": {
-                                "Numeric": {
-                                  "Matrix": {
-                                    "ty": "float",
-                                    "rows": 4,
-                                    "cols": 4
-                                  }
-                                }
-                              }
-                            }
-                          },
-                          {
-                            "name": "modelToWorld_inverseTranspose",
-                            "offset_bytes": 64,
-                            "offset_set": 0,
-                            "offset_binding_range": 0,
-                            "value": {
-                              "size": {
-                                "push_constants": null,
-                                "bytes": 64,
-                                "bindings": null
-                              },
-                              "alignment": 16,
-                              "stride": 64,
-                              "ty": {
-                                "Numeric": {
-                                  "Matrix": {
-                                    "ty": "float",
-                                    "rows": 4,
-                                    "cols": 4
-                                  }
-                                }
-                              }
-                            }
+                        },
+                        {
+                          "binding_range": 2,
+                          "binding": 3,
+                          "stages": 2147483647,
+                          "binding_type": "Texture",
+                          "descriptor_type": 2,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
                           }
-                        ]
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        ]
-      }
-    }
-  },
-  "entrypoints": [
-    {
-      "name": "main",
-      "stage": "Compute",
-      "params": {
-        "size": {
-          "push_constants": 1,
-          "bytes": null,
-          "bindings": null
-        },
-        "alignment": 1,
-        "stride": 0,
-        "ty": {
-          "ConstantBuffer": {
-            "size": {
-              "push_constants": null,
-              "bytes": 16,
-              "bindings": null
-            },
-            "alignment": 1,
-            "stride": 16,
-            "ty": {
-              "Struct": {
-                "name": "main",
-                "fields": [
-                  {
-                    "name": "pushData",
-                    "offset_bytes": 0,
-                    "offset_set": 0,
-                    "offset_binding_range": 0,
-                    "value": {
+                        },
+                        {
+                          "binding_range": 3,
+                          "binding": 4,
+                          "stages": 2147483647,
+                          "binding_type": "Sampler",
+                          "descriptor_type": 0,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
+                          }
+                        },
+                        {
+                          "binding_range": 4,
+                          "binding": 5,
+                          "stages": 2147483647,
+                          "binding_type": "MutableRawBuffer",
+                          "descriptor_type": 7,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
+                          }
+                        }
+                      ]
+                    },
+                    "element": {
                       "size": {
                         "push_constants": null,
-                        "bytes": 16,
-                        "bindings": null
+                        "bytes": 96,
+                        "bindings": 5
                       },
                       "alignment": 16,
-                      "stride": 16,
+                      "stride": 96,
                       "ty": {
                         "Struct": {
-                          "name": "PushData",
+                          "name": "Environment",
                           "fields": [
                             {
-                              "name": "color",
+                              "name": "sunLight",
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 0,
                               "value": {
                                 "size": {
                                   "push_constants": null,
-                                  "bytes": 16,
-                                  "bindings": null
+                                  "bytes": 96,
+                                  "bindings": 2
                                 },
                                 "alignment": 16,
-                                "stride": 16,
+                                "stride": 96,
                                 "ty": {
-                                  "Numeric": {
-                                    "Vector": {
-                                      "ty": "float",
-                                      "count": 4
+                                  "Struct": {
+                                    "name": "ShadowedLight",
+                                    "fields": [
+                                      {
+                                        "name": "light",
+                                        "offset_bytes": 0,
+                                        "offset_set": 0,
+                                        "offset_binding_range": 0,
+                                        "value": {
+                                          "size": {
+                                            "push_constants": null,
+                                            "bytes": 32,
+                                            "bindings": null
+                                          },
+                                          "alignment": 16,
+                                          "stride": 32,
+                                          "ty": {
+                                            "Struct": {
+                                              "name": "DirectionalLight",
+                                              "fields": [
+                                                {
+                                                  "name": "dir",
+                                                  "offset_bytes": 0,
+                                                  "offset_set": 0,
+                                                  "offset_binding_range": 0,
+                                                  "value": {
+                                                    "size": {
+                                                      "push_constants": null,
+                                                      "bytes": 12,
+                                                      "bindings": null
+                                                    },
+                                                    "alignment": 16,
+                                                    "stride": 16,
+                                                    "ty": {
+                                                      "Numeric": {
+                                                        "Vector": {
+                                                          "ty": "float",
+                                                          "count": 3
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "intensity",
+                                                  "offset_bytes": 16,
+                                                  "offset_set": 0,
+                                                  "offset_binding_range": 0,
+                                                  "value": {
+                                                    "size": {
+                                                      "push_constants": null,
+                                                      "bytes": 12,
+                                                      "bindings": null
+                                                    },
+                                                    "alignment": 16,
+                                                    "stride": 16,
+                                                    "ty": {
+                                                      "Numeric": {
+                                                        "Vector": {
+                                                          "ty": "float",
+                                                          "count": 3
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "shadowMap",
+                                        "offset_bytes": 0,
+                                        "offset_set": 0,
+                                        "offset_binding_range": 0,
+                                        "value": {
+                                          "size": {
+                                            "push_constants": null,
+                                            "bytes": null,
+                                            "bindings": 1
+                                          },
+                                          "alignment": 1,
+                                          "stride": 0,
+                                          "ty": {
+                                            "Resource": {
+                                              "ty": "_Texture",
+                                              "binding": null,
+                                              "shape": "SlangTexture2d",
+                                              "access": "Read",
+                                              "element": null
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "shadowSampler",
+                                        "offset_bytes": 0,
+                                        "offset_set": 0,
+                                        "offset_binding_range": 1,
+                                        "value": {
+                                          "size": {
+                                            "push_constants": null,
+                                            "bytes": null,
+                                            "bindings": 1
+                                          },
+                                          "alignment": 1,
+                                          "stride": 0,
+                                          "ty": {
+                                            "SamplerState": {
+                                              "is_comparison_state": true
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "worldToShadow",
+                                        "offset_bytes": 32,
+                                        "offset_set": 0,
+                                        "offset_binding_range": 2,
+                                        "value": {
+                                          "size": {
+                                            "push_constants": null,
+                                            "bytes": 64,
+                                            "bindings": null
+                                          },
+                                          "alignment": 16,
+                                          "stride": 64,
+                                          "ty": {
+                                            "Numeric": {
+                                              "Matrix": {
+                                                "ty": "float",
+                                                "rows": 4,
+                                                "cols": 4
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "envMap",
+                              "offset_bytes": 0,
+                              "offset_set": 0,
+                              "offset_binding_range": 2,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": null,
+                                  "bindings": 2
+                                },
+                                "alignment": 16,
+                                "stride": 0,
+                                "ty": {
+                                  "Struct": {
+                                    "name": "EnvironmentMap",
+                                    "fields": [
+                                      {
+                                        "name": "texture",
+                                        "offset_bytes": 0,
+                                        "offset_set": 0,
+                                        "offset_binding_range": 0,
+                                        "value": {
+                                          "size": {
+                                            "push_constants": null,
+                                            "bytes": null,
+                                            "bindings": 1
+                                          },
+                                          "alignment": 1,
+                                          "stride": 0,
+                                          "ty": {
+                                            "Resource": {
+                                              "ty": "_Texture",
+                                              "binding": null,
+                                              "shape": "SlangTextureCube",
+                                              "access": "Read",
+                                              "element": null
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "sampler",
+                                        "offset_bytes": 0,
+                                        "offset_set": 0,
+                                        "offset_binding_range": 1,
+                                        "value": {
+                                          "size": {
+                                            "push_constants": null,
+                                            "bytes": null,
+                                            "bindings": 1
+                                          },
+                                          "alignment": 1,
+                                          "stride": 0,
+                                          "ty": {
+                                            "SamplerState": {
+                                              "is_comparison_state": false
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "output",
+                              "offset_bytes": 0,
+                              "offset_set": 0,
+                              "offset_binding_range": 4,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": null,
+                                  "bindings": 1
+                                },
+                                "alignment": 1,
+                                "stride": 0,
+                                "ty": {
+                                  "Resource": {
+                                    "ty": "RWStructuredBuffer",
+                                    "binding": null,
+                                    "shape": "SlangStructuredBuffer",
+                                    "access": "ReadWrite",
+                                    "element": {
+                                      "size": {
+                                        "push_constants": null,
+                                        "bytes": 16,
+                                        "bindings": null
+                                      },
+                                      "alignment": 16,
+                                      "stride": 16,
+                                      "ty": {
+                                        "Numeric": {
+                                          "Vector": {
+                                            "ty": "float",
+                                            "count": 4
+                                          }
+                                        }
+                                      }
                                     }
                                   }
                                 }
@@ -842,7 +390,471 @@ expression: program.layout()
                       }
                     }
                   }
-                ]
+                }
+              }
+            },
+            {
+              "name": "view",
+              "offset_bytes": 0,
+              "offset_set": 1,
+              "offset_binding_range": 1,
+              "value": {
+                "size": {
+                  "push_constants": null,
+                  "bytes": null,
+                  "bindings": null
+                },
+                "alignment": 1,
+                "stride": 0,
+                "ty": {
+                  "ParameterBlock": {
+                    "descriptor_set": {
+                      "set": 1,
+                      "bindings": [
+                        {
+                          "binding_range": null,
+                          "binding": 0,
+                          "stages": 2147483647,
+                          "binding_type": "ConstantBuffer",
+                          "descriptor_type": 6,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
+                          }
+                        }
+                      ]
+                    },
+                    "element": {
+                      "size": {
+                        "push_constants": null,
+                        "bytes": 128,
+                        "bindings": null
+                      },
+                      "alignment": 16,
+                      "stride": 128,
+                      "ty": {
+                        "Struct": {
+                          "name": "View",
+                          "fields": [
+                            {
+                              "name": "worldToView",
+                              "offset_bytes": 0,
+                              "offset_set": 0,
+                              "offset_binding_range": 0,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": 64,
+                                  "bindings": null
+                                },
+                                "alignment": 16,
+                                "stride": 64,
+                                "ty": {
+                                  "Numeric": {
+                                    "Matrix": {
+                                      "ty": "float",
+                                      "rows": 4,
+                                      "cols": 4
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "viewToProj",
+                              "offset_bytes": 64,
+                              "offset_set": 0,
+                              "offset_binding_range": 0,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": 64,
+                                  "bindings": null
+                                },
+                                "alignment": 16,
+                                "stride": 64,
+                                "ty": {
+                                  "Numeric": {
+                                    "Matrix": {
+                                      "ty": "float",
+                                      "rows": 4,
+                                      "cols": 4
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "material",
+              "offset_bytes": 0,
+              "offset_set": 2,
+              "offset_binding_range": 2,
+              "value": {
+                "size": {
+                  "push_constants": null,
+                  "bytes": null,
+                  "bindings": null
+                },
+                "alignment": 1,
+                "stride": 0,
+                "ty": {
+                  "ParameterBlock": {
+                    "descriptor_set": {
+                      "set": 2,
+                      "bindings": [
+                        {
+                          "binding_range": 0,
+                          "binding": 0,
+                          "stages": 2147483647,
+                          "binding_type": "Texture",
+                          "descriptor_type": 2,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
+                          }
+                        },
+                        {
+                          "binding_range": 1,
+                          "binding": 1,
+                          "stages": 2147483647,
+                          "binding_type": "Texture",
+                          "descriptor_type": 2,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
+                          }
+                        },
+                        {
+                          "binding_range": 2,
+                          "binding": 2,
+                          "stages": 2147483647,
+                          "binding_type": "Texture",
+                          "descriptor_type": 2,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
+                          }
+                        },
+                        {
+                          "binding_range": 3,
+                          "binding": 3,
+                          "stages": 2147483647,
+                          "binding_type": "Sampler",
+                          "descriptor_type": 0,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
+                          }
+                        }
+                      ]
+                    },
+                    "element": {
+                      "size": {
+                        "push_constants": null,
+                        "bytes": null,
+                        "bindings": 4
+                      },
+                      "alignment": 16,
+                      "stride": 0,
+                      "ty": {
+                        "Struct": {
+                          "name": "Material",
+                          "fields": [
+                            {
+                              "name": "albedoMap",
+                              "offset_bytes": 0,
+                              "offset_set": 0,
+                              "offset_binding_range": 0,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": null,
+                                  "bindings": 1
+                                },
+                                "alignment": 1,
+                                "stride": 0,
+                                "ty": {
+                                  "Resource": {
+                                    "ty": "_Texture",
+                                    "binding": null,
+                                    "shape": "SlangTexture2d",
+                                    "access": "Read",
+                                    "element": null
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "glossMap",
+                              "offset_bytes": 0,
+                              "offset_set": 0,
+                              "offset_binding_range": 1,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": null,
+                                  "bindings": 1
+                                },
+                                "alignment": 1,
+                                "stride": 0,
+                                "ty": {
+                                  "Resource": {
+                                    "ty": "_Texture",
+                                    "binding": null,
+                                    "shape": "SlangTexture2d",
+                                    "access": "Read",
+                                    "element": null
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "normalMap",
+                              "offset_bytes": 0,
+                              "offset_set": 0,
+                              "offset_binding_range": 2,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": null,
+                                  "bindings": 1
+                                },
+                                "alignment": 1,
+                                "stride": 0,
+                                "ty": {
+                                  "Resource": {
+                                    "ty": "_Texture",
+                                    "binding": null,
+                                    "shape": "SlangTexture2d",
+                                    "access": "Read",
+                                    "element": null
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "sampler",
+                              "offset_bytes": 0,
+                              "offset_set": 0,
+                              "offset_binding_range": 3,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": null,
+                                  "bindings": 1
+                                },
+                                "alignment": 1,
+                                "stride": 0,
+                                "ty": {
+                                  "SamplerState": {
+                                    "is_comparison_state": false
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "mesh",
+              "offset_bytes": 0,
+              "offset_set": 3,
+              "offset_binding_range": 3,
+              "value": {
+                "size": {
+                  "push_constants": null,
+                  "bytes": null,
+                  "bindings": null
+                },
+                "alignment": 1,
+                "stride": 0,
+                "ty": {
+                  "ParameterBlock": {
+                    "descriptor_set": {
+                      "set": 3,
+                      "bindings": [
+                        {
+                          "binding_range": null,
+                          "binding": 0,
+                          "stages": 2147483647,
+                          "binding_type": "ConstantBuffer",
+                          "descriptor_type": 6,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
+                          }
+                        }
+                      ]
+                    },
+                    "element": {
+                      "size": {
+                        "push_constants": null,
+                        "bytes": 128,
+                        "bindings": null
+                      },
+                      "alignment": 16,
+                      "stride": 128,
+                      "ty": {
+                        "Struct": {
+                          "name": "Mesh",
+                          "fields": [
+                            {
+                              "name": "modelToWorld",
+                              "offset_bytes": 0,
+                              "offset_set": 0,
+                              "offset_binding_range": 0,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": 64,
+                                  "bindings": null
+                                },
+                                "alignment": 16,
+                                "stride": 64,
+                                "ty": {
+                                  "Numeric": {
+                                    "Matrix": {
+                                      "ty": "float",
+                                      "rows": 4,
+                                      "cols": 4
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "name": "modelToWorld_inverseTranspose",
+                              "offset_bytes": 64,
+                              "offset_set": 0,
+                              "offset_binding_range": 0,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": 64,
+                                  "bindings": null
+                                },
+                                "alignment": 16,
+                                "stride": 64,
+                                "ty": {
+                                  "Numeric": {
+                                    "Matrix": {
+                                      "ty": "float",
+                                      "rows": 4,
+                                      "cols": 4
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "entrypoints": [
+    {
+      "name": "main",
+      "stage": "Compute",
+      "params": {
+        "name": null,
+        "offset_bytes": 0,
+        "offset_set": 0,
+        "offset_binding_range": 0,
+        "value": {
+          "size": {
+            "push_constants": 1,
+            "bytes": null,
+            "bindings": null
+          },
+          "alignment": 1,
+          "stride": 0,
+          "ty": {
+            "ConstantBuffer": {
+              "size": {
+                "push_constants": null,
+                "bytes": 16,
+                "bindings": null
+              },
+              "alignment": 1,
+              "stride": 16,
+              "ty": {
+                "Struct": {
+                  "name": "main",
+                  "fields": [
+                    {
+                      "name": "pushData",
+                      "offset_bytes": 0,
+                      "offset_set": 0,
+                      "offset_binding_range": 0,
+                      "value": {
+                        "size": {
+                          "push_constants": null,
+                          "bytes": 16,
+                          "bindings": null
+                        },
+                        "alignment": 16,
+                        "stride": 16,
+                        "ty": {
+                          "Struct": {
+                            "name": "PushData",
+                            "fields": [
+                              {
+                                "name": "color",
+                                "offset_bytes": 0,
+                                "offset_set": 0,
+                                "offset_binding_range": 0,
+                                "value": {
+                                  "size": {
+                                    "push_constants": null,
+                                    "bytes": 16,
+                                    "bindings": null
+                                  },
+                                  "alignment": 16,
+                                  "stride": 16,
+                                  "ty": {
+                                    "Numeric": {
+                                      "Vector": {
+                                        "ty": "float",
+                                        "count": 4
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
               }
             }
           }

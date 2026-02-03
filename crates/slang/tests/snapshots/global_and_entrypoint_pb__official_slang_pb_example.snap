@@ -1,0 +1,203 @@
+---
+source: crates/slang/tests/global_and_entrypoint_pb.rs
+expression: json
+---
+{
+  "bindless": null,
+  "globals": {
+    "name": null,
+    "offset_bytes": 0,
+    "offset_set": 0,
+    "offset_binding_range": 0,
+    "value": {
+      "size": null,
+      "alignment": 1,
+      "stride": 0,
+      "ty": {
+        "Struct": {
+          "name": "",
+          "fields": [
+            {
+              "name": "global",
+              "offset_bytes": 0,
+              "offset_set": 0,
+              "offset_binding_range": 0,
+              "value": {
+                "size": {
+                  "push_constants": null,
+                  "bytes": null,
+                  "bindings": null
+                },
+                "alignment": 1,
+                "stride": 0,
+                "ty": {
+                  "ParameterBlock": {
+                    "descriptor_set": {
+                      "set": 0,
+                      "bindings": [
+                        {
+                          "binding_range": null,
+                          "binding": 0,
+                          "stages": 2147483647,
+                          "binding_type": "ConstantBuffer",
+                          "descriptor_type": 6,
+                          "shape": null,
+                          "access": null,
+                          "count": {
+                            "Bounded": 1
+                          }
+                        }
+                      ]
+                    },
+                    "element": {
+                      "size": {
+                        "push_constants": null,
+                        "bytes": 16,
+                        "bindings": null
+                      },
+                      "alignment": 16,
+                      "stride": 16,
+                      "ty": {
+                        "Struct": {
+                          "name": "Foo",
+                          "fields": [
+                            {
+                              "name": "dummy",
+                              "offset_bytes": 0,
+                              "offset_set": 0,
+                              "offset_binding_range": 0,
+                              "value": {
+                                "size": {
+                                  "push_constants": null,
+                                  "bytes": 16,
+                                  "bindings": null
+                                },
+                                "alignment": 16,
+                                "stride": 16,
+                                "ty": {
+                                  "Numeric": {
+                                    "Vector": {
+                                      "ty": "float",
+                                      "count": 4
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "entrypoints": [
+    {
+      "name": "main",
+      "stage": "Compute",
+      "params": {
+        "name": null,
+        "offset_bytes": 0,
+        "offset_set": 1,
+        "offset_binding_range": 0,
+        "value": {
+          "size": {
+            "push_constants": null,
+            "bytes": null,
+            "bindings": null
+          },
+          "alignment": 1,
+          "stride": 0,
+          "ty": {
+            "Struct": {
+              "name": "main",
+              "fields": [
+                {
+                  "name": "ep",
+                  "offset_bytes": 0,
+                  "offset_set": 0,
+                  "offset_binding_range": 0,
+                  "value": {
+                    "size": {
+                      "push_constants": null,
+                      "bytes": null,
+                      "bindings": null
+                    },
+                    "alignment": 1,
+                    "stride": 0,
+                    "ty": {
+                      "ParameterBlock": {
+                        "descriptor_set": {
+                          "set": 1,
+                          "bindings": [
+                            {
+                              "binding_range": null,
+                              "binding": 0,
+                              "stages": 32,
+                              "binding_type": "ConstantBuffer",
+                              "descriptor_type": 6,
+                              "shape": null,
+                              "access": null,
+                              "count": {
+                                "Bounded": 1
+                              }
+                            }
+                          ]
+                        },
+                        "element": {
+                          "size": {
+                            "push_constants": null,
+                            "bytes": 16,
+                            "bindings": null
+                          },
+                          "alignment": 16,
+                          "stride": 16,
+                          "ty": {
+                            "Struct": {
+                              "name": "Foo",
+                              "fields": [
+                                {
+                                  "name": "dummy",
+                                  "offset_bytes": 0,
+                                  "offset_set": 0,
+                                  "offset_binding_range": 0,
+                                  "value": {
+                                    "size": {
+                                      "push_constants": null,
+                                      "bytes": 16,
+                                      "bindings": null
+                                    },
+                                    "alignment": 16,
+                                    "stride": 16,
+                                    "ty": {
+                                      "Numeric": {
+                                        "Vector": {
+                                          "ty": "float",
+                                          "count": 4
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  ]
+}

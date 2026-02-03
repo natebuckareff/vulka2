@@ -28,7 +28,7 @@ enum OutputArg {
 
 fn main() -> Result<()> {
     let cli = parse_args()?;
-    let mut builder = SlangCompilerBuilder::new()?;
+    let mut builder = SlangCompilerBuilder::new()?.optimization(slang::OptimizationLevel::None);
     let mut output = None;
 
     for input in &cli.inputs {

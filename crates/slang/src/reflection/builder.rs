@@ -45,13 +45,15 @@ impl LayoutBuilder {
             policy: config.policy,
         });
 
-        let slang_global_type = program_layout
-            .global_params_type_layout()
+        let global_var_layout = program_layout
+            .global_params_var_layout()
             .context("global var layout not found")?;
+
+        let globals = self.build_var_layout(global_var_layout, 0)?.map(Box::new);
 
         let shader_layout = ShaderLayout {
             bindless,
-            globals: self.build_type_layout(slang_global_type)?.map(Box::new),
+            globals,
             entrypoints: self.build_entrypoints(program_layout)?,
         };
 
@@ -76,12 +78,12 @@ impl LayoutBuilder {
 
             let stage: SlangShaderStage = slang_entry_point.stage().try_into()?;
 
-            let slang_type_layout = slang_entry_point
-                .type_layout()
+            let slang_var_layout = slang_entry_point
+                .var_layout()
                 .context("entrypoint var layout not found")?;
 
             self.location = BuilderLocation::Entrypoint(stage);
-            let params = self.build_type_layout(slang_type_layout)?.map(Box::new);
+            let params = self.build_var_layout(slang_var_layout, 0)?.map(Box::new);
             self.location = BuilderLocation::Global;
 
             entrypoints.push(EntrypointLayout {

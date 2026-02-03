@@ -27,7 +27,7 @@ pub enum ElementCount {
 #[derive(Serialize, Deserialize)]
 pub struct ShaderLayout {
     pub bindless: Option<BindlessLayout>,
-    pub globals: Option<Box<TypeLayout>>,
+    pub globals: Option<Box<VarLayout>>,
     pub entrypoints: Vec<EntrypointLayout>,
 }
 
@@ -35,7 +35,7 @@ pub struct ShaderLayout {
 pub struct EntrypointLayout {
     pub name: CompactString,
     pub stage: SlangShaderStage,
-    pub params: Option<Box<TypeLayout>>,
+    pub params: Option<Box<VarLayout>>,
 }
 
 #[derive(Serialize, Deserialize)]
