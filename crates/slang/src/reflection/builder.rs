@@ -136,7 +136,10 @@ impl LayoutBuilder {
     ) -> Result<Option<TypeLayout>> {
         let size = Self::build_size(slang_type_layout);
         let alignment = slang_type_layout.alignment(slang::ParameterCategory::Uniform);
-        let stride = slang_type_layout.stride(slang::ParameterCategory::Uniform);
+        let stride = Stride {
+            bytes: slang_type_layout.stride(slang::ParameterCategory::Uniform),
+            binding_range: slang_type_layout.binding_range_count(),
+        };
 
         let ty = match slang_type_layout.kind() {
             slang::TypeKind::Scalar => {

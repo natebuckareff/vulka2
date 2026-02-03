@@ -51,8 +51,14 @@ pub struct VarLayout {
 pub struct TypeLayout {
     pub size: Option<LayoutUnit>,
     pub alignment: i32,
-    pub stride: usize,
+    pub stride: Stride,
     pub ty: Type,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Stride {
+    pub bytes: usize,
+    pub binding_range: i64,
 }
 
 #[derive(Serialize, Deserialize)]
