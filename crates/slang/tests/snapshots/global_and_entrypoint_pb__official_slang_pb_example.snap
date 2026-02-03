@@ -40,20 +40,18 @@ expression: json
                   "ParameterBlock": {
                     "descriptor_set": {
                       "set": 0,
-                      "bindings": [
-                        {
-                          "binding_range": null,
-                          "binding": 0,
-                          "stages": 2147483647,
-                          "binding_type": "ConstantBuffer",
-                          "descriptor_type": 6,
-                          "shape": null,
-                          "access": null,
-                          "count": {
-                            "Bounded": 1
-                          }
+                      "implicit_ubo": {
+                        "binding": 0,
+                        "stages": 2147483647,
+                        "binding_type": "ConstantBuffer",
+                        "descriptor_type": 6,
+                        "shape": null,
+                        "access": null,
+                        "count": {
+                          "Bounded": 1
                         }
-                      ]
+                      },
+                      "bindings": []
                     },
                     "element": {
                       "size": {
@@ -153,20 +151,18 @@ expression: json
                       "ParameterBlock": {
                         "descriptor_set": {
                           "set": 1,
-                          "bindings": [
-                            {
-                              "binding_range": null,
-                              "binding": 0,
-                              "stages": 32,
-                              "binding_type": "ConstantBuffer",
-                              "descriptor_type": 6,
-                              "shape": null,
-                              "access": null,
-                              "count": {
-                                "Bounded": 1
-                              }
+                          "implicit_ubo": {
+                            "binding": 0,
+                            "stages": 32,
+                            "binding_type": "ConstantBuffer",
+                            "descriptor_type": 6,
+                            "shape": null,
+                            "access": null,
+                            "count": {
+                              "Bounded": 1
                             }
-                          ]
+                          },
+                          "bindings": []
                         },
                         "element": {
                           "size": {

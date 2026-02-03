@@ -40,21 +40,19 @@ expression: json
                   "ParameterBlock": {
                     "descriptor_set": {
                       "set": 0,
+                      "implicit_ubo": {
+                        "binding": 0,
+                        "stages": 2147483647,
+                        "binding_type": "ConstantBuffer",
+                        "descriptor_type": 6,
+                        "shape": null,
+                        "access": null,
+                        "count": {
+                          "Bounded": 1
+                        }
+                      },
                       "bindings": [
                         {
-                          "binding_range": null,
-                          "binding": 0,
-                          "stages": 2147483647,
-                          "binding_type": "ConstantBuffer",
-                          "descriptor_type": 6,
-                          "shape": null,
-                          "access": null,
-                          "count": {
-                            "Bounded": 1
-                          }
-                        },
-                        {
-                          "binding_range": 0,
                           "binding": 1,
                           "stages": 2147483647,
                           "binding_type": "Texture",
@@ -66,7 +64,6 @@ expression: json
                           }
                         },
                         {
-                          "binding_range": 1,
                           "binding": 2,
                           "stages": 2147483647,
                           "binding_type": "Sampler",
@@ -78,7 +75,6 @@ expression: json
                           }
                         },
                         {
-                          "binding_range": 2,
                           "binding": 3,
                           "stages": 2147483647,
                           "binding_type": "Texture",
@@ -90,7 +86,6 @@ expression: json
                           }
                         },
                         {
-                          "binding_range": 3,
                           "binding": 4,
                           "stages": 2147483647,
                           "binding_type": "Sampler",
@@ -102,7 +97,6 @@ expression: json
                           }
                         },
                         {
-                          "binding_range": 4,
                           "binding": 5,
                           "stages": 2147483647,
                           "binding_type": "MutableRawBuffer",
@@ -458,20 +452,18 @@ expression: json
                   "ParameterBlock": {
                     "descriptor_set": {
                       "set": 1,
-                      "bindings": [
-                        {
-                          "binding_range": null,
-                          "binding": 0,
-                          "stages": 2147483647,
-                          "binding_type": "ConstantBuffer",
-                          "descriptor_type": 6,
-                          "shape": null,
-                          "access": null,
-                          "count": {
-                            "Bounded": 1
-                          }
+                      "implicit_ubo": {
+                        "binding": 0,
+                        "stages": 2147483647,
+                        "binding_type": "ConstantBuffer",
+                        "descriptor_type": 6,
+                        "shape": null,
+                        "access": null,
+                        "count": {
+                          "Bounded": 1
                         }
-                      ]
+                      },
+                      "bindings": []
                     },
                     "element": {
                       "size": {
@@ -570,9 +562,9 @@ expression: json
                   "ParameterBlock": {
                     "descriptor_set": {
                       "set": 2,
+                      "implicit_ubo": null,
                       "bindings": [
                         {
-                          "binding_range": 0,
                           "binding": 0,
                           "stages": 2147483647,
                           "binding_type": "Texture",
@@ -584,7 +576,6 @@ expression: json
                           }
                         },
                         {
-                          "binding_range": 1,
                           "binding": 1,
                           "stages": 2147483647,
                           "binding_type": "Texture",
@@ -596,7 +587,6 @@ expression: json
                           }
                         },
                         {
-                          "binding_range": 2,
                           "binding": 2,
                           "stages": 2147483647,
                           "binding_type": "Texture",
@@ -608,7 +598,6 @@ expression: json
                           }
                         },
                         {
-                          "binding_range": 3,
                           "binding": 3,
                           "stages": 2147483647,
                           "binding_type": "Sampler",
@@ -768,20 +757,18 @@ expression: json
                   "ParameterBlock": {
                     "descriptor_set": {
                       "set": 3,
-                      "bindings": [
-                        {
-                          "binding_range": null,
-                          "binding": 0,
-                          "stages": 2147483647,
-                          "binding_type": "ConstantBuffer",
-                          "descriptor_type": 6,
-                          "shape": null,
-                          "access": null,
-                          "count": {
-                            "Bounded": 1
-                          }
+                      "implicit_ubo": {
+                        "binding": 0,
+                        "stages": 2147483647,
+                        "binding_type": "ConstantBuffer",
+                        "descriptor_type": 6,
+                        "shape": null,
+                        "access": null,
+                        "count": {
+                          "Bounded": 1
                         }
-                      ]
+                      },
+                      "bindings": []
                     },
                     "element": {
                       "size": {

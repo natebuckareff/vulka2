@@ -155,12 +155,12 @@ pub struct ParameterBlockType {
 #[derive(Serialize, Deserialize)]
 pub struct DescriptorSet {
     pub set: i64,
-    pub bindings: Vec<DescriptorBinding>,
+    pub implicit_ubo: Option<DescriptorBinding>,
+    pub binding_ranges: Vec<DescriptorBinding>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct DescriptorBinding {
-    pub binding_range: Option<i64>,
     pub binding: i64,
     #[serde(with = "serde_shader_stage_flags")]
     pub stages: vk::ShaderStageFlags,

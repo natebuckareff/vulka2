@@ -346,7 +346,8 @@ impl LayoutBuilder {
     ) -> Result<DescriptorSet> {
         let mut set = DescriptorSet {
             set: -1,
-            bindings: vec![],
+            implicit_ubo: None,
+            binding_ranges: vec![],
         };
 
         use BuilderLocation::*;
@@ -368,8 +369,7 @@ impl LayoutBuilder {
                 assert_eq!(set.set, vk_set);
             }
 
-            set.bindings.push(DescriptorBinding {
-                binding_range: None,
+            set.implicit_ubo = Some(DescriptorBinding {
                 binding: 0,
                 stages,
                 binding_type: slang::BindingType::ConstantBuffer,
@@ -422,7 +422,6 @@ impl LayoutBuilder {
                 let access = descriptor_meta.map(|meta| meta.access).flatten();
 
                 let descriptor_binding = DescriptorBinding {
-                    binding_range: Some(binding_range),
                     binding: vk_binding,
                     stages,
                     binding_type: binding_type,
@@ -432,7 +431,7 @@ impl LayoutBuilder {
                     count: ElementCount::Bounded(vk_binding_count as usize),
                 };
 
-                set.bindings.push(descriptor_binding);
+                set.binding_ranges.push(descriptor_binding);
             }
         }
 
