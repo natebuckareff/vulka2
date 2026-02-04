@@ -68,6 +68,7 @@ pub enum Type {
     Unknown(String, CompactString),
     Globals(Option<Box<TypeLayout>>),
     Entrypoint(Option<Box<TypeLayout>>),
+    Pointer(PointerType),
     Numeric(NumericType),
     Struct(StructType),
     Array(ArrayType),

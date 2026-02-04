@@ -142,6 +142,14 @@ impl LayoutBuilder {
         };
 
         let ty = match slang_type_layout.kind() {
+            slang::TypeKind::Pointer => {
+                // NOTE: it doesn't seem useful at this point to reflect on the
+                // pointee type, but we could in the future. One challenge is
+                // figuring out how to avoid duplicating the struct type in the
+                // layout tree. The slang reflection API does not give us a
+                // stable type-node identifier
+                Type::Pointer(PointerType)
+            }
             slang::TypeKind::Scalar => {
                 let ty = slang_type_layout
                     .name()
