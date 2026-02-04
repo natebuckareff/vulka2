@@ -16,7 +16,6 @@ pub struct LayoutUnit {
     pub push_constants: Option<usize>,
     pub bytes: Option<usize>,
     pub bindings: Option<usize>,
-    pub varying_input: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -48,8 +47,7 @@ pub struct VarLayout {
     pub value: TypeLayout,
 }
 
-#[derive(Serialize, Deserialize)]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct TypeLayout {
     pub size: Option<LayoutUnit>,
     pub alignment: i32,

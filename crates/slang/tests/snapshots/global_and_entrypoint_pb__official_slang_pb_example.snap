@@ -51,7 +51,7 @@ expression: json
                           "Bounded": 1
                         }
                       },
-                      "bindings": []
+                      "binding_ranges": []
                     },
                     "element": {
                       "size": {
@@ -162,7 +162,7 @@ expression: json
                               "Bounded": 1
                             }
                           },
-                          "bindings": []
+                          "binding_ranges": []
                         },
                         "element": {
                           "size": {
