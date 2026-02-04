@@ -16,6 +16,7 @@ pub struct LayoutUnit {
     pub push_constants: Option<usize>,
     pub bytes: Option<usize>,
     pub bindings: Option<usize>,
+    pub varying_input: Option<usize>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -36,6 +37,7 @@ pub struct EntrypointLayout {
     pub name: CompactString,
     pub stage: SlangShaderStage,
     pub params: Option<Box<VarLayout>>,
+    pub vertex_inputs: Vec<VarLayout>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -44,10 +46,23 @@ pub struct VarLayout {
     pub offset_bytes: usize,
     pub offset_set: usize,
     pub offset_binding_range: i64,
+    pub stage: Option<StageVarLayout>,
     pub value: TypeLayout,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Deserialize, Serialize)]
+pub enum StageVarLayout {
+    Vertex(VertexVarLayout),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct VertexVarLayout {
+    pub offset_input: usize,
+    pub index: usize,
+    pub name: Option<CompactString>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct TypeLayout {
     pub size: Option<LayoutUnit>,
     pub alignment: i32,

@@ -84,12 +84,16 @@ impl LayoutBuilder {
 
             self.location = BuilderLocation::Entrypoint(stage);
             let params = self.build_var_layout(slang_var_layout, 0)?.map(Box::new);
+
+            let vertex_inputs = vec![]; // self.build_var_layout(slang_var_layout, 0)?.map(Box::new);
+
             self.location = BuilderLocation::Global;
 
             entrypoints.push(EntrypointLayout {
                 name,
                 stage,
                 params,
+                vertex_inputs,
             });
         }
         Ok(entrypoints)
@@ -103,6 +107,7 @@ impl LayoutBuilder {
         let name = slang_var_layout.name().map(|name| name.to_compact_string());
         let offset_bytes = slang_var_layout.offset(slang::ParameterCategory::Uniform);
         let offset_set = slang_var_layout.offset(slang::ParameterCategory::SubElementRegisterSpace);
+        let stage = self.build_stage_var_layout(slang_var_layout);
 
         self.base_bytes += offset_bytes;
         self.base_set += offset_set;
@@ -125,9 +130,32 @@ impl LayoutBuilder {
             offset_bytes,
             offset_set,
             offset_binding_range,
+            stage,
             value,
         };
         Ok(Some(var_layout))
+    }
+
+    fn build_stage_var_layout(
+        &mut self,
+        slang_var_layout: &slang::reflection::VariableLayout,
+    ) -> Option<StageVarLayout> {
+        match slang_var_layout.stage() {
+            slang::Stage::Vertex => {
+                let offset_input = slang_var_layout.offset(slang::ParameterCategory::VaryingInput);
+                let index = slang_var_layout.semantic_index();
+                let name = slang_var_layout
+                    .semantic_name()
+                    .map(|name| name.to_compact_string());
+                let layout = StageVarLayout::Vertex(VertexVarLayout {
+                    offset_input,
+                    index,
+                    name,
+                });
+                Some(layout)
+            }
+            _ => None,
+        }
     }
 
     fn build_type_layout(
@@ -452,6 +480,7 @@ impl LayoutBuilder {
             push_constants: None,
             bytes: None,
             bindings: None,
+            varying_input: None,
         };
         if categories.len() > 0 {
             for category in categories {
@@ -465,6 +494,9 @@ impl LayoutBuilder {
                     }
                     DescriptorTableSlot => {
                         size.bindings = Some(slang_type_layout.size(category));
+                    }
+                    VaryingInput => {
+                        size.varying_input = Some(slang_type_layout.size(category));
                     }
                     _ => {}
                 }
