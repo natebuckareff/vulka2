@@ -9,6 +9,7 @@ expression: json
     "offset_bytes": 0,
     "offset_set": 0,
     "offset_binding_range": 0,
+    "stage": null,
     "value": {
       "size": null,
       "alignment": 1,
@@ -25,11 +26,13 @@ expression: json
               "offset_bytes": 0,
               "offset_set": 0,
               "offset_binding_range": 0,
+              "stage": null,
               "value": {
                 "size": {
                   "push_constants": null,
                   "bytes": null,
-                  "bindings": null
+                  "bindings": null,
+                  "varying_input": null
                 },
                 "alignment": 1,
                 "stride": {
@@ -51,7 +54,7 @@ expression: json
                           "Bounded": 1
                         }
                       },
-                      "bindings": [
+                      "binding_ranges": [
                         {
                           "binding": 1,
                           "stages": 2147483647,
@@ -113,7 +116,8 @@ expression: json
                       "size": {
                         "push_constants": null,
                         "bytes": 96,
-                        "bindings": 5
+                        "bindings": 5,
+                        "varying_input": null
                       },
                       "alignment": 16,
                       "stride": {
@@ -129,11 +133,13 @@ expression: json
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 0,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": 96,
-                                  "bindings": 2
+                                  "bindings": 2,
+                                  "varying_input": null
                                 },
                                 "alignment": 16,
                                 "stride": {
@@ -149,11 +155,13 @@ expression: json
                                         "offset_bytes": 0,
                                         "offset_set": 0,
                                         "offset_binding_range": 0,
+                                        "stage": null,
                                         "value": {
                                           "size": {
                                             "push_constants": null,
                                             "bytes": 32,
-                                            "bindings": null
+                                            "bindings": null,
+                                            "varying_input": null
                                           },
                                           "alignment": 16,
                                           "stride": {
@@ -169,11 +177,13 @@ expression: json
                                                   "offset_bytes": 0,
                                                   "offset_set": 0,
                                                   "offset_binding_range": 0,
+                                                  "stage": null,
                                                   "value": {
                                                     "size": {
                                                       "push_constants": null,
                                                       "bytes": 12,
-                                                      "bindings": null
+                                                      "bindings": null,
+                                                      "varying_input": null
                                                     },
                                                     "alignment": 16,
                                                     "stride": {
@@ -195,11 +205,13 @@ expression: json
                                                   "offset_bytes": 16,
                                                   "offset_set": 0,
                                                   "offset_binding_range": 0,
+                                                  "stage": null,
                                                   "value": {
                                                     "size": {
                                                       "push_constants": null,
                                                       "bytes": 12,
-                                                      "bindings": null
+                                                      "bindings": null,
+                                                      "varying_input": null
                                                     },
                                                     "alignment": 16,
                                                     "stride": {
@@ -226,11 +238,13 @@ expression: json
                                         "offset_bytes": 0,
                                         "offset_set": 0,
                                         "offset_binding_range": 0,
+                                        "stage": null,
                                         "value": {
                                           "size": {
                                             "push_constants": null,
                                             "bytes": null,
-                                            "bindings": 1
+                                            "bindings": 1,
+                                            "varying_input": null
                                           },
                                           "alignment": 1,
                                           "stride": {
@@ -253,11 +267,13 @@ expression: json
                                         "offset_bytes": 0,
                                         "offset_set": 0,
                                         "offset_binding_range": 1,
+                                        "stage": null,
                                         "value": {
                                           "size": {
                                             "push_constants": null,
                                             "bytes": null,
-                                            "bindings": 1
+                                            "bindings": 1,
+                                            "varying_input": null
                                           },
                                           "alignment": 1,
                                           "stride": {
@@ -276,11 +292,13 @@ expression: json
                                         "offset_bytes": 32,
                                         "offset_set": 0,
                                         "offset_binding_range": 2,
+                                        "stage": null,
                                         "value": {
                                           "size": {
                                             "push_constants": null,
                                             "bytes": 64,
-                                            "bindings": null
+                                            "bindings": null,
+                                            "varying_input": null
                                           },
                                           "alignment": 16,
                                           "stride": {
@@ -308,11 +326,13 @@ expression: json
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 2,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": null,
-                                  "bindings": 2
+                                  "bindings": 2,
+                                  "varying_input": null
                                 },
                                 "alignment": 16,
                                 "stride": {
@@ -328,11 +348,13 @@ expression: json
                                         "offset_bytes": 0,
                                         "offset_set": 0,
                                         "offset_binding_range": 0,
+                                        "stage": null,
                                         "value": {
                                           "size": {
                                             "push_constants": null,
                                             "bytes": null,
-                                            "bindings": 1
+                                            "bindings": 1,
+                                            "varying_input": null
                                           },
                                           "alignment": 1,
                                           "stride": {
@@ -355,11 +377,13 @@ expression: json
                                         "offset_bytes": 0,
                                         "offset_set": 0,
                                         "offset_binding_range": 1,
+                                        "stage": null,
                                         "value": {
                                           "size": {
                                             "push_constants": null,
                                             "bytes": null,
-                                            "bindings": 1
+                                            "bindings": 1,
+                                            "varying_input": null
                                           },
                                           "alignment": 1,
                                           "stride": {
@@ -383,11 +407,13 @@ expression: json
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 4,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": null,
-                                  "bindings": 1
+                                  "bindings": 1,
+                                  "varying_input": null
                                 },
                                 "alignment": 1,
                                 "stride": {
@@ -404,7 +430,8 @@ expression: json
                                       "size": {
                                         "push_constants": null,
                                         "bytes": 16,
-                                        "bindings": null
+                                        "bindings": null,
+                                        "varying_input": null
                                       },
                                       "alignment": 16,
                                       "stride": {
@@ -437,11 +464,13 @@ expression: json
               "offset_bytes": 0,
               "offset_set": 1,
               "offset_binding_range": 1,
+              "stage": null,
               "value": {
                 "size": {
                   "push_constants": null,
                   "bytes": null,
-                  "bindings": null
+                  "bindings": null,
+                  "varying_input": null
                 },
                 "alignment": 1,
                 "stride": {
@@ -463,13 +492,14 @@ expression: json
                           "Bounded": 1
                         }
                       },
-                      "bindings": []
+                      "binding_ranges": []
                     },
                     "element": {
                       "size": {
                         "push_constants": null,
                         "bytes": 128,
-                        "bindings": null
+                        "bindings": null,
+                        "varying_input": null
                       },
                       "alignment": 16,
                       "stride": {
@@ -485,11 +515,13 @@ expression: json
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 0,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": 64,
-                                  "bindings": null
+                                  "bindings": null,
+                                  "varying_input": null
                                 },
                                 "alignment": 16,
                                 "stride": {
@@ -512,11 +544,13 @@ expression: json
                               "offset_bytes": 64,
                               "offset_set": 0,
                               "offset_binding_range": 0,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": 64,
-                                  "bindings": null
+                                  "bindings": null,
+                                  "varying_input": null
                                 },
                                 "alignment": 16,
                                 "stride": {
@@ -547,11 +581,13 @@ expression: json
               "offset_bytes": 0,
               "offset_set": 2,
               "offset_binding_range": 2,
+              "stage": null,
               "value": {
                 "size": {
                   "push_constants": null,
                   "bytes": null,
-                  "bindings": null
+                  "bindings": null,
+                  "varying_input": null
                 },
                 "alignment": 1,
                 "stride": {
@@ -563,7 +599,7 @@ expression: json
                     "descriptor_set": {
                       "set": 2,
                       "implicit_ubo": null,
-                      "bindings": [
+                      "binding_ranges": [
                         {
                           "binding": 0,
                           "stages": 2147483647,
@@ -614,7 +650,8 @@ expression: json
                       "size": {
                         "push_constants": null,
                         "bytes": null,
-                        "bindings": 4
+                        "bindings": 4,
+                        "varying_input": null
                       },
                       "alignment": 16,
                       "stride": {
@@ -630,11 +667,13 @@ expression: json
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 0,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": null,
-                                  "bindings": 1
+                                  "bindings": 1,
+                                  "varying_input": null
                                 },
                                 "alignment": 1,
                                 "stride": {
@@ -657,11 +696,13 @@ expression: json
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 1,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": null,
-                                  "bindings": 1
+                                  "bindings": 1,
+                                  "varying_input": null
                                 },
                                 "alignment": 1,
                                 "stride": {
@@ -684,11 +725,13 @@ expression: json
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 2,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": null,
-                                  "bindings": 1
+                                  "bindings": 1,
+                                  "varying_input": null
                                 },
                                 "alignment": 1,
                                 "stride": {
@@ -711,11 +754,13 @@ expression: json
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 3,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": null,
-                                  "bindings": 1
+                                  "bindings": 1,
+                                  "varying_input": null
                                 },
                                 "alignment": 1,
                                 "stride": {
@@ -742,11 +787,13 @@ expression: json
               "offset_bytes": 0,
               "offset_set": 3,
               "offset_binding_range": 3,
+              "stage": null,
               "value": {
                 "size": {
                   "push_constants": null,
                   "bytes": null,
-                  "bindings": null
+                  "bindings": null,
+                  "varying_input": null
                 },
                 "alignment": 1,
                 "stride": {
@@ -768,13 +815,14 @@ expression: json
                           "Bounded": 1
                         }
                       },
-                      "bindings": []
+                      "binding_ranges": []
                     },
                     "element": {
                       "size": {
                         "push_constants": null,
                         "bytes": 128,
-                        "bindings": null
+                        "bindings": null,
+                        "varying_input": null
                       },
                       "alignment": 16,
                       "stride": {
@@ -790,11 +838,13 @@ expression: json
                               "offset_bytes": 0,
                               "offset_set": 0,
                               "offset_binding_range": 0,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": 64,
-                                  "bindings": null
+                                  "bindings": null,
+                                  "varying_input": null
                                 },
                                 "alignment": 16,
                                 "stride": {
@@ -817,11 +867,13 @@ expression: json
                               "offset_bytes": 64,
                               "offset_set": 0,
                               "offset_binding_range": 0,
+                              "stage": null,
                               "value": {
                                 "size": {
                                   "push_constants": null,
                                   "bytes": 64,
-                                  "bindings": null
+                                  "bindings": null,
+                                  "varying_input": null
                                 },
                                 "alignment": 16,
                                 "stride": {
@@ -861,11 +913,13 @@ expression: json
         "offset_bytes": 0,
         "offset_set": 0,
         "offset_binding_range": 0,
+        "stage": null,
         "value": {
           "size": {
             "push_constants": 1,
             "bytes": null,
-            "bindings": null
+            "bindings": null,
+            "varying_input": null
           },
           "alignment": 1,
           "stride": {
@@ -877,7 +931,8 @@ expression: json
               "size": {
                 "push_constants": null,
                 "bytes": 16,
-                "bindings": null
+                "bindings": null,
+                "varying_input": null
               },
               "alignment": 1,
               "stride": {
@@ -893,11 +948,13 @@ expression: json
                       "offset_bytes": 0,
                       "offset_set": 0,
                       "offset_binding_range": 0,
+                      "stage": null,
                       "value": {
                         "size": {
                           "push_constants": null,
                           "bytes": 16,
-                          "bindings": null
+                          "bindings": null,
+                          "varying_input": null
                         },
                         "alignment": 16,
                         "stride": {
@@ -913,11 +970,13 @@ expression: json
                                 "offset_bytes": 0,
                                 "offset_set": 0,
                                 "offset_binding_range": 0,
+                                "stage": null,
                                 "value": {
                                   "size": {
                                     "push_constants": null,
                                     "bytes": 16,
-                                    "bindings": null
+                                    "bindings": null,
+                                    "varying_input": null
                                   },
                                   "alignment": 16,
                                   "stride": {
@@ -945,7 +1004,8 @@ expression: json
             }
           }
         }
-      }
+      },
+      "vertex_inputs": []
     }
   ]
 }
