@@ -12,7 +12,7 @@ use crate::{ModuleId, SlangLinker, SlangModule};
 
 pub const SLANG_CACHE_KEY_VERSION: u8 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct CompilerOptionsHash(pub Hash);
 
 #[derive(Clone, Copy)]
@@ -21,7 +21,7 @@ pub struct BindlessConfig {
     pub policy: BindlessPolicy,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum BindlessPolicy {
     Indexable,
     Mutable,

@@ -19,7 +19,7 @@ enum Arg {
     Output(OutputArg),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum OutputArg {
     Debug,
     Layout,

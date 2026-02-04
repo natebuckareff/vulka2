@@ -7,10 +7,10 @@ use blake3::{Hash, Hasher};
 
 use crate::{ShaderLayout, SlangEntrypoint, SlangShaderStage};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SlangProgramKey(pub Hash);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SpirvCodeKey(pub Hash);
 
 impl SpirvCodeKey {
