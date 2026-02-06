@@ -172,7 +172,21 @@ pub struct ParameterBlockType {
 pub struct DescriptorSet {
     pub set: i64,
     pub implicit_ubo: Option<DescriptorBinding>,
-    pub binding_ranges: Vec<DescriptorBinding>,
+    pub binding_ranges: Vec<BindingRange>,
+}
+
+impl DescriptorSet {
+    pub fn find_binding_range(&self, range_index: i64) -> Option<&BindingRange> {
+        self.binding_ranges
+            .iter()
+            .find(|br| br.range_index == range_index)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BindingRange {
+    pub range_index: i64,
+    pub descriptor: DescriptorBinding,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

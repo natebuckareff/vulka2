@@ -455,17 +455,20 @@ impl LayoutBuilder {
                 let shape = descriptor_meta.map(|meta| ResourceShape(meta.shape));
                 let access = descriptor_meta.map(|meta| meta.access).flatten();
 
-                let descriptor_binding = DescriptorBinding {
-                    binding: vk_binding,
-                    stages,
-                    binding_type: binding_type,
-                    descriptor_type: vk_binding_type,
-                    shape,
-                    access,
-                    count: ElementCount::Bounded(vk_binding_count as usize),
+                let binding_range = BindingRange {
+                    range_index: binding_range,
+                    descriptor: DescriptorBinding {
+                        binding: vk_binding,
+                        stages,
+                        binding_type: binding_type,
+                        descriptor_type: vk_binding_type,
+                        shape,
+                        access,
+                        count: ElementCount::Bounded(vk_binding_count as usize),
+                    },
                 };
 
-                set.binding_ranges.push(descriptor_binding);
+                set.binding_ranges.push(binding_range);
             }
         }
 
