@@ -37,7 +37,6 @@ pub struct EntrypointLayout {
     pub name: CompactString,
     pub stage: SlangShaderStage,
     pub params: Option<Box<VarLayout>>,
-    pub vertex_inputs: Vec<VarLayout>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -79,8 +78,6 @@ pub struct Stride {
 #[derive(Debug, Deserialize, Serialize)]
 pub enum Type {
     Unknown(String, CompactString),
-    Globals(Option<Box<TypeLayout>>),
-    Entrypoint(Option<Box<TypeLayout>>),
     Pointer(PointerType),
     Numeric(NumericType),
     Struct(StructType),

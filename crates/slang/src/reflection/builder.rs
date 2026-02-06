@@ -83,9 +83,8 @@ impl LayoutBuilder {
                 .context("entrypoint var layout not found")?;
 
             self.location = BuilderLocation::Entrypoint(stage);
-            let params = self.build_var_layout(slang_var_layout, 0)?.map(Box::new);
 
-            let vertex_inputs = vec![]; // self.build_var_layout(slang_var_layout, 0)?.map(Box::new);
+            let params = self.build_var_layout(slang_var_layout, 0)?.map(Box::new);
 
             self.location = BuilderLocation::Global;
 
@@ -93,7 +92,6 @@ impl LayoutBuilder {
                 name,
                 stage,
                 params,
-                vertex_inputs,
             });
         }
         Ok(entrypoints)
