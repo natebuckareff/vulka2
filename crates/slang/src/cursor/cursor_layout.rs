@@ -35,6 +35,7 @@ pub struct EntrypointRoot {
 pub struct FieldEdge {
     pub name: CompactString,
     pub offset_bytes: usize,
+    pub offset_set: usize,
     pub offset_binding_range: i64,
     pub offset_varying_input: usize,
     pub child: NodeId,
@@ -159,6 +160,7 @@ impl LayoutIndexer {
                     fields.push(FieldEdge {
                         name: f.name.unwrap_or_default(),
                         offset_bytes: f.offset_bytes,
+                        offset_set: f.offset_set,
                         offset_binding_range: f.offset_binding_range,
                         offset_varying_input: f
                             .varying
@@ -226,7 +228,7 @@ impl CursorLayoutView {
             node: edge.child,
             base: ShaderOffset {
                 bytes: self.base.bytes + edge.offset_bytes,
-                set: self.base.set,
+                set: self.base.set + edge.offset_set,
                 binding_range: self.base.binding_range + edge.offset_binding_range,
                 array_index: self.base.array_index,
                 varying_input: self.base.varying_input + edge.offset_varying_input,

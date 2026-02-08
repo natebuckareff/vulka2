@@ -10,6 +10,12 @@ pub struct ShaderCursor {
     object: Box<dyn ShaderObject>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct BindTarget {
+    resolved_node: Option<NodeId>,
+    expected_class: Option<DescriptorClass>,
+}
+
 impl ShaderCursor {
     pub fn new(view: CursorLayoutView, object: Box<dyn ShaderObject>) -> Self {
         Self { view, object }
@@ -57,9 +63,11 @@ impl ShaderCursor {
     // - write_f32 ... etc
 
     pub fn bind(&mut self, object: &dyn ShaderResource) -> Result<()> {
-        self.bind_target_node()?;
+        let bind_target = self.bind_target()?;
 
         let descriptor = object.descriptor();
+        Self::validate_descriptor_profile(bind_target, descriptor.as_ref(), false)?;
+
         let block = self
             .object
             .as_shader_block()
@@ -72,11 +80,14 @@ impl ShaderCursor {
         &mut self,
         object: Box<dyn ShaderWritableResource>,
     ) -> Result<ShaderCursor> {
-        let root_node = self.bind_target_node()?.ok_or_else(|| {
+        let bind_target = self.bind_target()?;
+        let root_node = bind_target.resolved_node.ok_or_else(|| {
             anyhow!("current cursor target is bindable but has no writable element layout")
         })?;
 
         let descriptor = object.descriptor();
+        Self::validate_descriptor_profile(bind_target, descriptor.as_ref(), true)?;
+
         let block = self
             .object
             .as_shader_block()
@@ -87,13 +98,14 @@ impl ShaderCursor {
         let view = CursorLayoutView {
             layout: self.view.layout.clone(),
             node: root_node,
+            // Resolved cursors are object-local by design.
             base: ShaderOffset::default(),
         };
 
         Ok(Self::new(view, object.into_shader_object()))
     }
 
-    fn bind_target_node(&self) -> Result<Option<NodeId>> {
+    fn bind_target(&self) -> Result<BindTarget> {
         let node = self
             .view
             .layout
@@ -101,13 +113,58 @@ impl ShaderCursor {
             .ok_or_else(|| anyhow!("cursor points to an invalid layout node"))?;
 
         match &node.kind {
-            NodeKind::Resource { element } => Ok(*element),
-            NodeKind::ConstantBuffer { element } => Ok(Some(*element)),
-            NodeKind::ParameterBlock { element, .. } => Ok(Some(*element)),
+            NodeKind::Resource { element } => Ok(BindTarget {
+                resolved_node: *element,
+                expected_class: if element.is_some() {
+                    Some(DescriptorClass::StorageBuffer)
+                } else {
+                    None
+                },
+            }),
+            NodeKind::ConstantBuffer { element } => Ok(BindTarget {
+                resolved_node: Some(*element),
+                expected_class: Some(DescriptorClass::UniformBuffer),
+            }),
+            NodeKind::ParameterBlock { element, .. } => Ok(BindTarget {
+                resolved_node: Some(*element),
+                expected_class: None,
+            }),
             _ => Err(anyhow!(
                 "current cursor target is not a bindable resource node"
             )),
         }
+    }
+
+    fn validate_descriptor_profile(
+        bind_target: BindTarget,
+        descriptor: &dyn ResourceDescriptor,
+        require_resolve_compatible: bool,
+    ) -> Result<()> {
+        let profile = descriptor.profile();
+
+        if let Some(expected_class) = bind_target.expected_class {
+            if profile.class != expected_class {
+                return Err(anyhow!(
+                    "descriptor class mismatch: expected {:?}, got {:?}",
+                    expected_class,
+                    profile.class
+                ));
+            }
+        }
+
+        if require_resolve_compatible
+            && !matches!(
+                profile.class,
+                DescriptorClass::UniformBuffer | DescriptorClass::StorageBuffer
+            )
+        {
+            return Err(anyhow!(
+                "bind_and_resolve requires a buffer descriptor, got {:?}",
+                profile.class
+            ));
+        }
+
+        Ok(())
     }
 }
 
