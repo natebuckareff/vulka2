@@ -379,7 +379,7 @@ impl LayoutBuilder {
         type_layout: &slang::reflection::TypeLayout,
     ) -> Result<DescriptorSet> {
         let mut set = DescriptorSet {
-            set: -1,
+            set: None,
             implicit_ubo: None,
             binding_ranges: vec![],
         };
@@ -397,10 +397,10 @@ impl LayoutBuilder {
             let set_index = type_layout.binding_range_descriptor_set_index(0);
             let vk_set = self.base_set as i64 + type_layout.descriptor_set_space_offset(set_index);
 
-            if set.set == -1 {
-                set.set = vk_set;
+            if set.set.is_none() {
+                set.set = Some(vk_set);
             } else {
-                assert_eq!(set.set, vk_set);
+                assert_eq!(set.set, Some(vk_set));
             }
 
             set.implicit_ubo = Some(DescriptorBinding {
@@ -427,10 +427,10 @@ impl LayoutBuilder {
             let set_index = type_layout.binding_range_descriptor_set_index(binding_range);
             let vk_set = self.base_set as i64 + type_layout.descriptor_set_space_offset(set_index);
 
-            if set.set == -1 {
-                set.set = vk_set;
+            if set.set.is_none() {
+                set.set = Some(vk_set);
             } else {
-                assert_eq!(set.set, vk_set);
+                assert_eq!(set.set, Some(vk_set));
             }
 
             let first = type_layout.binding_range_first_descriptor_range_index(binding_range);

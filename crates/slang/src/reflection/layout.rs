@@ -165,7 +165,7 @@ pub struct ParameterBlockType {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DescriptorSet {
-    pub set: i64,
+    pub set: Option<i64>,
     pub implicit_ubo: Option<DescriptorBinding>,
     pub binding_ranges: Vec<BindingRange>,
 }
