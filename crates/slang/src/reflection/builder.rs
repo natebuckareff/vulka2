@@ -105,7 +105,7 @@ impl LayoutBuilder {
         let name = slang_var_layout.name().map(|name| name.to_compact_string());
         let offset_bytes = slang_var_layout.offset(slang::ParameterCategory::Uniform);
         let offset_set = slang_var_layout.offset(slang::ParameterCategory::SubElementRegisterSpace);
-        let stage = self.build_stage_var_layout(slang_var_layout);
+        let varying = self.build_varying_layout(slang_var_layout);
 
         self.base_bytes += offset_bytes;
         self.base_set += offset_set;
@@ -128,16 +128,16 @@ impl LayoutBuilder {
             offset_bytes,
             offset_set,
             offset_binding_range,
-            stage,
+            varying,
             value,
         };
         Ok(Some(var_layout))
     }
 
-    fn build_stage_var_layout(
+    fn build_varying_layout(
         &mut self,
         slang_var_layout: &slang::reflection::VariableLayout,
-    ) -> Option<StageVarLayout> {
+    ) -> Option<VaryingLayout> {
         match slang_var_layout.stage() {
             slang::Stage::Vertex => {
                 let offset_input = slang_var_layout.offset(slang::ParameterCategory::VaryingInput);
@@ -145,11 +145,11 @@ impl LayoutBuilder {
                 let name = slang_var_layout
                     .semantic_name()
                     .map(|name| name.to_compact_string());
-                let layout = StageVarLayout::Vertex(VertexVarLayout {
+                let layout = VaryingLayout {
                     offset_input,
                     index,
                     name,
-                });
+                };
                 Some(layout)
             }
             _ => None,

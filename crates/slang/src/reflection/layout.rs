@@ -45,7 +45,7 @@ pub struct VarLayout {
     pub offset_bytes: usize,
     pub offset_set: usize,
     pub offset_binding_range: i64,
-    pub stage: Option<StageVarLayout>,
+    pub varying: Option<VaryingLayout>,
     pub value: TypeLayout,
 }
 
@@ -55,7 +55,7 @@ pub enum StageVarLayout {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct VertexVarLayout {
+pub struct VaryingLayout {
     pub offset_input: usize,
     pub index: usize,
     pub name: Option<CompactString>,
