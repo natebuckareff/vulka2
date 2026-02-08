@@ -1,19 +1,21 @@
+use std::any::Any;
+
 use anyhow::{Result, anyhow};
 use bytemuck::Pod;
 
-use crate::{CursorLayoutView, ShaderOffset};
+use crate::{CursorLayoutView, NodeId, NodeKind, ShaderOffset};
 
-struct ShaderCursor {
+pub struct ShaderCursor {
     view: CursorLayoutView,
     object: Box<dyn ShaderObject>,
 }
 
 impl ShaderCursor {
-    fn new(view: CursorLayoutView, object: Box<dyn ShaderObject>) -> Self {
+    pub fn new(view: CursorLayoutView, object: Box<dyn ShaderObject>) -> Self {
         Self { view, object }
     }
 
-    fn field(self, name: &str) -> Result<Self> {
+    pub fn field(self, name: &str) -> Result<Self> {
         let view = self
             .view
             .field(name)
@@ -25,7 +27,7 @@ impl ShaderCursor {
         })
     }
 
-    fn element(self, index: usize) -> Result<Self> {
+    pub fn element(self, index: usize) -> Result<Self> {
         let view = self.view.element(index).ok_or_else(|| {
             anyhow!("array element index {index} out of bounds or current node is not an array")
         })?;
@@ -36,11 +38,15 @@ impl ShaderCursor {
         })
     }
 
-    fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+    pub fn into_object(self) -> Box<dyn ShaderObject> {
+        self.object
+    }
+
+    pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
         self.object.write(self.view.base, bytes)
     }
 
-    fn write_pod<T: Pod>(&mut self, pod: &T) -> Result<()> {
+    pub fn write_pod<T: Pod>(&mut self, pod: &T) -> Result<()> {
         self.write_bytes(bytemuck::bytes_of(pod))
     }
 
@@ -50,34 +56,102 @@ impl ShaderCursor {
     // - write_u32 ...
     // - write_f32 ... etc
 
-    fn bind(&mut self, object: Box<dyn ShaderResource>) -> Result<()> {
-        let _ = object;
-        Err(anyhow!(
-            "bind is not implemented yet: requires mutable ShaderParameterBlock access"
-        ))
+    pub fn bind(&mut self, object: &dyn ShaderResource) -> Result<()> {
+        self.bind_target_node()?;
+
+        let descriptor = object.descriptor();
+        let block = self
+            .object
+            .as_shader_block()
+            .ok_or_else(|| anyhow!("current object does not support descriptor binding"))?;
+
+        block.bind(self.view.base, descriptor)
     }
 
-    fn bind_and_resolve(&mut self, object: Box<dyn ShaderResource>) -> Result<ShaderCursor> {
-        let _ = object;
-        Err(anyhow!(
-            "bind_and_resolve is not implemented yet: requires ShaderResource -> ShaderObject resolution"
-        ))
+    pub fn bind_and_resolve(
+        &mut self,
+        object: Box<dyn ShaderWritableResource>,
+    ) -> Result<ShaderCursor> {
+        let root_node = self.bind_target_node()?.ok_or_else(|| {
+            anyhow!("current cursor target is bindable but has no writable element layout")
+        })?;
+
+        let descriptor = object.descriptor();
+        let block = self
+            .object
+            .as_shader_block()
+            .ok_or_else(|| anyhow!("current object does not support descriptor binding"))?;
+
+        block.bind(self.view.base, descriptor)?;
+
+        let view = CursorLayoutView {
+            layout: self.view.layout.clone(),
+            node: root_node,
+            base: ShaderOffset::default(),
+        };
+
+        Ok(Self::new(view, object.into_shader_object()))
+    }
+
+    fn bind_target_node(&self) -> Result<Option<NodeId>> {
+        let node = self
+            .view
+            .layout
+            .node(self.view.node)
+            .ok_or_else(|| anyhow!("cursor points to an invalid layout node"))?;
+
+        match &node.kind {
+            NodeKind::Resource { element } => Ok(*element),
+            NodeKind::ConstantBuffer { element } => Ok(Some(*element)),
+            NodeKind::ParameterBlock { element, .. } => Ok(Some(*element)),
+            _ => Err(anyhow!(
+                "current cursor target is not a bindable resource node"
+            )),
+        }
     }
 }
 
-// object that supports writing bytes
-trait ShaderObject {
-    fn as_shader_block(&self) -> Option<&dyn ShaderParameterBlock>;
+pub trait ShaderObject {
+    fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock>;
     fn write(&mut self, offset: ShaderOffset, bytes: &[u8]) -> Result<()>;
 }
 
-// object that supports writing descriptors
-trait ShaderParameterBlock: ShaderObject {
-    fn bind(&mut self, offset: ShaderOffset, object: Box<dyn ShaderResource>) -> Result<()>;
+pub trait ShaderParameterBlock: ShaderObject {
+    fn bind(&mut self, offset: ShaderOffset, descriptor: Box<dyn ResourceDescriptor>)
+    -> Result<()>;
 }
 
-// object that supports being written to a ShaderParameterBlock
-trait ShaderResource {
-    // type Handle;
-    // fn handle(&self) -> Self::Handle;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DescriptorClass {
+    UniformBuffer,
+    StorageBuffer,
+    SampledImage,
+    StorageImage,
+    Sampler,
+    AccelerationStructure,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DescriptorProfile {
+    pub class: DescriptorClass,
+    pub writable: bool,
+}
+
+pub trait ResourceDescriptor: Any + Send + Sync {
+    fn profile(&self) -> DescriptorProfile;
+    fn as_any(&self) -> &dyn Any;
+}
+
+pub trait ShaderResource {
+    fn descriptor(&self) -> Box<dyn ResourceDescriptor>;
+}
+
+pub trait ShaderWritableResource: ShaderResource + ShaderObject {
+    fn into_shader_object(self: Box<Self>) -> Box<dyn ShaderObject>;
+}
+
+impl<T: ShaderObject + ShaderResource + 'static> ShaderWritableResource for T {
+    fn into_shader_object(self: Box<Self>) -> Box<dyn ShaderObject> {
+        self
+    }
 }
