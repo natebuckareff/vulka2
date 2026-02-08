@@ -50,11 +50,6 @@ pub struct VarLayout {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub enum StageVarLayout {
-    Vertex(VertexVarLayout),
-}
-
-#[derive(Debug, Deserialize, Serialize)]
 pub struct VaryingLayout {
     pub offset_input: usize,
     pub index: usize,

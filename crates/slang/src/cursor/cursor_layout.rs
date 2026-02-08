@@ -2,24 +2,25 @@ use anyhow::{Result, anyhow};
 use compact_str::CompactString;
 
 use crate::{
-    DescriptorSet, ElementCount, ShaderLayout, SlangShaderStage, Type, TypeLayout, VarLayout,
+    DescriptorSet, ElementCount, ShaderLayout, SlangShaderStage, Type, VarLayout,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct NodeId(pub usize);
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct BaseOffset {
+pub struct ShaderOffset {
     pub bytes: usize,
     pub set: usize,
     pub binding_range: i64,
     pub array_index: usize,
+    pub varying_input: usize,
 }
 
 #[derive(Debug)]
 pub struct Root {
     pub node: NodeId,
-    pub base: BaseOffset,
+    pub base: ShaderOffset,
 }
 
 #[derive(Debug)]
@@ -34,11 +35,12 @@ pub struct FieldEdge {
     pub name: CompactString,
     pub offset_bytes: usize,
     pub offset_binding_range: i64,
+    pub offset_varying_input: usize,
     pub child: NodeId,
 }
 
 #[derive(Debug)]
-pub enum NodeKind<'a> {
+pub enum NodeKind {
     Struct {
         fields: Vec<FieldEdge>,
     },
@@ -46,10 +48,11 @@ pub enum NodeKind<'a> {
         count: ElementCount,
         stride_bytes: usize,
         stride_binding_range: i64,
+        stride_varying_input: usize,
         element: NodeId,
     },
     ParameterBlock {
-        descriptor_set: &'a DescriptorSet,
+        descriptor_set: DescriptorSet,
         element: NodeId,
     },
     Resource {
@@ -62,45 +65,103 @@ pub enum NodeKind<'a> {
 }
 
 #[derive(Debug)]
-pub struct Node<'a> {
-    pub ty: &'a TypeLayout,
-    pub kind: NodeKind<'a>,
+pub struct Node {
+    pub kind: NodeKind,
 }
 
 #[derive(Debug)]
-pub struct CursorLayout<'a> {
-    pub nodes: Vec<Node<'a>>,
+pub struct CursorLayout {
+    pub nodes: Vec<Node>,
     pub global: Option<Root>,
     pub entrypoints: Vec<EntrypointRoot>,
 }
 
-impl<'a> CursorLayout<'a> {
-    pub fn build(layout: &'a ShaderLayout) -> Result<CursorLayout<'a>> {
+impl CursorLayout {
+    pub fn build(layout: ShaderLayout) -> Result<CursorLayout> {
         LayoutIndexer::build(layout)
+    }
+
+    pub fn global_view(&self) -> Option<CursorLayoutView> {
+        self.global.as_ref().map(CursorLayoutView::from_root)
+    }
+
+    pub fn entrypoint_view(&self, stage: SlangShaderStage, name: &str) -> Option<CursorLayoutView> {
+        self.entrypoints
+            .iter()
+            .find(|entrypoint| entrypoint.stage == stage && entrypoint.name == name)
+            .map(|entrypoint| CursorLayoutView::from_root(&entrypoint.root))
+    }
+
+    pub fn node(&self, node: NodeId) -> Option<&Node> {
+        self.nodes.get(node.0)
+    }
+
+    pub fn field(&self, view: CursorLayoutView, name: &str) -> Option<CursorLayoutView> {
+        let node = self.node(view.node)?;
+        let NodeKind::Struct { fields } = &node.kind else {
+            return None;
+        };
+
+        let edge = fields.iter().find(|field| field.name == name)?;
+        Some(view.apply_field(edge))
+    }
+
+    pub fn element(&self, view: CursorLayoutView, index: usize) -> Option<CursorLayoutView> {
+        let node = self.node(view.node)?;
+        let NodeKind::Array {
+            count,
+            stride_bytes,
+            stride_binding_range,
+            stride_varying_input,
+            element,
+        } = &node.kind
+        else {
+            return None;
+        };
+
+        let array_index = match count {
+            ElementCount::Bounded(count) => {
+                if index >= *count {
+                    return None;
+                }
+                view.base.array_index * count + index
+            }
+            ElementCount::Runtime => view.base.array_index + index,
+        };
+
+        Some(CursorLayoutView {
+            node: *element,
+            base: ShaderOffset {
+                bytes: view.base.bytes + (index * stride_bytes),
+                set: view.base.set,
+                binding_range: view.base.binding_range + (index as i64 * stride_binding_range),
+                array_index,
+                varying_input: view.base.varying_input + (index * stride_varying_input),
+            },
+        })
     }
 }
 
-pub struct LayoutIndexer<'a> {
-    nodes: Vec<Node<'a>>,
+pub struct LayoutIndexer {
+    nodes: Vec<Node>,
 }
 
-impl<'a> LayoutIndexer<'a> {
-    fn build(layout: &'a ShaderLayout) -> Result<CursorLayout<'a>> {
+impl LayoutIndexer {
+    fn build(layout: ShaderLayout) -> Result<CursorLayout> {
         let mut b = Self { nodes: Vec::new() };
 
         let global = layout
             .globals
-            .as_deref()
-            .map(|v| b.root_from_var(v))
+            .map(|global| b.root_from_var(*global))
             .transpose()?;
 
         let mut entrypoints = Vec::with_capacity(layout.entrypoints.len());
-        for ep in &layout.entrypoints {
-            if let Some(params) = ep.params.as_deref() {
+        for ep in layout.entrypoints {
+            if let Some(params) = ep.params {
                 entrypoints.push(EntrypointRoot {
-                    name: ep.name.clone(),
+                    name: ep.name,
                     stage: ep.stage,
-                    root: b.root_from_var(params)?,
+                    root: b.root_from_var(*params)?,
                 });
             }
         }
@@ -112,28 +173,36 @@ impl<'a> LayoutIndexer<'a> {
         })
     }
 
-    fn root_from_var(&mut self, var: &'a VarLayout) -> Result<Root> {
+    fn root_from_var(&mut self, var: VarLayout) -> Result<Root> {
         Ok(Root {
-            node: self.intern_type(&var.value)?,
-            base: BaseOffset {
+            node: self.intern_type(var.value)?,
+            base: ShaderOffset {
                 bytes: var.offset_bytes,
                 set: var.offset_set,
                 binding_range: var.offset_binding_range,
                 array_index: 0,
+                varying_input: var
+                    .varying
+                    .as_ref()
+                    .map_or(0, |varying| varying.offset_input),
             },
         })
     }
 
-    fn intern_type(&mut self, ty: &'a TypeLayout) -> Result<NodeId> {
-        let kind = match &ty.ty {
+    fn intern_type(&mut self, ty: crate::TypeLayout) -> Result<NodeId> {
+        let kind = match ty.ty {
             Type::Struct(s) => {
                 let mut fields = Vec::with_capacity(s.fields.len());
-                for f in &s.fields {
+                for f in s.fields {
                     fields.push(FieldEdge {
-                        name: f.name.clone().unwrap_or_default(),
+                        name: f.name.unwrap_or_default(),
                         offset_bytes: f.offset_bytes,
                         offset_binding_range: f.offset_binding_range,
-                        child: self.intern_type(&f.value)?,
+                        offset_varying_input: f
+                            .varying
+                            .as_ref()
+                            .map_or(0, |varying| varying.offset_input),
+                        child: self.intern_type(f.value)?,
                     });
                 }
                 NodeKind::Struct { fields }
@@ -142,20 +211,25 @@ impl<'a> LayoutIndexer<'a> {
                 count: a.count.clone(),
                 stride_bytes: ty.stride.bytes,
                 stride_binding_range: ty.stride.binding_range,
-                element: self.intern_type(&a.element)?,
+                stride_varying_input: a
+                    .element
+                    .size
+                    .as_ref()
+                    .and_then(|size| size.varying_input)
+                    .unwrap_or(0),
+                element: self.intern_type(*a.element)?,
             },
             Type::ParameterBlock(pb) => NodeKind::ParameterBlock {
-                descriptor_set: &pb.descriptor_set,
-                element: self.intern_type(&pb.element)?,
+                descriptor_set: pb.descriptor_set,
+                element: self.intern_type(*pb.element)?,
             },
             Type::ConstantBuffer(inner) => NodeKind::ConstantBuffer {
-                element: self.intern_type(inner)?,
+                element: self.intern_type(*inner)?,
             },
             Type::Resource(r) => NodeKind::Resource {
                 element: r
                     .element
-                    .as_deref()
-                    .map(|e| self.intern_type(e))
+                    .map(|e| self.intern_type(*e))
                     .transpose()?,
             },
             Type::Unknown(k, n) => return Err(anyhow!("unknown type: {k} {n}")),
@@ -163,7 +237,43 @@ impl<'a> LayoutIndexer<'a> {
         };
 
         let id = NodeId(self.nodes.len());
-        self.nodes.push(Node { ty, kind });
+        self.nodes.push(Node { kind });
         Ok(id)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CursorLayoutView {
+    pub node: NodeId,
+    pub base: ShaderOffset,
+}
+
+impl CursorLayoutView {
+    fn from_root(root: &Root) -> Self {
+        Self {
+            node: root.node,
+            base: root.base,
+        }
+    }
+
+    fn apply_field(self, edge: &FieldEdge) -> Self {
+        Self {
+            node: edge.child,
+            base: ShaderOffset {
+                bytes: self.base.bytes + edge.offset_bytes,
+                set: self.base.set,
+                binding_range: self.base.binding_range + edge.offset_binding_range,
+                array_index: self.base.array_index,
+                varying_input: self.base.varying_input + edge.offset_varying_input,
+            },
+        }
+    }
+
+    pub fn field(self, layout: &CursorLayout, name: &str) -> Option<Self> {
+        layout.field(self, name)
+    }
+
+    pub fn element(self, layout: &CursorLayout, index: usize) -> Option<Self> {
+        layout.element(self, index)
     }
 }
