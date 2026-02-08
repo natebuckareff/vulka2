@@ -1,47 +1,36 @@
 use anyhow::{Result, anyhow};
 use bytemuck::Pod;
 
-use crate::{CursorLayout, CursorLayoutView, ShaderOffset};
+use crate::{CursorLayoutView, ShaderOffset};
 
-struct ShaderCursor<'a> {
-    layout: &'a CursorLayout,
+struct ShaderCursor {
     view: CursorLayoutView,
     object: Box<dyn ShaderObject>,
 }
 
-impl<'a> ShaderCursor<'a> {
-    fn new(
-        layout: &'a CursorLayout,
-        view: CursorLayoutView,
-        object: Box<dyn ShaderObject>,
-    ) -> Self {
-        Self {
-            layout,
-            view,
-            object,
-        }
+impl ShaderCursor {
+    fn new(view: CursorLayoutView, object: Box<dyn ShaderObject>) -> Self {
+        Self { view, object }
     }
 
     fn field(self, name: &str) -> Result<Self> {
         let view = self
-            .layout
-            .field(self.view, name)
+            .view
+            .field(name)
             .ok_or_else(|| anyhow!("field '{name}' not found or current node is not a struct"))?;
 
         Ok(Self {
-            layout: self.layout,
             view,
             object: self.object,
         })
     }
 
     fn element(self, index: usize) -> Result<Self> {
-        let view = self.layout.element(self.view, index).ok_or_else(|| {
+        let view = self.view.element(index).ok_or_else(|| {
             anyhow!("array element index {index} out of bounds or current node is not an array")
         })?;
 
         Ok(Self {
-            layout: self.layout,
             view,
             object: self.object,
         })
@@ -68,7 +57,7 @@ impl<'a> ShaderCursor<'a> {
         ))
     }
 
-    fn bind_and_resolve(&mut self, object: Box<dyn ShaderResource>) -> Result<ShaderCursor<'a>> {
+    fn bind_and_resolve(&mut self, object: Box<dyn ShaderResource>) -> Result<ShaderCursor> {
         let _ = object;
         Err(anyhow!(
             "bind_and_resolve is not implemented yet: requires ShaderResource -> ShaderObject resolution"

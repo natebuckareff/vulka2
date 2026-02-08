@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use compact_str::CompactString;
+use std::sync::Arc;
 
 use crate::{
     DescriptorSet, ElementCount, ShaderLayout, SlangShaderStage, Type, VarLayout,
@@ -81,64 +82,25 @@ impl CursorLayout {
         LayoutIndexer::build(layout)
     }
 
-    pub fn global_view(&self) -> Option<CursorLayoutView> {
-        self.global.as_ref().map(CursorLayoutView::from_root)
+    pub fn global_view(self: &Arc<Self>) -> Option<CursorLayoutView> {
+        self.global
+            .as_ref()
+            .map(|root| CursorLayoutView::from_root(Arc::clone(self), root))
     }
 
-    pub fn entrypoint_view(&self, stage: SlangShaderStage, name: &str) -> Option<CursorLayoutView> {
+    pub fn entrypoint_view(
+        self: &Arc<Self>,
+        stage: SlangShaderStage,
+        name: &str,
+    ) -> Option<CursorLayoutView> {
         self.entrypoints
             .iter()
             .find(|entrypoint| entrypoint.stage == stage && entrypoint.name == name)
-            .map(|entrypoint| CursorLayoutView::from_root(&entrypoint.root))
+            .map(|entrypoint| CursorLayoutView::from_root(Arc::clone(self), &entrypoint.root))
     }
 
     pub fn node(&self, node: NodeId) -> Option<&Node> {
         self.nodes.get(node.0)
-    }
-
-    pub fn field(&self, view: CursorLayoutView, name: &str) -> Option<CursorLayoutView> {
-        let node = self.node(view.node)?;
-        let NodeKind::Struct { fields } = &node.kind else {
-            return None;
-        };
-
-        let edge = fields.iter().find(|field| field.name == name)?;
-        Some(view.apply_field(edge))
-    }
-
-    pub fn element(&self, view: CursorLayoutView, index: usize) -> Option<CursorLayoutView> {
-        let node = self.node(view.node)?;
-        let NodeKind::Array {
-            count,
-            stride_bytes,
-            stride_binding_range,
-            stride_varying_input,
-            element,
-        } = &node.kind
-        else {
-            return None;
-        };
-
-        let array_index = match count {
-            ElementCount::Bounded(count) => {
-                if index >= *count {
-                    return None;
-                }
-                view.base.array_index * count + index
-            }
-            ElementCount::Runtime => view.base.array_index + index,
-        };
-
-        Some(CursorLayoutView {
-            node: *element,
-            base: ShaderOffset {
-                bytes: view.base.bytes + (index * stride_bytes),
-                set: view.base.set,
-                binding_range: view.base.binding_range + (index as i64 * stride_binding_range),
-                array_index,
-                varying_input: view.base.varying_input + (index * stride_varying_input),
-            },
-        })
     }
 }
 
@@ -242,22 +204,25 @@ impl LayoutIndexer {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct CursorLayoutView {
+    pub layout: Arc<CursorLayout>,
     pub node: NodeId,
     pub base: ShaderOffset,
 }
 
 impl CursorLayoutView {
-    fn from_root(root: &Root) -> Self {
+    fn from_root(layout: Arc<CursorLayout>, root: &Root) -> Self {
         Self {
+            layout,
             node: root.node,
             base: root.base,
         }
     }
 
-    fn apply_field(self, edge: &FieldEdge) -> Self {
+    fn apply_field(&self, edge: &FieldEdge) -> Self {
         Self {
+            layout: Arc::clone(&self.layout),
             node: edge.child,
             base: ShaderOffset {
                 bytes: self.base.bytes + edge.offset_bytes,
@@ -269,11 +234,49 @@ impl CursorLayoutView {
         }
     }
 
-    pub fn field(self, layout: &CursorLayout, name: &str) -> Option<Self> {
-        layout.field(self, name)
+    pub fn field(self, name: &str) -> Option<Self> {
+        let node = self.layout.node(self.node)?;
+        let NodeKind::Struct { fields } = &node.kind else {
+            return None;
+        };
+
+        let edge = fields.iter().find(|field| field.name == name)?;
+        Some(self.apply_field(edge))
     }
 
-    pub fn element(self, layout: &CursorLayout, index: usize) -> Option<Self> {
-        layout.element(self, index)
+    pub fn element(self, index: usize) -> Option<Self> {
+        let node = self.layout.node(self.node)?;
+        let NodeKind::Array {
+            count,
+            stride_bytes,
+            stride_binding_range,
+            stride_varying_input,
+            element,
+        } = &node.kind
+        else {
+            return None;
+        };
+
+        let array_index = match count {
+            ElementCount::Bounded(count) => {
+                if index >= *count {
+                    return None;
+                }
+                self.base.array_index * count + index
+            }
+            ElementCount::Runtime => self.base.array_index + index,
+        };
+
+        Some(Self {
+            layout: Arc::clone(&self.layout),
+            node: *element,
+            base: ShaderOffset {
+                bytes: self.base.bytes + (index * stride_bytes),
+                set: self.base.set,
+                binding_range: self.base.binding_range + (index as i64 * stride_binding_range),
+                array_index,
+                varying_input: self.base.varying_input + (index * stride_varying_input),
+            },
+        })
     }
 }
