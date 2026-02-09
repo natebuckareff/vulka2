@@ -5,9 +5,9 @@ use bytemuck::Pod;
 
 use crate::{CursorLayoutView, NodeId, NodeKind, ShaderOffset};
 
-pub struct ShaderCursor {
+pub struct ShaderCursor<Ctx> {
     view: CursorLayoutView,
-    object: Box<dyn ShaderObject>,
+    object: Box<dyn ShaderObject<Ctx>>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -16,8 +16,8 @@ struct BindTarget {
     expected_class: Option<DescriptorClass>,
 }
 
-impl ShaderCursor {
-    pub fn new(view: CursorLayoutView, object: Box<dyn ShaderObject>) -> Self {
+impl<Ctx> ShaderCursor<Ctx> {
+    pub fn new(view: CursorLayoutView, object: Box<dyn ShaderObject<Ctx>>) -> Self {
         Self { view, object }
     }
 
@@ -44,16 +44,16 @@ impl ShaderCursor {
         })
     }
 
-    pub fn into_object(self) -> Box<dyn ShaderObject> {
+    pub fn into_object(self) -> Box<dyn ShaderObject<Ctx>> {
         self.object
     }
 
-    pub fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
-        self.object.write(self.view.base, bytes)
+    pub fn write_bytes(&mut self, ctx: &mut Ctx, bytes: &[u8]) -> Result<()> {
+        self.object.write(ctx, self.view.base, bytes)
     }
 
-    pub fn write_pod<T: Pod>(&mut self, pod: &T) -> Result<()> {
-        self.write_bytes(bytemuck::bytes_of(pod))
+    pub fn write_pod<T: Pod>(&mut self, ctx: &mut Ctx, pod: &T) -> Result<()> {
+        self.write_bytes(ctx, bytemuck::bytes_of(pod))
     }
 
     // TODO:
@@ -62,7 +62,7 @@ impl ShaderCursor {
     // - write_u32 ...
     // - write_f32 ... etc
 
-    pub fn bind(&mut self, object: &dyn ShaderResource) -> Result<()> {
+    pub fn bind(&mut self, ctx: &mut Ctx, object: &dyn ShaderResource) -> Result<()> {
         let bind_target = self.bind_target()?;
 
         let descriptor = object.descriptor();
@@ -73,13 +73,14 @@ impl ShaderCursor {
             .as_shader_block()
             .ok_or_else(|| anyhow!("current object does not support descriptor binding"))?;
 
-        block.bind(self.view.base, descriptor)
+        block.bind(ctx, self.view.base, descriptor)
     }
 
     pub fn bind_and_resolve(
         &mut self,
-        object: Box<dyn ShaderWritableResource>,
-    ) -> Result<ShaderCursor> {
+        ctx: &mut Ctx,
+        object: Box<dyn ShaderWritableResource<Ctx>>,
+    ) -> Result<ShaderCursor<Ctx>> {
         let bind_target = self.bind_target()?;
         let root_node = bind_target.resolved_node.ok_or_else(|| {
             anyhow!("current cursor target is bindable but has no writable element layout")
@@ -93,7 +94,7 @@ impl ShaderCursor {
             .as_shader_block()
             .ok_or_else(|| anyhow!("current object does not support descriptor binding"))?;
 
-        block.bind(self.view.base, descriptor)?;
+        block.bind(ctx, self.view.base, descriptor)?;
 
         let view = CursorLayoutView {
             layout: self.view.layout.clone(),
@@ -168,14 +169,18 @@ impl ShaderCursor {
     }
 }
 
-pub trait ShaderObject {
-    fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock>;
-    fn write(&mut self, offset: ShaderOffset, bytes: &[u8]) -> Result<()>;
+pub trait ShaderObject<Ctx> {
+    fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock<Ctx>>;
+    fn write(&mut self, ctx: &mut Ctx, offset: ShaderOffset, bytes: &[u8]) -> Result<()>;
 }
 
-pub trait ShaderParameterBlock: ShaderObject {
-    fn bind(&mut self, offset: ShaderOffset, descriptor: Box<dyn ResourceDescriptor>)
-    -> Result<()>;
+pub trait ShaderParameterBlock<Ctx>: ShaderObject<Ctx> {
+    fn bind(
+        &mut self,
+        ctx: &mut Ctx,
+        offset: ShaderOffset,
+        descriptor: Box<dyn ResourceDescriptor>,
+    ) -> Result<()>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -203,12 +208,12 @@ pub trait ShaderResource {
     fn descriptor(&self) -> Box<dyn ResourceDescriptor>;
 }
 
-pub trait ShaderWritableResource: ShaderResource + ShaderObject {
-    fn into_shader_object(self: Box<Self>) -> Box<dyn ShaderObject>;
+pub trait ShaderWritableResource<Ctx>: ShaderResource + ShaderObject<Ctx> {
+    fn into_shader_object(self: Box<Self>) -> Box<dyn ShaderObject<Ctx>>;
 }
 
-impl<T: ShaderObject + ShaderResource + 'static> ShaderWritableResource for T {
-    fn into_shader_object(self: Box<Self>) -> Box<dyn ShaderObject> {
+impl<Ctx, T: ShaderObject<Ctx> + ShaderResource + 'static> ShaderWritableResource<Ctx> for T {
+    fn into_shader_object(self: Box<Self>) -> Box<dyn ShaderObject<Ctx>> {
         self
     }
 }
@@ -275,12 +280,12 @@ mod tests {
         }
     }
 
-    impl ShaderObject for MockWritableResource {
-        fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock> {
+    impl ShaderObject<()> for MockWritableResource {
+        fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock<()>> {
             None
         }
 
-        fn write(&mut self, _offset: ShaderOffset, _bytes: &[u8]) -> Result<()> {
+        fn write(&mut self, _ctx: &mut (), _offset: ShaderOffset, _bytes: &[u8]) -> Result<()> {
             Ok(())
         }
     }
@@ -300,19 +305,20 @@ mod tests {
         }
     }
 
-    impl ShaderObject for MockParameterObject {
-        fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock> {
+    impl ShaderObject<()> for MockParameterObject {
+        fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock<()>> {
             Some(self)
         }
 
-        fn write(&mut self, _offset: ShaderOffset, _bytes: &[u8]) -> Result<()> {
+        fn write(&mut self, _ctx: &mut (), _offset: ShaderOffset, _bytes: &[u8]) -> Result<()> {
             Ok(())
         }
     }
 
-    impl ShaderParameterBlock for MockParameterObject {
+    impl ShaderParameterBlock<()> for MockParameterObject {
         fn bind(
             &mut self,
+            _ctx: &mut (),
             offset: ShaderOffset,
             descriptor: Box<dyn ResourceDescriptor>,
         ) -> Result<()> {
@@ -400,9 +406,12 @@ mod tests {
         let bind_state = Arc::new(Mutex::new(BindState::default()));
         let mut cursor =
             ShaderCursor::new(view, Box::new(MockParameterObject::new(bind_state.clone())));
+        let mut ctx = ();
 
         let resource = MockResource::new(DescriptorClass::StorageBuffer, true);
-        let err = cursor.bind(&resource).expect_err("expected class mismatch");
+        let err = cursor
+            .bind(&mut ctx, &resource)
+            .expect_err("expected class mismatch");
         assert!(err.to_string().contains("descriptor class mismatch"));
         assert!(bind_state.lock().expect("lock bind state").calls.is_empty());
     }
@@ -433,9 +442,10 @@ mod tests {
         let bind_state = Arc::new(Mutex::new(BindState::default()));
         let mut cursor =
             ShaderCursor::new(view, Box::new(MockParameterObject::new(bind_state.clone())));
+        let mut ctx = ();
 
         let resource = MockResource::new(DescriptorClass::UniformBuffer, false);
-        cursor.bind(&resource).expect("bind should succeed");
+        cursor.bind(&mut ctx, &resource).expect("bind should succeed");
 
         let state = bind_state.lock().expect("lock bind state");
         assert_eq!(state.calls.len(), 1);
@@ -469,9 +479,12 @@ mod tests {
         let bind_state = Arc::new(Mutex::new(BindState::default()));
         let mut cursor =
             ShaderCursor::new(view, Box::new(MockParameterObject::new(bind_state.clone())));
+        let mut ctx = ();
 
         let resource = MockResource::new(DescriptorClass::Sampler, false);
-        cursor.bind(&resource).expect("sampler bind should succeed");
+        cursor
+            .bind(&mut ctx, &resource)
+            .expect("sampler bind should succeed");
 
         let state = bind_state.lock().expect("lock bind state");
         assert_eq!(state.calls.len(), 1);
@@ -504,12 +517,13 @@ mod tests {
         let bind_state = Arc::new(Mutex::new(BindState::default()));
         let mut cursor =
             ShaderCursor::new(view, Box::new(MockParameterObject::new(bind_state.clone())));
+        let mut ctx = ();
 
         let object = Box::new(MockWritableResource::new(
             DescriptorClass::SampledImage,
             false,
         ));
-        match cursor.bind_and_resolve(object) {
+        match cursor.bind_and_resolve(&mut ctx, object) {
             Ok(_) => panic!("expected parameter-block bind rejection"),
             Err(err) => assert!(
                 err.to_string()
@@ -532,10 +546,11 @@ mod tests {
         let bind_state = Arc::new(Mutex::new(BindState::default()));
         let mut cursor =
             ShaderCursor::new(view, Box::new(MockParameterObject::new(bind_state.clone())));
+        let mut ctx = ();
 
         let resource = MockResource::new(DescriptorClass::SampledImage, false);
         let err = cursor
-            .bind(&resource)
+            .bind(&mut ctx, &resource)
             .expect_err("non-bindable node should reject bind");
         assert!(
             err.to_string()
@@ -572,13 +587,14 @@ mod tests {
         let bind_state = Arc::new(Mutex::new(BindState::default()));
         let mut cursor =
             ShaderCursor::new(view, Box::new(MockParameterObject::new(bind_state.clone())));
+        let mut ctx = ();
 
         let object = Box::new(MockWritableResource::new(
             DescriptorClass::StorageBuffer,
             true,
         ));
         let resolved = cursor
-            .bind_and_resolve(object)
+            .bind_and_resolve(&mut ctx, object)
             .expect("bind_and_resolve succeeds");
 
         assert_eq!(resolved.view.node, NodeId(1));
