@@ -158,6 +158,9 @@ impl Renderer {
         let gpu_instance = GpuInstance::build(&entry)
             .application_name("voxels2".to_string())?
             .require_layer(VK_LAYER_KHRONOS_VALIDATION)?
+            .enable_validation_feature(
+                vk::ValidationFeatureEnableEXT::SYNCHRONIZATION_VALIDATION,
+            )?
             .require_extensions(&GpuSurface::required_instance_extensions(&window))?
             .build()?;
 

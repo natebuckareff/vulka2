@@ -34,7 +34,46 @@ impl ExtensionSupport {
                 .enumerate_instance_extension_properties(None)
                 .context("failed to enumerate instance extension properties")
         }?;
-        Self::from_extension_properties(&extension_properties, request)
+        Ok(Self::from_extension_properties(&extension_properties, request))
+    }
+
+    pub(crate) fn from_instance_extensions_with_layers(
+        entry: &'_ Entry,
+        request: ExtensionNameArray,
+        layers: &[vk::ExtensionName],
+    ) -> Result<Self> {
+        let mut supported_extensions = HashSet::new();
+
+        let global_properties = unsafe {
+            entry
+                .enumerate_instance_extension_properties(None)
+                .context("failed to enumerate instance extension properties")
+        }?;
+        for property in global_properties {
+            supported_extensions.insert(property.extension_name);
+        }
+
+        for layer in layers {
+            let layer_name = layer.as_cstr().to_bytes_with_nul();
+            let layer_properties = unsafe {
+                entry
+                    .enumerate_instance_extension_properties(Some(layer_name))
+                    .with_context(|| {
+                        format!(
+                            "failed to enumerate instance extension properties for layer `{}`",
+                            layer
+                        )
+                    })
+            }?;
+            for property in layer_properties {
+                supported_extensions.insert(property.extension_name);
+            }
+        }
+
+        Ok(Self::from_supported_extensions(
+            &supported_extensions,
+            request,
+        ))
     }
 
     pub(crate) fn from_device_extensions(
@@ -47,7 +86,7 @@ impl ExtensionSupport {
                 .enumerate_device_extension_properties(physical_device, None)
                 .context("failed to enumerate device extension properties")
         }?;
-        Self::from_extension_properties(&extension_properties, request)
+        Ok(Self::from_extension_properties(&extension_properties, request))
     }
 
     pub(crate) fn from_instance_layers(
@@ -84,12 +123,19 @@ impl ExtensionSupport {
     fn from_extension_properties(
         extension_properties: &[vk::ExtensionProperties],
         request: ExtensionNameArray,
-    ) -> Result<Self> {
+    ) -> Self {
         let mut supported_extensions = HashSet::new();
         for property in extension_properties {
             supported_extensions.insert(property.extension_name);
         }
 
+        Self::from_supported_extensions(&supported_extensions, request)
+    }
+
+    fn from_supported_extensions(
+        supported_extensions: &HashSet<vk::ExtensionName>,
+        request: ExtensionNameArray,
+    ) -> Self {
         let mut result = Self {
             supported: vec![],
             missing: vec![],
@@ -103,7 +149,7 @@ impl ExtensionSupport {
             }
         }
 
-        Ok(result)
+        result
     }
 
     pub fn validate_required(&self, what: &str) -> Result<()> {

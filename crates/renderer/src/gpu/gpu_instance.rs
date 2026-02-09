@@ -15,6 +15,7 @@ pub struct GpuInstanceBuilder<'a> {
     extensions_optional: ExtensionNameArray,
     layers_required: ExtensionNameArray,
     layers_optional: ExtensionNameArray,
+    validation_features_enabled: Vec<vk::ValidationFeatureEnableEXT>,
 }
 
 impl<'a> GpuInstanceBuilder<'a> {
@@ -26,6 +27,7 @@ impl<'a> GpuInstanceBuilder<'a> {
             extensions_optional: ExtensionNameArray::default(),
             layers_required: ExtensionNameArray::default(),
             layers_optional: ExtensionNameArray::default(),
+            validation_features_enabled: vec![],
         }
     }
 
@@ -74,29 +76,62 @@ impl<'a> GpuInstanceBuilder<'a> {
         Ok(self)
     }
 
+    pub fn enable_validation_feature(
+        mut self,
+        feature: vk::ValidationFeatureEnableEXT,
+    ) -> Result<Self> {
+        const VK_EXT_VALIDATION_FEATURES: vk::ExtensionName =
+            vk::ExtensionName::from_bytes(b"VK_EXT_validation_features");
+
+        self = self.require_extension(VK_EXT_VALIDATION_FEATURES)?;
+        if !self.validation_features_enabled.contains(&feature) {
+            self.validation_features_enabled.push(feature);
+        }
+        Ok(self)
+    }
+
+    pub fn enable_validation_features(
+        mut self,
+        features: &[vk::ValidationFeatureEnableEXT],
+    ) -> Result<Self> {
+        for feature in features {
+            self = self.enable_validation_feature(*feature)?;
+        }
+        Ok(self)
+    }
+
     pub fn build(self) -> Result<Arc<GpuInstance>> {
-        let mut exts =
-            ExtensionSupport::from_instance_extensions(self.entry, self.extensions_required)?;
-
         let mut layers = ExtensionSupport::from_instance_layers(self.entry, self.layers_required)?;
-
-        exts.validate_required("extensions")?;
         layers.validate_required("layers")?;
-
-        exts.extend(ExtensionSupport::from_instance_extensions(
-            self.entry,
-            self.extensions_optional,
-        )?);
 
         layers.extend(ExtensionSupport::from_instance_layers(
             self.entry,
             self.layers_optional,
         )?);
 
+        let mut exts = ExtensionSupport::from_instance_extensions_with_layers(
+            self.entry,
+            self.extensions_required,
+            &layers.supported,
+        )?;
+        exts.validate_required("extensions")?;
+
+        exts.extend(ExtensionSupport::from_instance_extensions_with_layers(
+            self.entry,
+            self.extensions_optional,
+            &layers.supported,
+        )?);
+
         let extensions = ExtensionNameArray::from(exts.supported);
         let layers = ExtensionNameArray::from(layers.supported);
 
-        let instance = GpuInstance::create(self.entry, self.application_name, extensions, layers)?;
+        let instance = GpuInstance::create(
+            self.entry,
+            self.application_name,
+            extensions,
+            layers,
+            self.validation_features_enabled,
+        )?;
 
         Ok(Arc::new(instance))
     }
@@ -133,6 +168,7 @@ impl GpuInstance {
         application_name: CString,
         extensions: ExtensionNameArray,
         layers: ExtensionNameArray,
+        validation_features_enabled: Vec<vk::ValidationFeatureEnableEXT>,
     ) -> Result<Self> {
         let application_info = vk::ApplicationInfo::builder()
             .api_version(vk::make_version(1, 3, 0))
@@ -141,11 +177,21 @@ impl GpuInstance {
             .engine_name(application_name.as_bytes_with_nul())
             .engine_version(0);
 
-        let create_info = vk::InstanceCreateInfo::builder()
+        let mut create_info = vk::InstanceCreateInfo::builder()
             .application_info(&application_info)
             .enabled_extension_names(extensions.as_ptrs())
             .enabled_layer_names(layers.as_ptrs())
             .flags(vk::InstanceCreateFlags::empty());
+
+        let mut validation_features = (!validation_features_enabled.is_empty()).then(|| {
+            vk::ValidationFeaturesEXT::builder()
+                .enabled_validation_features(&validation_features_enabled)
+                .build()
+        });
+
+        if let Some(features) = validation_features.as_mut() {
+            create_info = create_info.push_next(features);
+        }
 
         let instance = unsafe {
             entry
