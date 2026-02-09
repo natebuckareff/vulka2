@@ -1,391 +1,194 @@
-use std::path::{Path, PathBuf};
+use std::io::{self, Write};
+use std::{env, path::PathBuf};
 
 use anyhow::{Context, Result, anyhow};
-use shader_slang as slang;
+use slang::{SlangCompilerBuilder, SlangShaderStage};
+
+#[derive(Debug)]
+struct Cli {
+    args: Vec<Arg>,
+    inputs: Vec<PathBuf>,
+}
+
+#[derive(Debug)]
+enum Arg {
+    Include(PathBuf),
+    AllEntrypoints,
+    AllStageEntrypoints(SlangShaderStage),
+    Entrypoint(SlangShaderStage, String),
+    Output(OutputArg),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum OutputArg {
+    Debug,
+    Layout,
+    Spirv,
+}
 
 fn main() -> Result<()> {
-    let (module_name, search_path) = resolve_inputs();
+    let cli = parse_args()?;
+    let mut builder = SlangCompilerBuilder::new()?.optimization(slang::OptimizationLevel::None);
+    let mut output = None;
 
-    let global_session =
-        slang::GlobalSession::new().context("failed to create slang global session")?;
-
-    let physical_storage = global_session.find_capability("SPV_EXT_physical_storage_buffer");
-    if physical_storage.is_unknown() {
-        return Err(anyhow!(
-            "Slang capability SPV_EXT_physical_storage_buffer is unavailable"
-        ));
-    }
-    let descriptor_indexing = global_session.find_capability("SPV_EXT_descriptor_indexing");
-    if descriptor_indexing.is_unknown() {
-        return Err(anyhow!(
-            "Slang capability SPV_EXT_descriptor_indexing is unavailable"
-        ));
-    }
-
-    let mut compiler_options = slang::CompilerOptions::default()
-        .optimization(slang::OptimizationLevel::High)
-        .matrix_layout_row(true)
-        .vulkan_use_entry_point_name(true)
-        .capability(physical_storage)
-        .capability(descriptor_indexing);
-    if let Some(bindless_space_index) = bindless_space_index() {
-        println!("bindless_space_index: {bindless_space_index}");
-        compiler_options = compiler_options.bindless_space_index(bindless_space_index);
-    }
-
-    let profile = global_session.find_profile("glsl_450");
-    if profile.is_unknown() {
-        return Err(anyhow!("Slang profile glsl_450 is unavailable"));
-    }
-
-    let target_desc = slang::TargetDesc::default()
-        .format(slang::CompileTarget::Spirv)
-        .profile(profile)
-        .options(&compiler_options);
-    let targets = [target_desc];
-
-    let search_path_cstr =
-        std::ffi::CString::new(search_path.as_os_str().to_string_lossy().as_ref())?;
-    let search_paths = [search_path_cstr.as_ptr()];
-
-    let session_desc = slang::SessionDesc::default()
-        .targets(&targets)
-        .search_paths(&search_paths)
-        .options(&compiler_options);
-
-    let session = global_session
-        .create_session(&session_desc)
-        .context("failed to create slang session")?;
-
-    let module = session
-        .load_module(&module_name)
-        .map_err(|err| anyhow!("failed to load module {module_name}: {err:?}"))?;
-
-    println!("module: {}", module.name());
-    println!("file_path: {}", module.file_path());
-    println!("dependencies: {}", module.dependency_file_count());
-    for (index, dep) in module.dependency_file_paths().enumerate() {
-        println!("  dep[{index}]: {dep}");
-    }
-
-    let entry_points: Vec<_> = module.entry_points().collect();
-    if entry_points.is_empty() {
-        return Err(anyhow!("module {module_name} has no entry points"));
-    }
-
-    let mut components = Vec::with_capacity(1 + entry_points.len());
-    components.push(module.clone().into());
-    for entry in &entry_points {
-        components.push(entry.clone().into());
-    }
-
-    let linked_program = session
-        .create_composite_component_type(&components)?
-        .link()?;
-
-    let reflection = linked_program.layout(0)?;
-
-    if env_flag("SLANG_DUMP_SPIRV") {
-        dump_spirv(&linked_program, reflection)?;
-    }
-
-    println!("entry_points: {}", reflection.entry_point_count());
-    for (index, entry) in reflection.entry_points().enumerate() {
-        println!(
-            "  entry[{index}]: name={} stage={:?}",
-            entry.name().unwrap_or("<unnamed>"),
-            entry.stage()
-        );
-    }
-
-    println!("parameters: {}", reflection.parameter_count());
-    for (index, param) in reflection.parameters().enumerate() {
-        let name = param.name().unwrap_or("<unnamed>");
-        println!(
-            "  param[{index}]: name={name} category={:?} binding={}:{} stage={:?}",
-            param.category(),
-            param.binding_space(),
-            param.binding_index(),
-            param.stage()
-        );
-    }
-    println!("parameter_layouts: {}", reflection.parameter_count());
-    for (index, param) in reflection.parameters().enumerate() {
-        dump_variable_layout(param, &format!("param[{index}]"), 2);
-    }
-
-    println!(
-        "global_constant_buffer: binding={} size={}",
-        reflection.global_constant_buffer_binding(),
-        reflection.global_constant_buffer_size()
-    );
-
-    if let Some(global_layout) = reflection.global_params_var_layout() {
-        println!("global_params_layout:");
-        dump_variable_layout(global_layout, "global", 2);
-        if let Some(type_layout) = global_layout.type_layout() {
-            dump_descriptor_sets(type_layout, "global");
-        }
-    }
-
-    for (index, entry) in reflection.entry_points().enumerate() {
-        let name = entry.name().unwrap_or("<unnamed>");
-        let stage = entry.stage();
-        let Some(entry_layout) = entry.var_layout() else {
+    for input in &cli.inputs {
+        let Some(base_path) = input.parent() else {
             continue;
         };
-        println!("entry_layout[{index}]: name={name} stage={stage:?}");
-        dump_variable_layout(entry_layout, "entry", 2);
-        if let Some(type_layout) = entry_layout.type_layout() {
-            dump_descriptor_sets(type_layout, "entry");
+        builder = builder.search_path(base_path);
+    }
+
+    for arg in &cli.args {
+        match arg {
+            Arg::Include(path_buf) => {
+                builder = builder.search_path(path_buf);
+            }
+            Arg::Output(arg) => {
+                if output.is_some() {
+                    return Err(anyhow!("multiple output arguments provided"));
+                }
+                output = Some(arg.clone());
+            }
+            _ => {}
         }
     }
 
-    Ok(())
-}
+    let mut compiler = builder.build()?;
+    let mut modules = vec![];
 
-fn resolve_inputs() -> (String, PathBuf) {
-    let mut args = std::env::args().skip(1);
-    let module_arg = args.next();
-    let search_arg = args.next();
+    for input in cli.inputs {
+        let module = compiler.load_module(input)?;
+        modules.push(module.id().clone());
+    }
 
-    match (module_arg, search_arg) {
-        (None, _) => {
-            let module_path = PathBuf::from("crates/renderer/shaders/cube.slang");
-            let search_path = module_path
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .to_path_buf();
-            println!(
-                "no inputs provided; defaulting to {} (search path {})",
-                module_path.display(),
-                search_path.display()
-            );
-            (
-                module_path
-                    .file_name()
-                    .unwrap_or_else(|| std::ffi::OsStr::new("cube.slang"))
-                    .to_string_lossy()
-                    .to_string(),
-                search_path,
-            )
-        }
-        (Some(module), search_path) => {
-            let module_path = PathBuf::from(&module);
-            let module_name = module_path
-                .file_name()
-                .unwrap_or_else(|| std::ffi::OsStr::new(&module))
-                .to_string_lossy()
-                .to_string();
-            let search_path = search_path
-                .map(PathBuf::from)
-                .or_else(|| module_path.parent().map(Path::to_path_buf))
-                .unwrap_or_else(|| PathBuf::from("."));
-            (module_name, search_path)
+    let Some(first_id) = modules.first().cloned() else {
+        return Err(anyhow!("no modules to link"));
+    };
+
+    let first_module = compiler.module(&first_id).context("module not found")?;
+    let mut target = None;
+
+    let mut linker = compiler.linker();
+    for id in modules {
+        linker = linker.add_module(&id)?;
+    }
+
+    for arg in cli.args {
+        match arg {
+            Arg::AllEntrypoints => {
+                linker = linker.add_all_entrypoints(&first_id)?;
+            }
+            Arg::Entrypoint(stage, name) => {
+                let entrypoint = first_module.entrypoint(stage, &name)?;
+                linker = linker.add_entrypoint(entrypoint.clone())?;
+                target = Some(entrypoint);
+            }
+            Arg::AllStageEntrypoints(stage) => {
+                linker = linker.add_stage(&first_id, stage)?;
+            }
+            _ => {}
         }
     }
-}
 
-fn bindless_space_index() -> Option<i32> {
-    std::env::var("SLANG_BINDLESS_SPACE_INDEX")
-        .ok()
-        .and_then(|value| value.parse::<i32>().ok())
-}
+    let program = linker.link()?;
 
-fn env_flag(name: &str) -> bool {
-    matches!(
-        std::env::var(name).as_deref(),
-        Ok("1") | Ok("true") | Ok("TRUE")
-    )
-}
-
-fn dump_spirv(
-    program: &slang::ComponentType,
-    reflection: &slang::reflection::Shader,
-) -> Result<()> {
-    let out_dir = std::env::var("SLANG_SPIRV_OUT_DIR").unwrap_or_else(|_| "target/slang".into());
-    std::fs::create_dir_all(&out_dir).with_context(|| format!("failed to create {out_dir}"))?;
-
-    for index in 0..reflection.entry_point_count() {
-        let name = reflection
-            .entry_point_by_index(index)
-            .and_then(|entry| entry.name())
-            .unwrap_or("<unknown>");
-        let blob = program
-            .entry_point_code(index as i64, 0)
-            .with_context(|| format!("failed to get SPIR-V for entry {name}"))?;
-        let path = format!("{out_dir}/{name}.spv");
-        std::fs::write(&path, blob.as_slice())
-            .with_context(|| format!("failed to write {path}"))?;
-        println!("wrote_spirv: {path}");
-    }
-
-    Ok(())
-}
-
-fn dump_descriptor_sets(layout: &slang::reflection::TypeLayout, label: &str) {
-    let set_count = layout.descriptor_set_count();
-    println!("{label}_descriptor_sets: {set_count}");
-    for set_index in 0..set_count {
-        let range_count = layout.descriptor_set_descriptor_range_count(set_index);
-        let space_offset = layout.descriptor_set_space_offset(set_index);
-        println!("  set[{set_index}]: space_offset={space_offset} descriptor_ranges={range_count}");
-        for range_index in 0..range_count {
-            let range_type = layout.descriptor_set_descriptor_range_type(set_index, range_index);
-            let range_category =
-                layout.descriptor_set_descriptor_range_category(set_index, range_index);
-            let descriptor_count =
-                layout.descriptor_set_descriptor_range_descriptor_count(set_index, range_index);
-            let range_offset =
-                layout.descriptor_set_descriptor_range_index_offset(set_index, range_index);
-            println!(
-                "    range[{range_index}]: type={range_type:?} category={range_category:?} count={descriptor_count} range_offset={range_offset}"
-            );
+    match output.unwrap_or(OutputArg::Debug) {
+        OutputArg::Debug => {
+            let json = serde_json::to_string_pretty(&program.layout())?;
+            println!("{}", json);
         }
-    }
-}
+        OutputArg::Layout => {
+            todo!();
+        }
+        OutputArg::Spirv => {
+            let Some(target) = target else {
+                return Err(anyhow!("no target entrypoint"));
+            };
+            let mut out = io::stdout().lock();
 
-fn dump_variable_layout(layout: &slang::reflection::VariableLayout, label: &str, indent: usize) {
-    let indent = " ".repeat(indent);
-    let name = layout.name().unwrap_or("<unnamed>");
-    let type_layout = layout.type_layout();
-    let type_name = type_layout
-        .and_then(type_layout_name)
-        .unwrap_or("<unnamed>".to_string());
-    let kind = type_layout.map(|ty| ty.kind());
-    println!(
-        "{indent}{label}: name={name} type={type_name} kind={kind:?} category={:?} binding={}:{} stage={:?}",
-        layout.category(),
-        layout.binding_space(),
-        layout.binding_index(),
-        layout.stage()
-    );
-    if let Some(type_layout) = type_layout {
-        for category in type_layout.categories() {
-            let offset = layout.offset(category);
-            println!("{indent}  layout[{category:?}]: offset={offset}");
-        }
-        dump_type_layout(type_layout, indent.len() + 2, true);
-    }
-}
-
-fn dump_type_layout(layout: &slang::reflection::TypeLayout, indent: usize, recurse: bool) {
-    let indent_str = " ".repeat(indent);
-    let name = type_layout_name(layout).unwrap_or("<unnamed>".to_string());
-    let kind = layout.kind();
-    println!(
-        "{indent_str}type_layout: name={name} kind={:?} parameter_category={:?}",
-        kind,
-        layout.parameter_category()
-    );
-    for category in layout.categories() {
-        let size = layout.size(category);
-        let stride = layout.stride(category);
-        let align = layout.alignment(category);
-        println!("{indent_str}  layout[{category:?}]: size={size} stride={stride} align={align}");
-    }
-    if layout.is_array() {
-        let element_count = layout.element_count().unwrap_or(0);
-        let total_count = layout.total_array_element_count();
-        println!("{indent_str}  array: element_count={element_count} total_elements={total_count}");
-        for category in layout.categories() {
-            let element_stride = layout.element_stride(category);
-            println!("{indent_str}  array_layout[{category:?}]: element_stride={element_stride}");
-        }
-    }
-    let field_count = layout.field_count();
-    if field_count > 0 {
-        println!("{indent_str}  fields: {field_count}");
-        for (field_index, field) in layout.fields().enumerate() {
-            dump_field_layout(field, field_index, indent + 4, recurse);
-        }
-    }
-    if recurse {
-        if layout.is_array() {
-            if let Some(element_layout) = layout.element_type_layout() {
-                dump_type_layout(element_layout, indent + 2, recurse);
+            let code = program.code(&target).context("code not linked")?;
+            let words = code.as_ref();
+            for &w in words {
+                out.write_all(&w.to_le_bytes())?;
             }
         }
-        if matches!(
-            kind,
-            slang::TypeKind::ConstantBuffer
-                | slang::TypeKind::ParameterBlock
-                | slang::TypeKind::TextureBuffer
-                | slang::TypeKind::ShaderStorageBuffer
-        ) {
-            dump_container_and_element(layout, indent + 2, recurse);
-        }
     }
+
+    Ok(())
 }
 
-fn dump_field_layout(
-    layout: &slang::reflection::VariableLayout,
-    index: usize,
-    indent: usize,
-    recurse: bool,
-) {
-    let indent_str = " ".repeat(indent);
-    let name = layout.name().unwrap_or("<unnamed>");
-    let type_layout = layout.type_layout();
-    let type_name = type_layout
-        .and_then(type_layout_name)
-        .unwrap_or("<unnamed>".to_string());
-    let kind = type_layout.map(|ty| ty.kind());
-    println!("{indent_str}field[{index}]: name={name} type={type_name} kind={kind:?}");
-    if let Some(type_layout) = type_layout {
-        for category in type_layout.categories() {
-            let offset = layout.offset(category);
-            let size = type_layout.size(category);
-            let stride = type_layout.stride(category);
-            let align = type_layout.alignment(category);
-            println!(
-                "{indent_str}  layout[{category:?}]: offset={offset} size={size} stride={stride} align={align}"
-            );
-        }
-        if recurse && (type_layout.field_count() > 0 || type_layout.is_array()) {
-            dump_type_layout(type_layout, indent + 2, recurse);
-        }
-    }
-}
+fn parse_args() -> Result<Cli> {
+    let raw_args: Vec<String> = env::args().skip(1).collect();
+    let mut args = vec![];
+    let mut inputs = vec![];
+    let mut option: Option<String> = None;
 
-fn dump_container_and_element(
-    layout: &slang::reflection::TypeLayout,
-    indent: usize,
-    recurse: bool,
-) {
-    let indent_str = " ".repeat(indent);
-    if let Some(container) = layout.container_var_layout() {
-        println!("{indent_str}container_offsets:");
-        dump_offsets(container, indent + 2);
-    }
-    if let Some(element) = layout.element_var_layout() {
-        println!("{indent_str}element_offsets:");
-        dump_offsets(element, indent + 2);
-        if let Some(element_layout) = element.type_layout() {
-            dump_type_layout(element_layout, indent + 2, recurse);
+    for raw_arg in raw_args {
+        if let Some(option) = option.take() {
+            if raw_arg.starts_with("-") {
+                return Err(anyhow!("expected argument for option: {}", option));
+            }
+
+            match option.as_str() {
+                "-I" => {
+                    let path = PathBuf::from(raw_arg);
+                    args.push(Arg::Include(path));
+                    continue;
+                }
+                "-a" => {
+                    args.push(Arg::AllEntrypoints);
+                    continue;
+                }
+                "-s" => {
+                    let stage = match raw_arg.as_str() {
+                        "vertex" => SlangShaderStage::Vertex,
+                        "fragment" => SlangShaderStage::Fragment,
+                        "compute" => SlangShaderStage::Compute,
+                        _ => return Err(anyhow!("unknown stage: {}", raw_arg)),
+                    };
+                    args.push(Arg::AllStageEntrypoints(stage));
+                    continue;
+                }
+                "-v" => {
+                    let entrypoint = raw_arg;
+                    args.push(Arg::Entrypoint(SlangShaderStage::Vertex, entrypoint));
+                    continue;
+                }
+                "-f" => {
+                    let entrypoint = raw_arg;
+                    args.push(Arg::Entrypoint(SlangShaderStage::Fragment, entrypoint));
+                    continue;
+                }
+                "-c" => {
+                    let entrypoint = raw_arg;
+                    args.push(Arg::Entrypoint(SlangShaderStage::Compute, entrypoint));
+                    continue;
+                }
+                "-o" => {
+                    let arg = match raw_arg.as_str() {
+                        "debug" => OutputArg::Debug,
+                        "layout" => OutputArg::Layout,
+                        "spirv" => OutputArg::Spirv,
+                        _ => return Err(anyhow!("unknown output: {}", raw_arg)),
+                    };
+                    args.push(Arg::Output(arg));
+                    continue;
+                }
+                _ => return Err(anyhow!("unknown option: {}", option)),
+            }
+        }
+
+        if raw_arg.starts_with("-") {
+            option = Some(raw_arg);
+        } else {
+            let path = PathBuf::from(raw_arg);
+            inputs.push(path);
         }
     }
-}
 
-fn dump_offsets(layout: &slang::reflection::VariableLayout, indent: usize) {
-    let indent_str = " ".repeat(indent);
-    let mut printed = false;
-    for category in layout.categories() {
-        let offset = layout.offset(category);
-        println!("{indent_str}offset[{category:?}]: {offset}");
-        printed = true;
-    }
-    if !printed {
-        println!("{indent_str}offsets: <none>");
-    }
-}
+    if inputs.is_empty() {
+        return Err(anyhow!("no input files"));
+    };
 
-fn type_layout_name(layout: &slang::reflection::TypeLayout) -> Option<String> {
-    let ty = layout.ty()?;
-    if let Ok(full) = ty.full_name() {
-        if let Ok(name) = full.as_str() {
-            return Some(name.to_string());
-        }
-    }
-    ty.name().map(|name| name.to_string())
+    Ok(Cli { args, inputs })
 }

@@ -1,3 +1,5 @@
+use std::any::Any;
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::sync::Arc;
 use std::time::Instant;
@@ -11,10 +13,13 @@ use crate::gpu::{
 use anyhow::{Context, Result, anyhow};
 use crevice::std140::AsStd140;
 use crevice::std430::AsStd430;
-use glam::{Mat4, UVec2, Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use slang::{
-    DescriptorCount, LayoutUnit, SlangDescriptorSetLayout, SlangParameterLayout, SlangShader,
-    SlangShaderBuilder, SlangStageMask, SlangTypeLayout,
+    CursorLayout, CursorLayoutView, DescriptorBinding as SlangDescriptorBinding, DescriptorClass,
+    DescriptorProfile, DescriptorSet as SlangDescriptorSet, ElementCount, NodeKind,
+    ResourceDescriptor, ShaderCursor, ShaderLayout, ShaderObject, ShaderOffset,
+    ShaderParameterBlock, ShaderResource, SlangCompilerBuilder, SlangProgram, SlangShaderStage,
+    Type,
 };
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_3::*;
@@ -42,22 +47,315 @@ struct Vertex {
 
 #[repr(C)]
 #[derive(AsStd140, Clone, Copy)]
-struct PushConstants {
+struct DrawData {
     mvp: Mat4,
     vertices: DeviceAddress,
     indices: DeviceAddress,
-    texture: UVec2,
 }
 
-const MAX_TEXTURES: u32 = 1;
 const TEXTURE_PATH: &str = "assets/debug-texture.png";
+const FRAME_PARAMETER_BLOCK_NAME: &str = "frame";
+const MATERIAL_PARAMETER_BLOCK_NAME: &str = "material";
+
+#[derive(Clone)]
+struct ParameterBlockLayoutInfo {
+    name: String,
+    set: u32,
+    descriptor_set: SlangDescriptorSet,
+}
+
+#[derive(Clone, Copy)]
+enum VkDescriptorValue {
+    UniformBuffer(vk::DescriptorBufferInfo),
+    StorageBuffer(vk::DescriptorBufferInfo),
+    Sampler(vk::DescriptorImageInfo),
+    SampledImage(vk::DescriptorImageInfo),
+}
+
+impl VkDescriptorValue {
+    fn descriptor_type(self) -> vk::DescriptorType {
+        match self {
+            Self::UniformBuffer(_) => vk::DescriptorType::UNIFORM_BUFFER,
+            Self::StorageBuffer(_) => vk::DescriptorType::STORAGE_BUFFER,
+            Self::Sampler(_) => vk::DescriptorType::SAMPLER,
+            Self::SampledImage(_) => vk::DescriptorType::SAMPLED_IMAGE,
+        }
+    }
+
+    fn profile(self) -> DescriptorProfile {
+        let class = match self {
+            Self::UniformBuffer(_) => DescriptorClass::UniformBuffer,
+            Self::StorageBuffer(_) => DescriptorClass::StorageBuffer,
+            Self::Sampler(_) => DescriptorClass::Sampler,
+            Self::SampledImage(_) => DescriptorClass::SampledImage,
+        };
+        DescriptorProfile {
+            class,
+            writable: false,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct VkResourceDescriptor {
+    value: VkDescriptorValue,
+}
+
+impl ResourceDescriptor for VkResourceDescriptor {
+    fn profile(&self) -> DescriptorProfile {
+        self.value.profile()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[derive(Clone)]
+struct BufferObject {
+    allocator: Arc<vma::Allocator>,
+    buffer: vk::Buffer,
+    allocation: vma::Allocation,
+    size: vk::DeviceSize,
+    descriptor_class: DescriptorClass,
+}
+
+impl BufferObject {
+    fn uniform(
+        allocator: Arc<vma::Allocator>,
+        buffer: vk::Buffer,
+        allocation: vma::Allocation,
+        size: vk::DeviceSize,
+    ) -> Self {
+        Self {
+            allocator,
+            buffer,
+            allocation,
+            size,
+            descriptor_class: DescriptorClass::UniformBuffer,
+        }
+    }
+}
+
+impl ShaderResource for BufferObject {
+    fn descriptor(&self) -> Box<dyn ResourceDescriptor> {
+        let info = vk::DescriptorBufferInfo::builder()
+            .buffer(self.buffer)
+            .offset(0)
+            .range(self.size)
+            .build();
+        let value = match self.descriptor_class {
+            DescriptorClass::UniformBuffer => VkDescriptorValue::UniformBuffer(info),
+            DescriptorClass::StorageBuffer => VkDescriptorValue::StorageBuffer(info),
+            _ => VkDescriptorValue::StorageBuffer(info),
+        };
+        Box::new(VkResourceDescriptor { value })
+    }
+}
+
+impl ShaderObject for BufferObject {
+    fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock> {
+        None
+    }
+
+    fn write(&mut self, offset: ShaderOffset, bytes: &[u8]) -> Result<()> {
+        let start = offset.bytes as vk::DeviceSize;
+        let end = start + bytes.len() as vk::DeviceSize;
+        if end > self.size {
+            return Err(anyhow!(
+                "buffer write out of bounds: start={} end={} size={}",
+                start,
+                end,
+                self.size
+            ));
+        }
+
+        unsafe {
+            let ptr = self
+                .allocator
+                .map_memory(self.allocation)
+                .map_err(|err| anyhow!(err))
+                .context("failed to map buffer allocation")?;
+            std::ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                (ptr as *mut u8).add(offset.bytes),
+                bytes.len(),
+            );
+            self.allocator
+                .flush_allocation(self.allocation, start, bytes.len() as vk::DeviceSize)
+                .map_err(|err| anyhow!(err))
+                .context("failed to flush buffer allocation")?;
+            self.allocator.unmap_memory(self.allocation);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SamplerObject {
+    sampler: vk::Sampler,
+}
+
+impl ShaderResource for SamplerObject {
+    fn descriptor(&self) -> Box<dyn ResourceDescriptor> {
+        let info = vk::DescriptorImageInfo::builder()
+            .sampler(self.sampler)
+            .build();
+        Box::new(VkResourceDescriptor {
+            value: VkDescriptorValue::Sampler(info),
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ImageObject {
+    image_view: vk::ImageView,
+    image_layout: vk::ImageLayout,
+}
+
+impl ShaderResource for ImageObject {
+    fn descriptor(&self) -> Box<dyn ResourceDescriptor> {
+        let info = vk::DescriptorImageInfo::builder()
+            .image_view(self.image_view)
+            .image_layout(self.image_layout)
+            .build();
+        Box::new(VkResourceDescriptor {
+            value: VkDescriptorValue::SampledImage(info),
+        })
+    }
+}
+
+#[derive(Clone)]
+struct ParameterObject {
+    gpu_device: Arc<GpuDevice>,
+    descriptor_set: vk::DescriptorSet,
+    descriptor_layout: SlangDescriptorSet,
+}
+
+impl ParameterObject {
+    fn resolve_binding(&self, offset: ShaderOffset) -> Result<&SlangDescriptorBinding> {
+        if let Some(binding_range) = self.descriptor_layout.find_binding_range(offset.binding_range) {
+            return Ok(&binding_range.descriptor);
+        }
+
+        if offset.binding_range == 0 {
+            if let Some(binding) = self.descriptor_layout.implicit_ubo.as_ref() {
+                return Ok(binding);
+            }
+        }
+
+        Err(anyhow!(
+            "binding range {} not found in parameter block set {:?}",
+            offset.binding_range,
+            self.descriptor_layout.set
+        ))
+    }
+}
+
+impl ShaderObject for ParameterObject {
+    fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock> {
+        Some(self)
+    }
+
+    fn write(&mut self, _offset: ShaderOffset, _bytes: &[u8]) -> Result<()> {
+        Err(anyhow!("parameter objects do not support byte writes"))
+    }
+}
+
+impl ShaderParameterBlock for ParameterObject {
+    fn bind(
+        &mut self,
+        offset: ShaderOffset,
+        descriptor: Box<dyn ResourceDescriptor>,
+    ) -> Result<()> {
+        let binding = self.resolve_binding(offset)?;
+        let count = match binding.count {
+            ElementCount::Bounded(count) => count,
+            ElementCount::Runtime => {
+                return Err(anyhow!(
+                    "runtime-sized descriptor arrays are not supported in test renderer"
+                ));
+            }
+        };
+
+        if offset.array_index >= count {
+            return Err(anyhow!(
+                "descriptor array index {} out of bounds for binding {} with count {}",
+                offset.array_index,
+                binding.binding,
+                count
+            ));
+        }
+
+        let vk_descriptor = descriptor
+            .as_any()
+            .downcast_ref::<VkResourceDescriptor>()
+            .ok_or_else(|| anyhow!("unsupported resource descriptor implementation"))?;
+
+        let descriptor_type = vk_descriptor.value.descriptor_type();
+        if descriptor_type != binding.descriptor_type {
+            return Err(anyhow!(
+                "descriptor type mismatch for binding {}: expected {:?}, got {:?}",
+                binding.binding,
+                binding.descriptor_type,
+                descriptor_type
+            ));
+        }
+        if binding.binding < 0 {
+            return Err(anyhow!(
+                "reflected binding index {} is negative for descriptor set {:?}",
+                binding.binding,
+                self.descriptor_layout.set
+            ));
+        }
+        let binding_index = binding.binding as u32;
+
+        match vk_descriptor.value {
+            VkDescriptorValue::UniformBuffer(info) | VkDescriptorValue::StorageBuffer(info) => {
+                let infos = [info];
+                let writes = [vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_set)
+                    .dst_binding(binding_index)
+                    .dst_array_element(offset.array_index as u32)
+                    .descriptor_type(descriptor_type)
+                    .buffer_info(&infos)
+                    .build()];
+                let copies: [vk::CopyDescriptorSet; 0] = [];
+                unsafe {
+                    self.gpu_device
+                        .get_vk_device()
+                        .update_descriptor_sets(&writes, &copies);
+                }
+            }
+            VkDescriptorValue::Sampler(info) | VkDescriptorValue::SampledImage(info) => {
+                let infos = [info];
+                let writes = [vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_set)
+                    .dst_binding(binding_index)
+                    .dst_array_element(offset.array_index as u32)
+                    .descriptor_type(descriptor_type)
+                    .image_info(&infos)
+                    .build()];
+                let copies: [vk::CopyDescriptorSet; 0] = [];
+                unsafe {
+                    self.gpu_device
+                        .get_vk_device()
+                        .update_descriptor_sets(&writes, &copies);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
 
 pub struct Renderer {
     gpu_instance: Arc<GpuInstance>,
     gpu_swapchain: GpuSwapchain,
     gpu_device: Arc<GpuDevice>,
     physical_device: vk::PhysicalDevice,
-    allocator: Option<vma::Allocator>,
+    allocator: Option<Arc<vma::Allocator>>,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
     command_pool: vk::CommandPool,
@@ -66,17 +364,19 @@ pub struct Renderer {
     image_available_semaphore: vk::Semaphore,
     render_finished_semaphores: Vec<vk::Semaphore>,
     in_flight_fence: vk::Fence,
-    slang_shader: Option<SlangShader>,
+    slang_program: Option<Arc<SlangProgram>>,
+    cursor_layout: Option<Arc<CursorLayout>>,
+    parameter_blocks: Vec<ParameterBlockLayoutInfo>,
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
     descriptor_set_layouts: Vec<vk::DescriptorSetLayout>,
     descriptor_pool: vk::DescriptorPool,
     descriptor_sets: Vec<vk::DescriptorSet>,
-    sampler_set_index: u32,
-    sampler_binding: u32,
-    bindless_set_index: u32,
-    bindless_binding: u32,
-    push_constant_stage_flags: vk::ShaderStageFlags,
+    frame_parameter: Option<ParameterObject>,
+    material_parameter: Option<ParameterObject>,
+    frame_uniform_object: Option<BufferObject>,
+    texture_sampler_object: Option<SamplerObject>,
+    texture_image_object: Option<ImageObject>,
     texture_image: vk::Image,
     texture_image_allocation: Option<vma::Allocation>,
     texture_image_view: vk::ImageView,
@@ -92,6 +392,8 @@ pub struct Renderer {
     index_buffer: vk::Buffer,
     index_buffer_allocation: Option<vma::Allocation>,
     index_buffer_address: vk::DeviceAddress,
+    frame_uniform_buffer: vk::Buffer,
+    frame_uniform_buffer_allocation: Option<vma::Allocation>,
     start_time: Instant,
 }
 
@@ -167,6 +469,7 @@ impl Renderer {
         let allocator = unsafe { vma::Allocator::new(&allocator_options) }
             .map_err(|err| anyhow!(err))
             .context("failed to create VMA allocator")?;
+        let allocator = Arc::new(allocator);
 
         let command_pool = unsafe {
             gpu_device
@@ -220,17 +523,19 @@ impl Renderer {
             image_available_semaphore,
             render_finished_semaphores: Vec::new(),
             in_flight_fence,
-            slang_shader: None,
+            slang_program: None,
+            cursor_layout: None,
+            parameter_blocks: Vec::new(),
             pipeline_layout: vk::PipelineLayout::null(),
             pipeline: vk::Pipeline::null(),
             descriptor_set_layouts: Vec::new(),
             descriptor_pool: vk::DescriptorPool::null(),
             descriptor_sets: Vec::new(),
-            sampler_set_index: 0,
-            sampler_binding: 0,
-            bindless_set_index: 0,
-            bindless_binding: 0,
-            push_constant_stage_flags: vk::ShaderStageFlags::empty(),
+            frame_parameter: None,
+            material_parameter: None,
+            frame_uniform_object: None,
+            texture_sampler_object: None,
+            texture_image_object: None,
             texture_image: vk::Image::null(),
             texture_image_allocation: None,
             texture_image_view: vk::ImageView::null(),
@@ -246,6 +551,8 @@ impl Renderer {
             index_buffer: vk::Buffer::null(),
             index_buffer_allocation: None,
             index_buffer_address: 0,
+            frame_uniform_buffer: vk::Buffer::null(),
+            frame_uniform_buffer_allocation: None,
             start_time: Instant::now(),
         };
 
@@ -359,12 +666,14 @@ impl Renderer {
     }
 
     fn create_static_resources(&mut self) -> Result<()> {
-        self.create_slang_shader()?;
+        self.create_slang_program()?;
         self.create_descriptor_set_layouts()?;
         self.create_pipeline_layout()?;
         self.create_texture_resources()?;
-        self.create_descriptor_pool_and_set()?;
         self.create_mesh_buffers()?;
+        self.create_frame_uniform_buffer()?;
+        self.create_descriptor_pool_and_set()?;
+        self.bind_material_resources()?;
         Ok(())
     }
 
@@ -564,14 +873,7 @@ impl Renderer {
         let mut projection = Mat4::perspective_rh(45.0_f32.to_radians(), aspect, 0.1, 100.0);
         projection.y_axis.y *= -1.0;
         let mvp = projection * view * model;
-        let push_constants = PushConstants {
-            mvp,
-            vertices: DeviceAddress(self.vertex_buffer_address),
-            indices: DeviceAddress(self.index_buffer_address),
-            texture: UVec2::new(0, 0),
-        };
-        let push_constants_std140 = push_constants.as_std140();
-        let push_constants_bytes = bytemuck::bytes_of(&push_constants_std140);
+        self.update_frame_data(mvp)?;
 
         let viewport = vk::Viewport {
             x: 0.0,
@@ -616,15 +918,6 @@ impl Renderer {
                 &self.descriptor_sets,
                 &[],
             );
-            if !self.push_constant_stage_flags.is_empty() {
-                self.gpu_device.get_vk_device().cmd_push_constants(
-                    command_buffer,
-                    self.pipeline_layout,
-                    self.push_constant_stage_flags,
-                    0,
-                    push_constants_bytes,
-                );
-            }
             self.gpu_device
                 .get_vk_device()
                 .cmd_draw(command_buffer, 36, 1, 0, 0);
@@ -711,22 +1004,35 @@ impl Renderer {
         Ok(semaphores)
     }
 
-    fn create_slang_shader(&mut self) -> Result<()> {
+    fn create_slang_program(&mut self) -> Result<()> {
         let shader_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("shaders");
-        let shader = SlangShaderBuilder::new("cube.slang")
-            .search_path(shader_dir)
-            .bindless_space_index(1)
-            .build()?;
-        self.slang_shader = Some(shader);
+        let mut compiler = SlangCompilerBuilder::new()?.search_path(&shader_dir).build()?;
+        let (vertex_entry, fragment_entry) = {
+            let module = compiler.load_module("cube.slang")?;
+            (
+                module.entrypoint(SlangShaderStage::Vertex, "vertexMain")?,
+                module.entrypoint(SlangShaderStage::Fragment, "fragmentMain")?,
+            )
+        };
+
+        let program = compiler
+            .linker()
+            .add_entrypoint(vertex_entry)?
+            .add_entrypoint(fragment_entry)?
+            .link()?;
+
+        let cursor_layout = Arc::new(CursorLayout::build(program.layout().clone())?);
+        self.slang_program = Some(program);
+        self.cursor_layout = Some(cursor_layout);
         Ok(())
     }
 
     fn create_descriptor_set_layouts(&mut self) -> Result<()> {
-        let shader = self
-            .slang_shader
+        let program = self
+            .slang_program
             .as_ref()
-            .context("missing Slang shader")?;
-        let layout = shader.layout();
+            .context("missing Slang program")?;
+        let blocks = Self::collect_parameter_blocks(program.layout())?;
 
         if !self.descriptor_set_layouts.is_empty() {
             for handle in self.descriptor_set_layouts.drain(..) {
@@ -738,73 +1044,29 @@ impl Renderer {
             }
         }
 
-        let mut set_layouts = layout.descriptor_sets.clone();
-        if let Some(bindless) = layout.bindless_heap.as_ref() {
-            set_layouts.push(SlangDescriptorSetLayout {
-                set: bindless.set,
-                bindings: bindless.bindings.clone(),
-            });
-        }
-        set_layouts.sort_by_key(|layout| layout.set);
-
-        let max_set = set_layouts.last().map(|layout| layout.set).unwrap_or(0);
-        if max_set as usize + 1 != set_layouts.len() {
-            return Err(anyhow!(
-                "descriptor set indices must be contiguous starting at 0"
-            ));
-        }
-
-        let mut sampler_binding = None;
-        for set_layout in &set_layouts {
-            for binding in &set_layout.bindings {
-                if binding.binding_type == slang::BindingType::Sampler {
-                    sampler_binding = Some((set_layout.set, binding.binding));
+        let mut descriptor_set_layouts = Vec::with_capacity(blocks.len());
+        for block in &blocks {
+            let mut bindings = Vec::new();
+            for descriptor in Self::descriptor_bindings(&block.descriptor_set) {
+                if descriptor.binding < 0 {
+                    return Err(anyhow!(
+                        "parameter block '{}' has negative descriptor binding {}",
+                        block.name,
+                        descriptor.binding
+                    ));
                 }
-            }
-        }
-        let (sampler_set_index, sampler_binding) =
-            sampler_binding.context("missing sampler binding in Slang layout")?;
-
-        let bindless = layout
-            .bindless_heap
-            .as_ref()
-            .context("missing bindless heap in Slang layout")?;
-        let bindless_binding = bindless
-            .bindings
-            .iter()
-            .find(|binding| binding.binding_type == slang::BindingType::Texture)
-            .map(|binding| binding.binding)
-            .context("missing bindless sampled image binding")?;
-
-        let mut descriptor_set_layouts = Vec::with_capacity(set_layouts.len());
-        for set_layout in &set_layouts {
-            let mut bindings = Vec::with_capacity(set_layout.bindings.len());
-            let mut binding_flags = Vec::with_capacity(set_layout.bindings.len());
-            for binding in &set_layout.bindings {
-                let descriptor_type = Self::slang_binding_type_to_vk(binding.binding_type)?;
-                let descriptor_count = Self::resolve_descriptor_count(binding.descriptor_count)?;
                 bindings.push(
                     vk::DescriptorSetLayoutBinding::builder()
-                        .binding(binding.binding)
-                        .descriptor_type(descriptor_type)
-                        .descriptor_count(descriptor_count)
-                        .stage_flags(Self::slang_stage_mask_to_vk(binding.stage))
+                        .binding(descriptor.binding as u32)
+                        .descriptor_type(descriptor.descriptor_type)
+                        .descriptor_count(Self::descriptor_count(&descriptor.count)?)
+                        .stage_flags(descriptor.stages)
                         .build(),
                 );
-                if matches!(binding.descriptor_count, DescriptorCount::Unbounded) {
-                    binding_flags.push(vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT);
-                } else {
-                    binding_flags.push(vk::DescriptorBindingFlags::empty());
-                }
             }
+            bindings.sort_by_key(|binding| binding.binding);
 
-            let mut binding_flags_info =
-                vk::DescriptorSetLayoutBindingFlagsCreateInfo::builder()
-                    .binding_flags(&binding_flags);
-            let layout_info = vk::DescriptorSetLayoutCreateInfo::builder()
-                .bindings(&bindings)
-                .push_next(&mut binding_flags_info);
-
+            let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
             let layout_handle = unsafe {
                 self.gpu_device
                     .get_vk_device()
@@ -814,38 +1076,13 @@ impl Renderer {
             descriptor_set_layouts.push(layout_handle);
         }
 
+        self.parameter_blocks = blocks;
         self.descriptor_set_layouts = descriptor_set_layouts;
-        self.sampler_set_index = sampler_set_index;
-        self.sampler_binding = sampler_binding;
-        self.bindless_set_index = bindless.set;
-        self.bindless_binding = bindless_binding;
         Ok(())
     }
 
     fn create_pipeline_layout(&mut self) -> Result<()> {
-        let shader = self
-            .slang_shader
-            .as_ref()
-            .context("missing Slang shader")?;
-        let layout = shader.layout();
-
-        let mut push_constant_stage_flags = vk::ShaderStageFlags::empty();
-        let push_constant_ranges: Vec<_> = layout
-            .push_constant_params()
-            .map(|param| {
-                let stage_flags = Self::slang_stage_mask_to_vk(param.stage);
-                push_constant_stage_flags |= stage_flags;
-                let size = Self::push_constant_byte_size(param)?;
-                Ok(vk::PushConstantRange::builder()
-                    .stage_flags(stage_flags)
-                    .offset(0)
-                    .size(size)
-                    .build())
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let layout_info = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&self.descriptor_set_layouts)
-            .push_constant_ranges(&push_constant_ranges);
+        let layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&self.descriptor_set_layouts);
         let layout = unsafe {
             self.gpu_device
                 .get_vk_device()
@@ -853,32 +1090,15 @@ impl Renderer {
                 .context("failed to create pipeline layout")?
         };
         self.pipeline_layout = layout;
-        self.push_constant_stage_flags = push_constant_stage_flags;
         Ok(())
     }
 
     fn create_descriptor_pool_and_set(&mut self) -> Result<()> {
-        let shader = self
-            .slang_shader
-            .as_ref()
-            .context("missing Slang shader")?;
-        let layout = shader.layout();
-        let mut set_layouts = layout.descriptor_sets.clone();
-        if let Some(bindless) = layout.bindless_heap.as_ref() {
-            set_layouts.push(SlangDescriptorSetLayout {
-                set: bindless.set,
-                bindings: bindless.bindings.clone(),
-            });
-        }
-        set_layouts.sort_by_key(|layout| layout.set);
-
-        let mut pool_counts: std::collections::HashMap<vk::DescriptorType, u32> =
-            std::collections::HashMap::new();
-        for set_layout in &set_layouts {
-            for binding in &set_layout.bindings {
-                let descriptor_type = Self::slang_binding_type_to_vk(binding.binding_type)?;
-                let descriptor_count = Self::resolve_descriptor_count(binding.descriptor_count)?;
-                *pool_counts.entry(descriptor_type).or_insert(0) += descriptor_count;
+        let mut pool_counts: HashMap<vk::DescriptorType, u32> = HashMap::new();
+        for block in &self.parameter_blocks {
+            for descriptor in Self::descriptor_bindings(&block.descriptor_set) {
+                *pool_counts.entry(descriptor.descriptor_type).or_insert(0) +=
+                    Self::descriptor_count(&descriptor.count)?;
             }
         }
         let pool_sizes: Vec<_> = pool_counts
@@ -889,7 +1109,7 @@ impl Renderer {
             })
             .collect();
         let pool_info = vk::DescriptorPoolCreateInfo::builder()
-            .max_sets(set_layouts.len() as u32)
+            .max_sets(self.parameter_blocks.len() as u32)
             .pool_sizes(&pool_sizes);
         let pool = unsafe {
             self.gpu_device
@@ -899,33 +1119,9 @@ impl Renderer {
         };
         self.descriptor_pool = pool;
 
-        let mut descriptor_counts = Vec::with_capacity(set_layouts.len());
-        let mut uses_variable_counts = false;
-        for set_layout in &set_layouts {
-            let variable_count = set_layout
-                .bindings
-                .iter()
-                .find(|binding| matches!(binding.descriptor_count, DescriptorCount::Unbounded))
-                .map(|binding| Self::resolve_descriptor_count(binding.descriptor_count))
-                .transpose()?
-                .unwrap_or(0);
-            if variable_count != 0 {
-                uses_variable_counts = true;
-            }
-            descriptor_counts.push(variable_count);
-        }
-
-        let mut variable_count_info =
-            vk::DescriptorSetVariableDescriptorCountAllocateInfo::builder()
-                .descriptor_counts(&descriptor_counts);
         let alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.descriptor_pool)
             .set_layouts(&self.descriptor_set_layouts);
-        let alloc_info = if uses_variable_counts {
-            alloc_info.push_next(&mut variable_count_info)
-        } else {
-            alloc_info
-        };
         let sets = unsafe {
             self.gpu_device
                 .get_vk_device()
@@ -934,42 +1130,43 @@ impl Renderer {
         };
         self.descriptor_sets = sets.to_vec();
 
-        let sampler_info = vk::DescriptorImageInfo::builder()
-            .sampler(self.texture_sampler)
-            .build();
-        let image_info = vk::DescriptorImageInfo::builder()
-            .image_view(self.texture_image_view)
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .build();
-        let sampler_set = *self
-            .descriptor_sets
-            .get(self.sampler_set_index as usize)
-            .context("missing sampler descriptor set")?;
-        let bindless_set = *self
-            .descriptor_sets
-            .get(self.bindless_set_index as usize)
-            .context("missing bindless descriptor set")?;
-        let writes = [
-            vk::WriteDescriptorSet::builder()
-                .dst_set(sampler_set)
-                .dst_binding(self.sampler_binding)
-                .descriptor_type(vk::DescriptorType::SAMPLER)
-                .image_info(std::slice::from_ref(&sampler_info))
-                .build(),
-            vk::WriteDescriptorSet::builder()
-                .dst_set(bindless_set)
-                .dst_binding(self.bindless_binding)
-                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
-                .image_info(std::slice::from_ref(&image_info))
-                .build(),
-        ];
+        self.frame_parameter = None;
+        self.material_parameter = None;
+        for block in &self.parameter_blocks {
+            let descriptor_set = *self
+                .descriptor_sets
+                .get(block.set as usize)
+                .context("missing descriptor set for reflected set index")?;
+            let parameter_object = ParameterObject {
+                gpu_device: self.gpu_device.clone(),
+                descriptor_set,
+                descriptor_layout: block.descriptor_set.clone(),
+            };
 
-        let copies: [vk::CopyDescriptorSet; 0] = [];
-        unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .update_descriptor_sets(&writes, &copies);
+            match block.name.as_str() {
+                FRAME_PARAMETER_BLOCK_NAME => self.frame_parameter = Some(parameter_object),
+                MATERIAL_PARAMETER_BLOCK_NAME => self.material_parameter = Some(parameter_object),
+                _ => {}
+            }
         }
+
+        if self.frame_parameter.is_none() {
+            return Err(anyhow!("missing '{}' parameter block", FRAME_PARAMETER_BLOCK_NAME));
+        }
+        if self.material_parameter.is_none() {
+            return Err(anyhow!(
+                "missing '{}' parameter block",
+                MATERIAL_PARAMETER_BLOCK_NAME
+            ));
+        }
+
+        self.texture_sampler_object = Some(SamplerObject {
+            sampler: self.texture_sampler,
+        });
+        self.texture_image_object = Some(ImageObject {
+            image_view: self.texture_image_view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        });
 
         Ok(())
     }
@@ -1249,21 +1446,30 @@ impl Renderer {
             .format()
             .context("missing swapchain format")?;
 
-        let shader = self
-            .slang_shader
+        let program = self
+            .slang_program
             .as_ref()
-            .context("missing Slang shader")?;
-        let vertex_entry = shader
-            .entry_point_by_name("vertexMain")
-            .context("missing vertexMain entry point")?;
-        let fragment_entry = shader
-            .entry_point_by_name("fragmentMain")
-            .context("missing fragmentMain entry point")?;
+            .context("missing Slang program")?;
+        let pipeline_program = program.select_graphics()?;
+        let vertex_entry = pipeline_program
+            .entrypoint(SlangShaderStage::Vertex)
+            .context("missing vertex entry point")?;
+        let fragment_entry = pipeline_program
+            .entrypoint(SlangShaderStage::Fragment)
+            .context("missing fragment entry point")?;
+        let vertex_code = pipeline_program
+            .code(SlangShaderStage::Vertex)
+            .context("missing vertex SPIR-V")?;
+        let fragment_code = pipeline_program
+            .code(SlangShaderStage::Fragment)
+            .context("missing fragment SPIR-V")?;
 
-        let vertex_module = self.create_shader_module(&vertex_entry.spirv)?;
-        let fragment_module = self.create_shader_module(&fragment_entry.spirv)?;
-        let vertex_name = std::ffi::CString::new(vertex_entry.name.as_str()).unwrap();
-        let fragment_name = std::ffi::CString::new(fragment_entry.name.as_str()).unwrap();
+        let vertex_module = self.create_shader_module(vertex_code.as_ref())?;
+        let fragment_module = self.create_shader_module(fragment_code.as_ref())?;
+        let vertex_name = std::ffi::CString::new(vertex_entry.name())
+            .context("vertex entrypoint name contains NUL")?;
+        let fragment_name = std::ffi::CString::new(fragment_entry.name())
+            .context("fragment entrypoint name contains NUL")?;
         let stages = [
             vk::PipelineShaderStageCreateInfo::builder()
                 .stage(vk::ShaderStageFlags::VERTEX)
@@ -1349,119 +1555,171 @@ impl Renderer {
         Ok(())
     }
 
-    fn resolve_descriptor_count(count: DescriptorCount) -> Result<u32> {
-        Ok(match count {
-            DescriptorCount::Exact(value) => value,
-            DescriptorCount::Unbounded => {
-                // TODO: make this configurable from the renderer or material system.
-                MAX_TEXTURES
-            }
+    fn create_frame_uniform_buffer(&mut self) -> Result<()> {
+        let size = std::mem::size_of::<<DrawData as AsStd140>::Output>() as vk::DeviceSize;
+        let allocation_options = vma::AllocationOptions {
+            usage: vma::MemoryUsage::AutoPreferHost,
+            flags: vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
+            ..Default::default()
+        };
+        let (buffer, allocation) =
+            self.create_buffer(size, vk::BufferUsageFlags::UNIFORM_BUFFER, &allocation_options)?;
+
+        self.frame_uniform_buffer = buffer;
+        self.frame_uniform_buffer_allocation = Some(allocation);
+        self.frame_uniform_object = Some(BufferObject::uniform(
+            self.allocator_arc(),
+            buffer,
+            allocation,
+            size,
+        ));
+
+        Ok(())
+    }
+
+    fn bind_material_resources(&mut self) -> Result<()> {
+        let material_parameter = self
+            .material_parameter
+            .clone()
+            .context("missing material parameter object")?;
+        let sampler = self
+            .texture_sampler_object
+            .context("missing texture sampler object")?;
+        let image = self
+            .texture_image_object
+            .context("missing texture image object")?;
+        let material_view = self.parameter_block_root_view(MATERIAL_PARAMETER_BLOCK_NAME)?;
+
+        let mut sampler_cursor =
+            ShaderCursor::new(material_view.clone(), Box::new(material_parameter.clone()))
+                .field("textureSampler")?;
+        sampler_cursor.bind(&sampler)?;
+
+        let mut image_cursor = ShaderCursor::new(material_view, Box::new(material_parameter))
+            .field("texture")?;
+        image_cursor.bind(&image)?;
+
+        Ok(())
+    }
+
+    fn update_frame_data(&mut self, mvp: Mat4) -> Result<()> {
+        let frame_parameter = self
+            .frame_parameter
+            .clone()
+            .context("missing frame parameter object")?;
+        let frame_uniform = self
+            .frame_uniform_object
+            .clone()
+            .context("missing frame uniform object")?;
+        let frame_view = self.parameter_block_root_view(FRAME_PARAMETER_BLOCK_NAME)?;
+        let draw_data = DrawData {
+            mvp,
+            vertices: DeviceAddress(self.vertex_buffer_address),
+            indices: DeviceAddress(self.index_buffer_address),
+        };
+        let draw_data_std140 = draw_data.as_std140();
+
+        let frame_cursor = ShaderCursor::new(frame_view, Box::new(frame_parameter));
+        let mut draw_cursor = frame_cursor
+            .field("draw")?
+            .bind_and_resolve(Box::new(frame_uniform))?;
+        draw_cursor.write_bytes(bytemuck::bytes_of(&draw_data_std140))?;
+        Ok(())
+    }
+
+    fn parameter_block_root_view(&self, name: &str) -> Result<CursorLayoutView> {
+        let layout = self
+            .cursor_layout
+            .as_ref()
+            .context("missing cursor layout")?;
+        let global_view = layout.global_view().context("missing global cursor root")?;
+        let field_view = global_view
+            .field(name)
+            .ok_or_else(|| anyhow!("global parameter block '{}' not found", name))?;
+
+        let node = field_view
+            .layout
+            .node(field_view.node)
+            .context("parameter block cursor node not found")?;
+        let NodeKind::ParameterBlock { element, .. } = &node.kind else {
+            return Err(anyhow!(
+                "global field '{}' is not a parameter block in cursor layout",
+                name
+            ));
+        };
+
+        Ok(CursorLayoutView {
+            layout: field_view.layout.clone(),
+            node: *element,
+            base: ShaderOffset::default(),
         })
     }
 
-    fn slang_binding_type_to_vk(binding_type: slang::BindingType) -> Result<vk::DescriptorType> {
-        let raw = binding_type as u32;
-        let base_mask = slang::BindingType::BaseMask as u32;
-        let base = raw & base_mask;
-        let base_type = if base != 0 { base } else { raw };
-
-        let descriptor_type = match base_type {
-            x if x == slang::BindingType::Sampler as u32 => vk::DescriptorType::SAMPLER,
-            x if x == slang::BindingType::Texture as u32 => vk::DescriptorType::SAMPLED_IMAGE,
-            x if x == slang::BindingType::CombinedTextureSampler as u32 => {
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER
-            }
-            x if x == slang::BindingType::ConstantBuffer as u32 => vk::DescriptorType::UNIFORM_BUFFER,
-            x if x == slang::BindingType::TypedBuffer as u32 => {
-                vk::DescriptorType::UNIFORM_TEXEL_BUFFER
-            }
-            x if x == slang::BindingType::RawBuffer as u32 => vk::DescriptorType::STORAGE_BUFFER,
-            x if x == slang::BindingType::InputRenderTarget as u32 => {
-                vk::DescriptorType::INPUT_ATTACHMENT
-            }
-            x if x == slang::BindingType::InlineUniformData as u32 => {
-                vk::DescriptorType::INLINE_UNIFORM_BLOCK
-            }
-            x if x == slang::BindingType::RayTracingAccelerationStructure as u32 => {
-                vk::DescriptorType::ACCELERATION_STRUCTURE_KHR
-            }
-            x if x == slang::BindingType::PushConstant as u32 => {
-                return Err(anyhow!("push constant bindings are not descriptors"));
-            }
-            _ => {
-                return Err(anyhow!("unsupported Slang binding type {binding_type:?}"));
-            }
+    fn collect_parameter_blocks(layout: &ShaderLayout) -> Result<Vec<ParameterBlockLayoutInfo>> {
+        let globals = layout
+            .globals
+            .as_ref()
+            .context("missing global reflection layout")?;
+        let Type::Struct(root_struct) = &globals.value.ty else {
+            return Err(anyhow!("global reflection root is not a struct"));
         };
 
-        Ok(descriptor_type)
-    }
-
-    fn slang_stage_mask_to_vk(stage: SlangStageMask) -> vk::ShaderStageFlags {
-        let mut flags = vk::ShaderStageFlags::empty();
-        for slang_stage in [
-            slang::Stage::Vertex,
-            slang::Stage::Fragment,
-            slang::Stage::Compute,
-            slang::Stage::Geometry,
-            slang::Stage::Hull,
-            slang::Stage::Domain,
-            slang::Stage::RayGeneration,
-            slang::Stage::Intersection,
-            slang::Stage::AnyHit,
-            slang::Stage::ClosestHit,
-            slang::Stage::Miss,
-            slang::Stage::Callable,
-            slang::Stage::Mesh,
-            slang::Stage::Amplification,
-            slang::Stage::Dispatch,
-        ] {
-            let bit = 1u32 << (slang_stage as u32);
-            if stage.bits() & bit == 0 {
+        let mut blocks = Vec::new();
+        for field in &root_struct.fields {
+            let Some(name) = field.name.as_ref() else {
                 continue;
-            }
-            flags |= match slang_stage {
-                slang::Stage::Vertex => vk::ShaderStageFlags::VERTEX,
-                slang::Stage::Fragment => vk::ShaderStageFlags::FRAGMENT,
-                slang::Stage::Compute => vk::ShaderStageFlags::COMPUTE,
-                slang::Stage::Geometry => vk::ShaderStageFlags::GEOMETRY,
-                slang::Stage::Hull => vk::ShaderStageFlags::TESSELLATION_CONTROL,
-                slang::Stage::Domain => vk::ShaderStageFlags::TESSELLATION_EVALUATION,
-                slang::Stage::RayGeneration => vk::ShaderStageFlags::RAYGEN_KHR,
-                slang::Stage::Intersection => vk::ShaderStageFlags::INTERSECTION_KHR,
-                slang::Stage::AnyHit => vk::ShaderStageFlags::ANY_HIT_KHR,
-                slang::Stage::ClosestHit => vk::ShaderStageFlags::CLOSEST_HIT_KHR,
-                slang::Stage::Miss => vk::ShaderStageFlags::MISS_KHR,
-                slang::Stage::Callable => vk::ShaderStageFlags::CALLABLE_KHR,
-                slang::Stage::Mesh => vk::ShaderStageFlags::MESH_EXT,
-                slang::Stage::Amplification => vk::ShaderStageFlags::TASK_EXT,
-                slang::Stage::Dispatch => vk::ShaderStageFlags::COMPUTE,
-                slang::Stage::None => vk::ShaderStageFlags::empty(),
-                _ => vk::ShaderStageFlags::empty(),
             };
+            let Type::ParameterBlock(pb) = &field.value.ty else {
+                continue;
+            };
+            let set = pb
+                .descriptor_set
+                .set
+                .ok_or_else(|| anyhow!("parameter block '{}' does not declare a set", name))?;
+            if set < 0 {
+                return Err(anyhow!("parameter block '{}' has negative set {}", name, set));
+            }
+
+            blocks.push(ParameterBlockLayoutInfo {
+                name: name.to_string(),
+                set: set as u32,
+                descriptor_set: pb.descriptor_set.clone(),
+            });
         }
-        flags
+
+        if blocks.is_empty() {
+            return Err(anyhow!("no global parameter blocks were reflected"));
+        }
+
+        blocks.sort_by_key(|block| block.set);
+        let max_set = blocks.last().map(|block| block.set).unwrap_or(0);
+        if max_set as usize + 1 != blocks.len() {
+            return Err(anyhow!(
+                "parameter block set indices must be contiguous from 0"
+            ));
+        }
+
+        Ok(blocks)
     }
 
-    fn push_constant_byte_size(param: &SlangParameterLayout) -> Result<u32> {
-        let type_layout = if param.type_layout.kind == slang::TypeKind::ConstantBuffer {
-            param
-                .type_layout
-                .element_type
-                .as_deref()
-                .unwrap_or(&param.type_layout)
-        } else {
-            &param.type_layout
-        };
-        let size = Self::uniform_size_from_layout(type_layout)
-            .context("missing uniform size for push constant")?;
-        Ok(size)
+    fn descriptor_bindings(descriptor_set: &SlangDescriptorSet) -> Vec<SlangDescriptorBinding> {
+        let mut bindings = Vec::new();
+        if let Some(implicit_ubo) = descriptor_set.implicit_ubo.clone() {
+            bindings.push(implicit_ubo);
+        }
+        for range in &descriptor_set.binding_ranges {
+            bindings.push(range.descriptor.clone());
+        }
+        bindings
     }
 
-    fn uniform_size_from_layout(layout: &SlangTypeLayout) -> Option<u32> {
-        layout.layouts.iter().find_map(|metric| match metric.size.as_ref() {
-            Some(LayoutUnit::Uniform(value)) => Some(*value),
-            _ => None,
-        })
+    fn descriptor_count(count: &ElementCount) -> Result<u32> {
+        match count {
+            ElementCount::Bounded(count) => Ok(*count as u32),
+            ElementCount::Runtime => Err(anyhow!(
+                "runtime-sized descriptor arrays are not supported in test renderer"
+            )),
+        }
     }
 
     fn create_shader_module(&self, code: &[u32]) -> Result<vk::ShaderModule> {
@@ -1602,6 +1860,14 @@ impl Renderer {
         self.allocator
             .as_ref()
             .expect("VMA allocator must be initialized")
+            .as_ref()
+    }
+
+    fn allocator_arc(&self) -> Arc<vma::Allocator> {
+        self.allocator
+            .as_ref()
+            .expect("VMA allocator must be initialized")
+            .clone()
     }
 
     fn select_depth_format(&self) -> Result<vk::Format> {
@@ -1643,6 +1909,15 @@ impl Renderer {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
+        self.frame_parameter = None;
+        self.material_parameter = None;
+        self.frame_uniform_object = None;
+        self.texture_sampler_object = None;
+        self.texture_image_object = None;
+        self.parameter_blocks.clear();
+        self.slang_program = None;
+        self.cursor_layout = None;
+
         unsafe {
             let _ = self.gpu_device.get_vk_device().device_wait_idle();
             let _ = self.cleanup_swapchain_resources();
@@ -1723,6 +1998,20 @@ impl Drop for Renderer {
             }
 
             self.index_buffer_allocation = None;
+
+            if self.frame_uniform_buffer != vk::Buffer::null() {
+                if let Some(allocation) = self.frame_uniform_buffer_allocation.take() {
+                    self.allocator()
+                        .destroy_buffer(self.frame_uniform_buffer, allocation);
+                } else {
+                    self.gpu_device
+                        .get_vk_device()
+                        .destroy_buffer(self.frame_uniform_buffer, None);
+                }
+                self.frame_uniform_buffer = vk::Buffer::null();
+            }
+
+            self.frame_uniform_buffer_allocation = None;
 
             self.gpu_device
                 .get_vk_device()

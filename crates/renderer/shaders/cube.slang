@@ -1,13 +1,7 @@
 #include "cube.inl"
 
-[[vk::push_constant]]
-ConstantBuffer<PushConstants> pushConstants;
-
-[[vk::binding(0, 0)]]
-SamplerState textureSampler;
-
-[[vk::binding(1, 0)]]
-Texture2D textures[];
+ParameterBlock<DrawBlock> frame;
+ParameterBlock<Material> material;
 
 struct VSOutput
 {
@@ -19,18 +13,15 @@ struct VSOutput
 VSOutput vertexMain(uint vertexId: SV_VertexID)
 {
     VSOutput output;
-    uint index = pushConstants.indices[vertexId];
-    Vertex vertex = pushConstants.vertices[index];
-    output.position = mul(float4(vertex.position, 1.0), pushConstants.mvp);
+    uint index = frame.draw.indices[vertexId];
+    Vertex vertex = frame.draw.vertices[index];
+    output.position = mul(float4(vertex.position, 1.0), frame.draw.mvp);
     output.uv = vertex.uv;
-    printf("vertexId: %d", vertexId);
     return output;
 }
 
 [shader("fragment")]
 float4 fragmentMain(VSOutput input) : SV_Target0
 {
-    Texture2D tex = pushConstants.texture;
-    return tex.Sample(textureSampler, input.uv);
-    // return textures[pushConstants.texture_index].Sample(textureSampler, input.uv);
+    return material.texture.Sample(material.textureSampler, input.uv);
 }

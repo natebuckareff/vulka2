@@ -2,7 +2,7 @@ use std::cell::OnceCell;
 
 use vulkanalia::vk;
 
-#[derive(Default, Clone)]
+#[derive(Clone, Default)]
 pub(crate) struct ExtensionNameArray {
     names: Vec<vk::ExtensionName>,
     ptrs: OnceCell<Vec<*const i8>>,

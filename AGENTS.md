@@ -7,3 +7,4 @@
 - if a change deviates from the spec, always stop coding and have a discussion
 - specs may reference docs in the `vendors` folder in the project root
 - run cargo check yourself after finish a large chunk of work
+- need to source the `source-me.sh` script to correctly setup vulkan PATHs

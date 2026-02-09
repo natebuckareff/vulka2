@@ -1,8 +1,30 @@
+# slang util crate
+
+the crate is both a library and binary. the core logic is implemented in lib.rs, and main.rs is a simple CLI that allows compiling and introspecting slang shaders
+
+project structure:
+
+```
+crates
+'-- slang
+    '-- src
+        |-- main.rs       # cli entrypoint
+        |-- lib.rs        # library
+        |-- compiler.rs   # implements compilation and caching
+        '-- reflection.rs # builds layouts and types from slang reflection
+```
+
+## slang-shader
+
+the `slang` util crate is build with, and is effectively a wrapper for, the `shader_slang` rust crate. We vendor that crate in this repository, currently only so we can patch it to support setting bindless heap space index
+
+see the [vendored repository's README][2] for basic usage example
+
 ## shader compilation and linking
 
 this file is the spec for the `slang` crate in this repo
 
-the `slang` crate in this repo is a wrapper around [slang-rs](https://github.com/FloatyMonkey/slang-rs). it's responsible for:
+the `slang` crate in this repo is essentially a wrapper around [shader_slang](https://github.com/FloatyMonkey/slang-rs). it's responsible for:
 - compiling and linking slang shaders
 - providing reflection information to the renderer for pipeline creation
 
@@ -14,14 +36,21 @@ struct SlangCompilerBuilder {
     // settings, otherwise errors
     fn capability(mut self, name: &str) -> Result<Self>;
 
+    // default to `None` so we don't use bindless mode
     fn bindless_space_index(mut self, index: i32) -> Self;
+
+    // default to `OptimizationLevel::Default`
     fn optimization(mut self, ...) -> Self;
+
+    // default to `true`
     fn matrix_layout_row(mut self, ...) -> Self;
 
     // add directory where cached program layouts and spirv code are written
     fn cache_path<P: AsRef<Path>>(mut self, P) -> Self;
 
-    // adds a search path for resolving modules
+    // adds a search path for resolving modules. can add as many paths as
+    // needed, they are resolved in whatever order `shader_slang` resolves them
+    // (it has a similar internal API)
     fn search_path<P: AsRef<Path>>(mut self, P) -> Self;
 
     // instantiates a compiler instance
@@ -88,7 +117,9 @@ given the same set of modules + entrypoints, the `slang` crate defines a canonic
 
 ```rust
 struct SlangModule {
+    // whatever opaque module ID `shader_slang` gives us
     fn module_id(&self) -> ModuleId;
+
     fn entrypoints(&self) -> impl Iterator<Item = SlangEntrypoint>;
     fn entrypoint(&self, stage, name: &str) -> Result<SlangEntrypoint>;
 }
@@ -107,7 +138,7 @@ struct SlangEntrypoint {
 }
 ```
 
-`SlangEntrypoint` needs to be an unambiguous handle to the underlying `shader-slang` entrypoint owned by the module / compiler. Ideally we have some internal ID that maps back, or some Arc to the parent object
+`SlangEntrypoint` needs to be an unambiguous handle to the underlying `shader_slang` entrypoint owned by the module / compiler. Ideally we have some internal ID that maps back, or some Arc to the parent object
 
 ```rust
 enum SlangShaderStage {
@@ -235,6 +266,7 @@ fn example() {
         .optimization(OptimizationLevel::High)
         .matrix_layout_row(true)
         .search_path("./shaders")
+        .search_path("./lib/shaders")
         .build()?;
 
     let module1 = compiler.load_module("./shaders/shader1.slang")?;
@@ -566,7 +598,11 @@ TODO pre-requisites:
 - implement `SlangLayout` and `SpirvCode` serdes
 - will need engine hooks; dirty pipelines need to be re-created
 
-## shader-slang issue 7598
+## caching
+
+Just in-memory for now
+
+## shader_slang issue 7598
 
 from: https://github.com/shader-slang/slang/issues/7598
 
@@ -577,3 +613,4 @@ from: https://github.com/shader-slang/slang/issues/7598
 ## references
 
 [1]: ../vendor/shader-slang-docs/shader-cursors.md
+[2]: ../vendor/slang-rs/README.md
