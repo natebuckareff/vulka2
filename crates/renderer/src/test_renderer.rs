@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::sync::Arc;
@@ -6,18 +5,19 @@ use std::time::Instant;
 
 use crate::gpu::DeviceAddress;
 use crate::gpu::{
-    GpuDevice, GpuDeviceFeatureExt, GpuDeviceFeatureV12, GpuDeviceFeatureV13,
-    GpuDeviceRequestBuilder, GpuInstance, GpuQueueProfile, GpuQueueRequest, GpuSurface,
-    GpuSwapchain,
+    BufferObject, GpuBuffer, GpuBufferWriteMode, GpuDevice, GpuDeviceFeatureExt,
+    GpuDeviceFeatureV12, GpuDeviceFeatureV13, GpuDeviceRequestBuilder, GpuInstance,
+    GpuQueueProfile, GpuQueueRequest, GpuSurface, GpuSwapchain, VkDescriptorValue,
+    VkResourceDescriptor,
 };
 use anyhow::{Context, Result, anyhow};
 use crevice::std140::AsStd140;
 use crevice::std430::AsStd430;
 use glam::{Mat4, Vec2, Vec3};
 use slang::{
-    CursorLayout, CursorLayoutView, DescriptorBinding as SlangDescriptorBinding, DescriptorClass,
-    DescriptorProfile, DescriptorSet as SlangDescriptorSet, ElementCount, NodeKind,
-    ResourceDescriptor, ShaderCursor, ShaderLayout, ShaderObject, ShaderOffset,
+    CursorLayout, CursorLayoutView, DescriptorBinding as SlangDescriptorBinding,
+    DescriptorSet as SlangDescriptorSet, ElementCount, NodeKind, ResourceDescriptor, ShaderCursor,
+    ShaderLayout, ShaderObject, ShaderOffset,
     ShaderParameterBlock, ShaderResource, SlangCompilerBuilder, SlangProgram, SlangShaderStage,
     Type,
 };
@@ -62,134 +62,6 @@ struct ParameterBlockLayoutInfo {
     name: String,
     set: u32,
     descriptor_set: SlangDescriptorSet,
-}
-
-#[derive(Clone, Copy)]
-enum VkDescriptorValue {
-    UniformBuffer(vk::DescriptorBufferInfo),
-    StorageBuffer(vk::DescriptorBufferInfo),
-    Sampler(vk::DescriptorImageInfo),
-    SampledImage(vk::DescriptorImageInfo),
-}
-
-impl VkDescriptorValue {
-    fn descriptor_type(self) -> vk::DescriptorType {
-        match self {
-            Self::UniformBuffer(_) => vk::DescriptorType::UNIFORM_BUFFER,
-            Self::StorageBuffer(_) => vk::DescriptorType::STORAGE_BUFFER,
-            Self::Sampler(_) => vk::DescriptorType::SAMPLER,
-            Self::SampledImage(_) => vk::DescriptorType::SAMPLED_IMAGE,
-        }
-    }
-
-    fn profile(self) -> DescriptorProfile {
-        let class = match self {
-            Self::UniformBuffer(_) => DescriptorClass::UniformBuffer,
-            Self::StorageBuffer(_) => DescriptorClass::StorageBuffer,
-            Self::Sampler(_) => DescriptorClass::Sampler,
-            Self::SampledImage(_) => DescriptorClass::SampledImage,
-        };
-        DescriptorProfile {
-            class,
-            writable: false,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct VkResourceDescriptor {
-    value: VkDescriptorValue,
-}
-
-impl ResourceDescriptor for VkResourceDescriptor {
-    fn profile(&self) -> DescriptorProfile {
-        self.value.profile()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[derive(Clone)]
-struct BufferObject {
-    allocator: Arc<vma::Allocator>,
-    buffer: vk::Buffer,
-    allocation: vma::Allocation,
-    size: vk::DeviceSize,
-    descriptor_class: DescriptorClass,
-}
-
-impl BufferObject {
-    fn uniform(
-        allocator: Arc<vma::Allocator>,
-        buffer: vk::Buffer,
-        allocation: vma::Allocation,
-        size: vk::DeviceSize,
-    ) -> Self {
-        Self {
-            allocator,
-            buffer,
-            allocation,
-            size,
-            descriptor_class: DescriptorClass::UniformBuffer,
-        }
-    }
-}
-
-impl ShaderResource for BufferObject {
-    fn descriptor(&self) -> Box<dyn ResourceDescriptor> {
-        let info = vk::DescriptorBufferInfo::builder()
-            .buffer(self.buffer)
-            .offset(0)
-            .range(self.size)
-            .build();
-        let value = match self.descriptor_class {
-            DescriptorClass::UniformBuffer => VkDescriptorValue::UniformBuffer(info),
-            DescriptorClass::StorageBuffer => VkDescriptorValue::StorageBuffer(info),
-            _ => VkDescriptorValue::StorageBuffer(info),
-        };
-        Box::new(VkResourceDescriptor { value })
-    }
-}
-
-impl ShaderObject for BufferObject {
-    fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock> {
-        None
-    }
-
-    fn write(&mut self, offset: ShaderOffset, bytes: &[u8]) -> Result<()> {
-        let start = offset.bytes as vk::DeviceSize;
-        let end = start + bytes.len() as vk::DeviceSize;
-        if end > self.size {
-            return Err(anyhow!(
-                "buffer write out of bounds: start={} end={} size={}",
-                start,
-                end,
-                self.size
-            ));
-        }
-
-        unsafe {
-            let ptr = self
-                .allocator
-                .map_memory(self.allocation)
-                .map_err(|err| anyhow!(err))
-                .context("failed to map buffer allocation")?;
-            std::ptr::copy_nonoverlapping(
-                bytes.as_ptr(),
-                (ptr as *mut u8).add(offset.bytes),
-                bytes.len(),
-            );
-            self.allocator
-                .flush_allocation(self.allocation, start, bytes.len() as vk::DeviceSize)
-                .map_err(|err| anyhow!(err))
-                .context("failed to flush buffer allocation")?;
-            self.allocator.unmap_memory(self.allocation);
-        }
-
-        Ok(())
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -386,14 +258,10 @@ pub struct Renderer {
     depth_image_view: vk::ImageView,
     depth_format: vk::Format,
     depth_layout: vk::ImageLayout,
-    vertex_buffer: vk::Buffer,
-    vertex_buffer_allocation: Option<vma::Allocation>,
+    vertex_buffer: Option<GpuBuffer>,
     vertex_buffer_address: vk::DeviceAddress,
-    index_buffer: vk::Buffer,
-    index_buffer_allocation: Option<vma::Allocation>,
+    index_buffer: Option<GpuBuffer>,
     index_buffer_address: vk::DeviceAddress,
-    frame_uniform_buffer: vk::Buffer,
-    frame_uniform_buffer_allocation: Option<vma::Allocation>,
     start_time: Instant,
 }
 
@@ -545,14 +413,10 @@ impl Renderer {
             depth_image_view: vk::ImageView::null(),
             depth_format: vk::Format::UNDEFINED,
             depth_layout: vk::ImageLayout::UNDEFINED,
-            vertex_buffer: vk::Buffer::null(),
-            vertex_buffer_allocation: None,
+            vertex_buffer: None,
             vertex_buffer_address: 0,
-            index_buffer: vk::Buffer::null(),
-            index_buffer_allocation: None,
+            index_buffer: None,
             index_buffer_address: 0,
-            frame_uniform_buffer: vk::Buffer::null(),
-            frame_uniform_buffer_allocation: None,
             start_time: Instant::now(),
         };
 
@@ -1364,38 +1228,30 @@ impl Renderer {
             flags: vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
             ..Default::default()
         };
-        let (vertex_buffer, vertex_allocation) = self.create_buffer(
+        let vertex_buffer = GpuBuffer::create(
+            self.allocator_arc(),
             (vertices_std430.len() * std::mem::size_of::<<Vertex as AsStd430>::Output>())
                 as vk::DeviceSize,
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             &host_allocation,
+            GpuBufferWriteMode::HostVisibleTransient,
         )?;
-        self.write_memory(vertex_allocation, &vertices_std430)?;
-        let vertex_address_info = vk::BufferDeviceAddressInfo::builder().buffer(vertex_buffer);
-        let vertex_address = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .get_buffer_device_address(&vertex_address_info)
-        };
+        vertex_buffer.write_slice(0, &vertices_std430)?;
+        let vertex_address = vertex_buffer.device_address(&self.gpu_device)?;
 
-        let (index_buffer, index_allocation) = self.create_buffer(
+        let index_buffer = GpuBuffer::create(
+            self.allocator_arc(),
             (indices.len() * std::mem::size_of::<u32>()) as vk::DeviceSize,
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             &host_allocation,
+            GpuBufferWriteMode::HostVisibleTransient,
         )?;
-        self.write_memory(index_allocation, &indices)?;
-        let index_address_info = vk::BufferDeviceAddressInfo::builder().buffer(index_buffer);
-        let index_address = unsafe {
-            self.gpu_device
-                .get_vk_device()
-                .get_buffer_device_address(&index_address_info)
-        };
+        index_buffer.write_slice(0, &indices)?;
+        let index_address = index_buffer.device_address(&self.gpu_device)?;
 
-        self.vertex_buffer = vertex_buffer;
-        self.vertex_buffer_allocation = Some(vertex_allocation);
+        self.vertex_buffer = Some(vertex_buffer);
         self.vertex_buffer_address = vertex_address;
-        self.index_buffer = index_buffer;
-        self.index_buffer_allocation = Some(index_allocation);
+        self.index_buffer = Some(index_buffer);
         self.index_buffer_address = index_address;
 
         Ok(())
@@ -1562,17 +1418,14 @@ impl Renderer {
             flags: vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
             ..Default::default()
         };
-        let (buffer, allocation) =
-            self.create_buffer(size, vk::BufferUsageFlags::UNIFORM_BUFFER, &allocation_options)?;
-
-        self.frame_uniform_buffer = buffer;
-        self.frame_uniform_buffer_allocation = Some(allocation);
-        self.frame_uniform_object = Some(BufferObject::uniform(
+        let buffer = GpuBuffer::create(
             self.allocator_arc(),
-            buffer,
-            allocation,
             size,
-        ));
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            &allocation_options,
+            GpuBufferWriteMode::HostVisiblePersistent,
+        )?;
+        self.frame_uniform_object = Some(BufferObject::whole_uniform(buffer));
 
         Ok(())
     }
@@ -1911,7 +1764,6 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         self.frame_parameter = None;
         self.material_parameter = None;
-        self.frame_uniform_object = None;
         self.texture_sampler_object = None;
         self.texture_image_object = None;
         self.parameter_blocks.clear();
@@ -1971,47 +1823,9 @@ impl Drop for Renderer {
 
             self.texture_image_allocation = None;
 
-            if self.vertex_buffer != vk::Buffer::null() {
-                if let Some(allocation) = self.vertex_buffer_allocation.take() {
-                    self.allocator()
-                        .destroy_buffer(self.vertex_buffer, allocation);
-                } else {
-                    self.gpu_device
-                        .get_vk_device()
-                        .destroy_buffer(self.vertex_buffer, None);
-                }
-                self.vertex_buffer = vk::Buffer::null();
-            }
-
-            self.vertex_buffer_allocation = None;
-
-            if self.index_buffer != vk::Buffer::null() {
-                if let Some(allocation) = self.index_buffer_allocation.take() {
-                    self.allocator()
-                        .destroy_buffer(self.index_buffer, allocation);
-                } else {
-                    self.gpu_device
-                        .get_vk_device()
-                        .destroy_buffer(self.index_buffer, None);
-                }
-                self.index_buffer = vk::Buffer::null();
-            }
-
-            self.index_buffer_allocation = None;
-
-            if self.frame_uniform_buffer != vk::Buffer::null() {
-                if let Some(allocation) = self.frame_uniform_buffer_allocation.take() {
-                    self.allocator()
-                        .destroy_buffer(self.frame_uniform_buffer, allocation);
-                } else {
-                    self.gpu_device
-                        .get_vk_device()
-                        .destroy_buffer(self.frame_uniform_buffer, None);
-                }
-                self.frame_uniform_buffer = vk::Buffer::null();
-            }
-
-            self.frame_uniform_buffer_allocation = None;
+            self.frame_uniform_object = None;
+            self.vertex_buffer = None;
+            self.index_buffer = None;
 
             self.gpu_device
                 .get_vk_device()
