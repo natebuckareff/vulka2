@@ -125,6 +125,10 @@ impl ShaderCursor {
                 resolved_node: Some(*element),
                 expected_class: Some(DescriptorClass::UniformBuffer),
             }),
+            NodeKind::Sampler => Ok(BindTarget {
+                resolved_node: None,
+                expected_class: Some(DescriptorClass::Sampler),
+            }),
             _ => Err(anyhow!(
                 "current cursor target is not a bindable resource node"
             )),
@@ -442,6 +446,37 @@ mod tests {
         assert_eq!(offset.array_index, bind_offset.array_index);
         assert_eq!(offset.varying_input, bind_offset.varying_input);
         assert_eq!(profile.class, DescriptorClass::UniformBuffer);
+    }
+
+    #[test]
+    fn bind_accepts_sampler_node_with_sampler_descriptor() {
+        let bind_offset = ShaderOffset {
+            bytes: 0,
+            set: 2,
+            binding_range: 3,
+            array_index: 0,
+            varying_input: 0,
+        };
+
+        let view = view_from_layout(
+            vec![Node {
+                kind: NodeKind::Sampler,
+            }],
+            NodeId(0),
+            bind_offset,
+        );
+
+        let bind_state = Arc::new(Mutex::new(BindState::default()));
+        let mut cursor =
+            ShaderCursor::new(view, Box::new(MockParameterObject::new(bind_state.clone())));
+
+        let resource = MockResource::new(DescriptorClass::Sampler, false);
+        cursor.bind(&resource).expect("sampler bind should succeed");
+
+        let state = bind_state.lock().expect("lock bind state");
+        assert_eq!(state.calls.len(), 1);
+        let (_, profile) = state.calls[0];
+        assert_eq!(profile.class, DescriptorClass::Sampler);
     }
 
     #[test]

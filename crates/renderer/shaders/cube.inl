@@ -6,11 +6,20 @@ struct Vertex
     float2 _pad1;
 }
 
-struct PushConstants
+struct DrawData
 {
     float4x4 mvp;
     Vertex *vertices;
     uint *indices;
-    // uint texture_index;
-    Texture2D.Handle texture;
+}
+
+struct DrawBlock
+{
+    ConstantBuffer<DrawData> draw;
+}
+
+struct Material
+{
+    SamplerState textureSampler;
+    Texture2D texture;
 }

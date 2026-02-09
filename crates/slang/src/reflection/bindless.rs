@@ -6,7 +6,7 @@ use crate::reflection::serde_slang::serde_binding_type;
 use crate::reflection::serde_vk::serde_descriptor_type;
 use crate::{BindlessPolicy, ResourceAccess};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BindlessLayout {
     pub set: i64,
     pub policy: BindlessPolicy,
@@ -21,7 +21,7 @@ impl BindlessLayout {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct BindlessDescriptor {
     #[serde(with = "serde_binding_type")]
     pub slang: slang::BindingType,

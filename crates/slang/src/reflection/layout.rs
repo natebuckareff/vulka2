@@ -25,21 +25,21 @@ pub enum ElementCount {
     Runtime,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ShaderLayout {
     pub bindless: Option<BindlessLayout>,
     pub globals: Option<Box<VarLayout>>,
     pub entrypoints: Vec<EntrypointLayout>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EntrypointLayout {
     pub name: CompactString,
     pub stage: SlangShaderStage,
     pub params: Option<Box<VarLayout>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct VarLayout {
     pub name: Option<CompactString>,
     pub offset_bytes: usize,
@@ -49,14 +49,14 @@ pub struct VarLayout {
     pub value: TypeLayout,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct VaryingLayout {
     pub offset_input: usize,
     pub index: usize,
     pub name: Option<CompactString>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TypeLayout {
     pub size: Option<LayoutUnit>,
     pub alignment: i32,
@@ -70,7 +70,7 @@ pub struct Stride {
     pub binding_range: i64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Type {
     Unknown(String, CompactString),
     Pointer(PointerType),
@@ -84,47 +84,47 @@ pub enum Type {
     ConstantBuffer(Box<TypeLayout>),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PointerType;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum NumericType {
     Scalar(ScalarType),
     Vector(VectorType),
     Matrix(MatrixType),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ScalarType {
     pub ty: CompactString,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct VectorType {
     pub ty: CompactString,
     pub count: usize,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MatrixType {
     pub ty: CompactString,
     pub rows: u32,
     pub cols: u32,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StructType {
     pub name: CompactString,
     pub fields: Vec<VarLayout>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ArrayType {
     pub count: ElementCount,
     pub element: Box<TypeLayout>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ResourceType {
     pub ty: CompactString,
     pub binding: Option<ResourceBinding>,
@@ -135,7 +135,7 @@ pub struct ResourceType {
 }
 
 // XXX
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ResourceBinding(#[serde(with = "serde_binding_type")] pub slang::BindingType);
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -145,25 +145,25 @@ pub struct ResourceShape(#[serde(with = "serde_resource_shape")] pub slang::Reso
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct ResourceAccess(#[serde(with = "serde_resource_access")] pub slang::ResourceAccess);
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SamplerStateType {
     pub is_comparison_state: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SamplerComparisonStateType {
     // TODO
 }
 
 // ~
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ParameterBlockType {
     pub descriptor_set: DescriptorSet,
     pub element: Box<TypeLayout>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DescriptorSet {
     pub set: Option<i64>,
     pub implicit_ubo: Option<DescriptorBinding>,
@@ -178,13 +178,13 @@ impl DescriptorSet {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BindingRange {
     pub range_index: i64,
     pub descriptor: DescriptorBinding,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DescriptorBinding {
     pub binding: i64,
     #[serde(with = "serde_shader_stage_flags")]

@@ -60,6 +60,7 @@ pub enum NodeKind {
     Resource {
         element: Option<NodeId>,
     },
+    Sampler,
     ConstantBuffer {
         element: NodeId,
     },
@@ -196,6 +197,7 @@ impl LayoutIndexer {
                     .map(|e| self.intern_type(*e))
                     .transpose()?,
             },
+            Type::SamplerState(_) | Type::SamplerComparisonState(_) => NodeKind::Sampler,
             Type::Unknown(k, n) => return Err(anyhow!("unknown type: {k} {n}")),
             _ => NodeKind::ScalarLike,
         };

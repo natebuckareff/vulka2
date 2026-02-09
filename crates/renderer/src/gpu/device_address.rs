@@ -5,11 +5,11 @@ use crevice::{
 };
 
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DeviceAddress(pub u64);
 
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct UInt64(pub u64);
 
 unsafe impl Zeroable for UInt64 {}
