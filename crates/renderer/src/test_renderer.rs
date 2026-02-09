@@ -5,9 +5,9 @@ use std::time::Instant;
 
 use crate::gpu::DeviceAddress;
 use crate::gpu::{
-    BufferObject, GpuBuffer, GpuBufferWriteMode, GpuDevice, GpuDeviceFeatureExt,
-    GpuDeviceFeatureV12, GpuDeviceFeatureV13, GpuDeviceRequestBuilder, GpuInstance,
-    GpuQueueProfile, GpuQueueRequest, GpuSurface, GpuSwapchain, ParameterObject,
+    BufferObject, GpuAllocator, GpuBuffer, GpuDevice, GpuDeviceFeatureExt, GpuDeviceFeatureV12,
+    GpuDeviceFeatureV13, GpuDeviceRequestBuilder, GpuInstance, GpuQueueProfile, GpuQueueRequest,
+    GpuSurface, GpuSwapchain, MappedBuffer, ParameterObject, RendererWriteCtx, UploadSystem,
     VkDescriptorValue, VkResourceDescriptor,
 };
 use anyhow::{Context, Result, anyhow};
@@ -100,12 +100,12 @@ impl ShaderResource for ImageObject {
 pub struct Renderer {
     gpu_instance: Arc<GpuInstance>,
     gpu_swapchain: GpuSwapchain,
-    gpu_device: Arc<GpuDevice>,
     physical_device: vk::PhysicalDevice,
-    allocator: Option<Arc<vma::Allocator>>,
+    allocator: Option<Arc<GpuAllocator>>,
     graphics_queue: vk::Queue,
     present_queue: vk::Queue,
     command_pool: vk::CommandPool,
+    upload_system: UploadSystem,
     command_buffers: Vec<vk::CommandBuffer>,
     image_layouts: Vec<vk::ImageLayout>,
     image_available_semaphore: vk::Semaphore,
@@ -138,6 +138,7 @@ pub struct Renderer {
     index_buffer: Option<GpuBuffer>,
     index_buffer_address: vk::DeviceAddress,
     start_time: Instant,
+    gpu_device: Arc<GpuDevice>,
 }
 
 impl Renderer {
@@ -186,6 +187,7 @@ impl Renderer {
                 },
             )
             .required_feature_vk12(GpuDeviceFeatureV12::BufferDeviceAddress)
+            .required_feature_vk12(GpuDeviceFeatureV12::TimelineSemaphore)
             .required_feature_ext(GpuDeviceFeatureExt::MutableDescriptorType)
             .required_feature_vk12(GpuDeviceFeatureV12::DescriptorBindingVariableDescriptorCount)
             .required_feature_vk12(GpuDeviceFeatureV12::DescriptorIndexing)
@@ -206,16 +208,13 @@ impl Renderer {
         let graphics_queue = main_queue.get_vk_queue();
         let present_queue = main_queue.get_vk_queue();
 
-        let mut allocator_options = vma::AllocatorOptions::new(
+        let allocator = GpuAllocator::new(
             gpu_instance.get_vk_instance(),
-            gpu_device.get_vk_device(),
+            gpu_device.clone(),
             physical_device,
-        );
-        allocator_options.flags = vma::AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
-        let allocator = unsafe { vma::Allocator::new(&allocator_options) }
-            .map_err(|err| anyhow!(err))
-            .context("failed to create VMA allocator")?;
-        let allocator = Arc::new(allocator);
+            vma::AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS,
+        )
+        .context("failed to create VMA allocator")?;
 
         let command_pool = unsafe {
             gpu_device
@@ -228,6 +227,12 @@ impl Renderer {
                 )
                 .context("failed to create command pool")?
         };
+        let upload_system = UploadSystem::new(
+            gpu_device.clone(),
+            allocator.clone(),
+            graphics_queue,
+            graphics_queue_family,
+        )?;
 
         let semaphore_info = vk::SemaphoreCreateInfo::builder();
         let image_available_semaphore = unsafe {
@@ -264,6 +269,7 @@ impl Renderer {
             graphics_queue,
             present_queue,
             command_pool,
+            upload_system,
             command_buffers: Vec::new(),
             image_layouts: Vec::new(),
             image_available_semaphore,
@@ -323,6 +329,12 @@ impl Renderer {
                 .get_vk_device()
                 .wait_for_fences(&[self.in_flight_fence], true, u64::MAX)
                 .context("failed to wait for in-flight fence")?;
+        }
+
+        self.upload_system.reset_command_resources()?;
+        self.upload_system.poll_completed()?;
+
+        unsafe {
             self.gpu_device
                 .get_vk_device()
                 .reset_fences(&[self.in_flight_fence])
@@ -355,17 +367,44 @@ impl Renderer {
             .context("missing command buffer for swapchain image")?;
 
         let elapsed = self.start_time.elapsed().as_secs_f32();
-        self.record_command_buffer(image_index as usize, elapsed)?;
+        let extent = self.gpu_swapchain.extent();
+        let aspect = extent.width as f32 / extent.height as f32;
+        let model = Mat4::from_rotation_y(elapsed);
+        let view = Mat4::look_at_rh(Vec3::new(4.0, 3.0, 4.0), Vec3::ZERO, Vec3::Y);
+        let mut projection = Mat4::perspective_rh(45.0_f32.to_radians(), aspect, 0.1, 100.0);
+        projection.y_axis.y *= -1.0;
+        let mvp = projection * view * model;
+
+        let mut upload_batch = self.upload_system.begin_batch();
+        {
+            let mut write_ctx = RendererWriteCtx::new(&mut upload_batch);
+            self.update_frame_data(&mut write_ctx, mvp)?;
+        }
+        let upload_tickets = self.upload_system.submit(upload_batch)?;
+        let upload_wait_value = upload_tickets.iter().map(|ticket| ticket.value).max();
+
+        self.record_command_buffer(image_index as usize)?;
 
         let render_finished_semaphore = *self
             .render_finished_semaphores
             .get(image_index as usize)
             .context("missing render-finished semaphore for swapchain image")?;
-        let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let wait_semaphores = [self.image_available_semaphore];
+        let mut wait_stages = vec![vk::PipelineStageFlags::ALL_COMMANDS];
+        let mut wait_semaphores = vec![self.image_available_semaphore];
+        let mut wait_values = vec![0_u64];
+        if let Some(value) = upload_wait_value {
+            wait_stages.push(vk::PipelineStageFlags::ALL_COMMANDS);
+            wait_semaphores.push(self.upload_system.timeline_semaphore());
+            wait_values.push(value);
+        }
         let command_buffers = [command_buffer];
-        let signal_semaphores = [render_finished_semaphore];
+        let signal_semaphores = vec![render_finished_semaphore];
+        let signal_values = vec![0_u64];
+        let mut timeline_info = vk::TimelineSemaphoreSubmitInfo::builder()
+            .wait_semaphore_values(&wait_values)
+            .signal_semaphore_values(&signal_values);
         let submit_info = [vk::SubmitInfo::builder()
+            .push_next(&mut timeline_info)
             .wait_semaphores(&wait_semaphores)
             .wait_dst_stage_mask(&wait_stages)
             .command_buffers(&command_buffers)
@@ -465,7 +504,7 @@ impl Renderer {
         Ok(command_buffers)
     }
 
-    fn record_command_buffer(&mut self, image_index: usize, elapsed: f32) -> Result<()> {
+    fn record_command_buffer(&mut self, image_index: usize) -> Result<()> {
         let command_buffer = *self
             .command_buffers
             .get(image_index)
@@ -497,18 +536,8 @@ impl Renderer {
                 .context("failed to begin command buffer")?;
         }
 
-        let (color_src_stage, color_src_access) = if old_layout == vk::ImageLayout::PRESENT_SRC_KHR
-        {
-            (
-                vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
-                vk::AccessFlags2::empty(),
-            )
-        } else {
-            (
-                vk::PipelineStageFlags2::TOP_OF_PIPE,
-                vk::AccessFlags2::empty(),
-            )
-        };
+        let color_src_stage = vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT;
+        let color_src_access = vk::AccessFlags2::empty();
         let to_color_barrier = vk::ImageMemoryBarrier2::builder()
             .src_stage_mask(color_src_stage)
             .src_access_mask(color_src_access)
@@ -608,14 +637,6 @@ impl Renderer {
             .build();
         let to_present_info = vk::DependencyInfo::builder()
             .image_memory_barriers(std::slice::from_ref(&to_present_barrier));
-
-        let aspect = extent.width as f32 / extent.height as f32;
-        let model = Mat4::from_rotation_y(elapsed);
-        let view = Mat4::look_at_rh(Vec3::new(4.0, 3.0, 4.0), Vec3::ZERO, Vec3::Y);
-        let mut projection = Mat4::perspective_rh(45.0_f32.to_radians(), aspect, 0.1, 100.0);
-        projection.y_axis.y *= -1.0;
-        let mvp = projection * view * model;
-        self.update_frame_data(mvp)?;
 
         let viewport = vk::Viewport {
             x: 0.0,
@@ -1112,19 +1133,34 @@ impl Renderer {
                 as vk::DeviceSize,
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             &host_allocation,
-            GpuBufferWriteMode::HostVisibleTransient,
         )?;
-        vertex_buffer.write_slice(0, &vertices_std430)?;
-        let vertex_address = vertex_buffer.device_address(&self.gpu_device)?;
+        let vertex_mapped = MappedBuffer::new(vertex_buffer.clone())?;
 
         let index_buffer = GpuBuffer::create(
             self.allocator_arc(),
             (indices.len() * std::mem::size_of::<u32>()) as vk::DeviceSize,
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
             &host_allocation,
-            GpuBufferWriteMode::HostVisibleTransient,
         )?;
-        index_buffer.write_slice(0, &indices)?;
+        let index_mapped = MappedBuffer::new(index_buffer.clone())?;
+
+        let mut upload_batch = self.upload_system.begin_batch();
+        upload_batch.write_mapped(
+            &vertex_mapped,
+            vertex_mapped.view(),
+            0,
+            bytemuck::cast_slice(&vertices_std430),
+        )?;
+        upload_batch.write_mapped(
+            &index_mapped,
+            index_mapped.view(),
+            0,
+            bytemuck::cast_slice(&indices),
+        )?;
+        let _tickets = self.upload_system.submit(upload_batch)?;
+        self.upload_system.wait_idle()?;
+
+        let vertex_address = vertex_buffer.device_address(&self.gpu_device)?;
         let index_address = index_buffer.device_address(&self.gpu_device)?;
 
         self.vertex_buffer = Some(vertex_buffer);
@@ -1301,14 +1337,16 @@ impl Renderer {
             size,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             &allocation_options,
-            GpuBufferWriteMode::HostVisiblePersistent,
         )?;
-        self.frame_uniform_object = Some(BufferObject::whole_uniform(buffer));
+        let mapped = MappedBuffer::new(buffer)?;
+        self.frame_uniform_object = Some(BufferObject::uniform_mapped(mapped));
 
         Ok(())
     }
 
     fn bind_material_resources(&mut self) -> Result<()> {
+        let mut upload_batch = self.upload_system.begin_batch();
+
         let material_parameter = self
             .material_parameter
             .clone()
@@ -1321,19 +1359,24 @@ impl Renderer {
             .context("missing texture image object")?;
         let material_view = self.parameter_block_root_view(MATERIAL_PARAMETER_BLOCK_NAME)?;
 
-        let mut sampler_cursor =
-            ShaderCursor::new(material_view.clone(), Box::new(material_parameter.clone()))
-                .field("textureSampler")?;
-        sampler_cursor.bind(&sampler)?;
+        {
+            let mut write_ctx = RendererWriteCtx::new(&mut upload_batch);
+            let mut sampler_cursor =
+                ShaderCursor::new(material_view.clone(), Box::new(material_parameter.clone()))
+                    .field("textureSampler")?;
+            sampler_cursor.bind(&mut write_ctx, &sampler)?;
 
-        let mut image_cursor = ShaderCursor::new(material_view, Box::new(material_parameter))
-            .field("texture")?;
-        image_cursor.bind(&image)?;
+            let mut image_cursor = ShaderCursor::new(material_view, Box::new(material_parameter))
+                .field("texture")?;
+            image_cursor.bind(&mut write_ctx, &image)?;
+        }
+
+        let _ = self.upload_system.submit(upload_batch)?;
 
         Ok(())
     }
 
-    fn update_frame_data(&mut self, mvp: Mat4) -> Result<()> {
+    fn update_frame_data(&mut self, write_ctx: &mut RendererWriteCtx<'_>, mvp: Mat4) -> Result<()> {
         let frame_parameter = self
             .frame_parameter
             .clone()
@@ -1353,8 +1396,8 @@ impl Renderer {
         let frame_cursor = ShaderCursor::new(frame_view, Box::new(frame_parameter));
         let mut draw_cursor = frame_cursor
             .field("draw")?
-            .bind_and_resolve(Box::new(frame_uniform))?;
-        draw_cursor.write_bytes(bytemuck::bytes_of(&draw_data_std140))?;
+            .bind_and_resolve(write_ctx, Box::new(frame_uniform))?;
+        draw_cursor.write_bytes(write_ctx, bytemuck::bytes_of(&draw_data_std140))?;
         Ok(())
     }
 
@@ -1591,10 +1634,10 @@ impl Renderer {
         self.allocator
             .as_ref()
             .expect("VMA allocator must be initialized")
-            .as_ref()
+            .raw()
     }
 
-    fn allocator_arc(&self) -> Arc<vma::Allocator> {
+    fn allocator_arc(&self) -> Arc<GpuAllocator> {
         self.allocator
             .as_ref()
             .expect("VMA allocator must be initialized")
@@ -1640,6 +1683,15 @@ impl Renderer {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
+        let _ = self.upload_system.wait_idle();
+        let _ = self.upload_system.poll_completed();
+        unsafe {
+            let _ = self.gpu_device.get_vk_device().device_wait_idle();
+        }
+
+        self.frame_uniform_object = None;
+        self.vertex_buffer = None;
+        self.index_buffer = None;
         self.frame_parameter = None;
         self.material_parameter = None;
         self.texture_sampler_object = None;
@@ -1649,7 +1701,6 @@ impl Drop for Renderer {
         self.cursor_layout = None;
 
         unsafe {
-            let _ = self.gpu_device.get_vk_device().device_wait_idle();
             let _ = self.cleanup_swapchain_resources();
 
             if self.descriptor_pool != vk::DescriptorPool::null() {
@@ -1700,10 +1751,6 @@ impl Drop for Renderer {
             }
 
             self.texture_image_allocation = None;
-
-            self.frame_uniform_object = None;
-            self.vertex_buffer = None;
-            self.index_buffer = None;
 
             self.gpu_device
                 .get_vk_device()

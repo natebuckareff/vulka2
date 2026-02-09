@@ -11,6 +11,7 @@ pub enum GpuDeviceFeature {
 #[derive(Clone, Copy, PartialEq)]
 pub enum GpuDeviceFeatureV12 {
     BufferDeviceAddress,
+    TimelineSemaphore,
     DescriptorBindingPartiallyBound,
     DescriptorBindingVariableDescriptorCount,
     DescriptorIndexing,
@@ -199,6 +200,7 @@ fn set_v12(
     use GpuDeviceFeatureV12::*;
     match feature {
         BufferDeviceAddress => &mut vulkan12.buffer_device_address,
+        TimelineSemaphore => &mut vulkan12.timeline_semaphore,
         DescriptorBindingPartiallyBound => &mut vulkan12.descriptor_binding_partially_bound,
         DescriptorBindingVariableDescriptorCount => {
             &mut vulkan12.descriptor_binding_variable_descriptor_count

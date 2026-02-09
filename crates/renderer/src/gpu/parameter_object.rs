@@ -10,7 +10,7 @@ use slang::{
 use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
 
-use super::GpuDevice;
+use super::{GpuDevice, RendererWriteCtx};
 
 #[derive(Clone, Copy)]
 pub(crate) enum VkDescriptorValue {
@@ -101,19 +101,27 @@ impl ParameterObject {
     }
 }
 
-impl ShaderObject for ParameterObject {
-    fn as_shader_block(&mut self) -> Option<&mut dyn ShaderParameterBlock> {
+impl<'a> ShaderObject<RendererWriteCtx<'a>> for ParameterObject {
+    fn as_shader_block(
+        &mut self,
+    ) -> Option<&mut dyn ShaderParameterBlock<RendererWriteCtx<'a>>> {
         Some(self)
     }
 
-    fn write(&mut self, _offset: ShaderOffset, _bytes: &[u8]) -> Result<()> {
+    fn write(
+        &mut self,
+        _ctx: &mut RendererWriteCtx<'a>,
+        _offset: ShaderOffset,
+        _bytes: &[u8],
+    ) -> Result<()> {
         Err(anyhow!("parameter objects do not support byte writes"))
     }
 }
 
-impl ShaderParameterBlock for ParameterObject {
+impl<'a> ShaderParameterBlock<RendererWriteCtx<'a>> for ParameterObject {
     fn bind(
         &mut self,
+        _ctx: &mut RendererWriteCtx<'a>,
         offset: ShaderOffset,
         descriptor: Box<dyn ResourceDescriptor>,
     ) -> Result<()> {
