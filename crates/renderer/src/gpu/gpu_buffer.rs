@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use bytemuck::Pod;
 use vulkanalia::prelude::v1_3::*;
 use vulkanalia::vk;
-use vulkanalia_vma::{self as vma, Alloc};
+use vulkanalia_vma::{self as vma, Alloc, AllocationCreateFlags};
 
 use super::GpuDevice;
 
@@ -35,11 +35,14 @@ struct GpuBufferInner {
     size: vk::DeviceSize,
     usage: vk::BufferUsageFlags,
     write_mode: GpuBufferWriteMode,
+    // This pointer is populated only for persistently mapped allocations.
+    // Mapping ownership stays with VMA allocation flags, not this wrapper.
     mapped_ptr: Option<NonNull<u8>>,
     write_lock: Mutex<()>,
 }
 
 impl GpuBuffer {
+    // Project rule: memory allocated by VMA must only be mapped/unmapped via VMA APIs.
     pub fn create(
         allocator: Arc<vma::Allocator>,
         size: vk::DeviceSize,
@@ -47,24 +50,26 @@ impl GpuBuffer {
         allocation_options: &vma::AllocationOptions,
         write_mode: GpuBufferWriteMode,
     ) -> Result<Self> {
+        let allocation_options =
+            Self::normalize_allocation_options(allocation_options, write_mode)?;
         let buffer_info = vk::BufferCreateInfo::builder()
             .size(size)
             .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        let (buffer, allocation) = unsafe { allocator.create_buffer(buffer_info, allocation_options) }
+        let (buffer, allocation) = unsafe { allocator.create_buffer(buffer_info, &allocation_options) }
             .map_err(|err| anyhow!(err))
             .context("failed to create VMA buffer")?;
 
         let mapped_ptr = match write_mode {
             GpuBufferWriteMode::HostVisiblePersistent => {
-                let raw_ptr = unsafe { allocator.map_memory(allocation) }
-                    .map_err(|err| anyhow!(err))
-                    .context("failed to map persistent buffer allocation")?;
-                let Some(mapped_ptr) = NonNull::new(raw_ptr as *mut u8) else {
+                let info = allocator.get_allocation_info(allocation);
+                let Some(mapped_ptr) = NonNull::new(info.pMappedData as *mut u8) else {
                     unsafe {
                         allocator.destroy_buffer(buffer, allocation);
                     }
-                    return Err(anyhow!("persistent buffer mapping returned a null pointer"));
+                    return Err(anyhow!(
+                        "persistent buffer allocation was not mapped as expected"
+                    ));
                 };
                 Some(mapped_ptr)
             }
@@ -83,6 +88,47 @@ impl GpuBuffer {
                 write_lock: Mutex::new(()),
             }),
         })
+    }
+
+    fn normalize_allocation_options(
+        requested: &vma::AllocationOptions,
+        write_mode: GpuBufferWriteMode,
+    ) -> Result<vma::AllocationOptions> {
+        let mut options = *requested;
+
+        let host_access_flags =
+            AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE | AllocationCreateFlags::HOST_ACCESS_RANDOM;
+        let has_host_access = options.flags.intersects(host_access_flags);
+
+        match write_mode {
+            GpuBufferWriteMode::HostVisibleTransient => {
+                if !has_host_access {
+                    options.flags |= AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE;
+                }
+                if options.flags.contains(AllocationCreateFlags::MAPPED) {
+                    return Err(anyhow!(
+                        "HostVisibleTransient buffers must not set MAPPED allocation flag"
+                    ));
+                }
+            }
+            GpuBufferWriteMode::HostVisiblePersistent => {
+                if !has_host_access {
+                    options.flags |= AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE;
+                }
+                options.flags |= AllocationCreateFlags::MAPPED;
+            }
+            GpuBufferWriteMode::DeviceLocalOnly => {
+                let forbidden =
+                    host_access_flags | AllocationCreateFlags::MAPPED | AllocationCreateFlags::HOST_ACCESS_ALLOW_TRANSFER_INSTEAD;
+                if options.flags.intersects(forbidden) {
+                    return Err(anyhow!(
+                        "DeviceLocalOnly buffers must not include host-access or mapped allocation flags"
+                    ));
+                }
+            }
+        }
+
+        Ok(options)
     }
 
     pub fn handle(&self) -> vk::Buffer {
@@ -142,6 +188,11 @@ impl GpuBuffer {
         self.write_bytes(offset, bytemuck::cast_slice(values))
     }
 
+    /// Writes CPU data into this buffer allocation and flushes the touched range.
+    ///
+    /// This function only handles host-memory visibility. Callers remain
+    /// responsible for GPU-side ordering/synchronization (fences/barriers) before
+    /// the written range is consumed by GPU work.
     pub fn write_bytes(&self, offset: usize, bytes: &[u8]) -> Result<()> {
         let (start, size) = self.checked_write_range(offset, bytes.len())?;
         let _guard = self
@@ -207,9 +258,15 @@ impl GpuBuffer {
         let ptr = unsafe { self.inner.allocator.map_memory(self.inner.allocation) }
             .map_err(|err| anyhow!(err))
             .context("failed to map buffer allocation")?;
+        let Some(mapped_ptr) = NonNull::new(ptr as *mut u8) else {
+            unsafe {
+                self.inner.allocator.unmap_memory(self.inner.allocation);
+            }
+            return Err(anyhow!("transient buffer mapping returned a null pointer"));
+        };
 
         unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), (ptr as *mut u8).add(offset), bytes.len());
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), mapped_ptr.as_ptr().add(offset), bytes.len());
         }
 
         let flush_result = unsafe { self.inner.allocator.flush_allocation(self.inner.allocation, start, size) };
@@ -309,11 +366,6 @@ impl GpuBufferView {
 
 impl Drop for GpuBufferInner {
     fn drop(&mut self) {
-        if self.mapped_ptr.is_some() {
-            unsafe {
-                self.allocator.unmap_memory(self.allocation);
-            }
-        }
         unsafe {
             self.allocator.destroy_buffer(self.buffer, self.allocation);
         }
