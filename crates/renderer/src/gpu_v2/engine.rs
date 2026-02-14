@@ -1,10 +1,8 @@
-use std::{
-    cell::OnceCell,
-    cmp::Ordering,
-    collections::{BTreeMap, HashSet},
-    ffi::{CStr, CString, c_void},
-    sync::Arc,
-};
+use std::cell::OnceCell;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashSet};
+use std::ffi::{CStr, CString, c_void};
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use vulkanalia::vk::KhrSurfaceExtensionInstanceCommands;
@@ -12,9 +10,7 @@ use vulkanalia::window::{create_surface, get_required_instance_extensions};
 use vulkanalia::{Version, vk};
 use winit::window::Window;
 
-use crate::gpu_v2::{
-    Device, DeviceBuilder, QueueFamily, QueueFamilyId, QueueRoleFlags, ValidationLayers,
-};
+use crate::gpu_v2::{DeviceBuilder, QueueFamily, QueueFamilyId, QueueRoleFlags, ValidationLayers};
 
 const MIN_API_VERSION: Version = Version::V1_3_0;
 
@@ -64,7 +60,6 @@ impl From<usize> for DeviceId {
     }
 }
 
-// TODO: rename to DeviceConfig???
 #[derive(Debug)]
 pub struct DeviceInfo {
     pub id: DeviceId,
