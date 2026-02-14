@@ -170,6 +170,9 @@ impl Engine {
         all_extensions.extend(required_extensions.iter().map(|ext| ext.as_ptr()));
         all_extensions.extend(validation_layers.get_layer_extensions()?);
 
+        all_extensions.sort();
+        all_extensions.dedup();
+
         let application_name = params
             .application_name
             .as_ref()
