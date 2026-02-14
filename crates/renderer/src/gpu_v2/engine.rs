@@ -1,7 +1,7 @@
 use std::{
     cell::OnceCell,
     cmp::Ordering,
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     ffi::{CStr, CString, c_void},
     sync::Arc,
 };
@@ -71,7 +71,7 @@ pub struct DeviceInfo {
     pub score: f32,
     pub name: String,
     pub kind: Option<DeviceKind>,
-    pub families: Vec<QueueFamily>,
+    pub families: BTreeMap<QueueFamilyId, QueueFamily>,
 }
 
 pub struct Engine {
@@ -352,7 +352,7 @@ fn score_device(
         score: 0.0,
         name: device_properties.device_name.to_string(),
         kind,
-        families: Vec::with_capacity(family_properties.len()),
+        families: BTreeMap::new(),
     };
 
     let mut supported_roles = QueueRoleFlags::empty();
@@ -378,11 +378,15 @@ fn score_device(
         let score = intersection.bits().count_ones() * family_info.properties.queue_count;
         device_info.score += score as f32;
 
-        device_info.families.push(QueueFamily {
-            id: QueueFamilyId::from(i),
-            count: properties.queue_count,
-            roles: queue_flags,
-        });
+        let id = QueueFamilyId::from(i);
+        device_info.families.insert(
+            id,
+            QueueFamily {
+                id,
+                count: properties.queue_count,
+                roles: queue_flags,
+            },
+        );
     }
 
     if !profile.roles.difference(supported_roles).is_empty() {
