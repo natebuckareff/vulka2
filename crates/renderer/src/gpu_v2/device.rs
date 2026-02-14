@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::gpu_v2::{
     DeviceInfo, Engine, QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup, QueueGroupBuilder,
-    QueueId, QueueRoleFlags, select_best_families,
+    QueueId, QueueRoleFlags, get_available_families, select_best_families,
 };
 
 pub struct DeviceBuilder {
@@ -28,17 +28,8 @@ impl DeviceBuilder {
         }
     }
 
-    fn available_families(&self) -> Vec<QueueFamily> {
-        self.families
-            .values()
-            .copied()
-            .map(|mut family| {
-                let allocated = self.allocations.get(&family.id).copied().unwrap_or(0);
-                debug_assert!(allocated <= family.count);
-                family.count = family.count.saturating_sub(allocated);
-                family
-            })
-            .collect()
+    fn available_families(&self) -> Result<Vec<QueueFamily>> {
+        get_available_families(&self.families, &self.allocations)
     }
 
     pub(crate) fn allocate_group(&mut self, roles: QueueRoleFlags) -> Result<Option<QueueGroup>> {
@@ -46,7 +37,7 @@ impl DeviceBuilder {
             return Ok(None);
         }
 
-        let available_families = self.available_families();
+        let available_families = self.available_families()?;
         let selected_families = select_best_families(&available_families, roles);
         if selected_families.is_empty() {
             return Ok(None);

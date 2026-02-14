@@ -118,6 +118,7 @@ impl QueueGroup {
         Self { allocations }
     }
 
+    // TODO: do we need this?
     pub fn allocations(&self) -> &[QueueAllocation] {
         &self.allocations
     }

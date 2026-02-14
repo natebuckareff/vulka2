@@ -1,4 +1,56 @@
-use crate::gpu_v2::{QueueFamily, QueueRoleFlags};
+use std::collections::{BTreeMap, HashMap};
+
+use anyhow::{Result, anyhow};
+
+use crate::gpu_v2::{QueueFamily, QueueFamilyId, QueueRoleFlags};
+
+pub fn get_available_families(
+    families: &BTreeMap<QueueFamilyId, QueueFamily>,
+    allocations: &HashMap<QueueFamilyId, u32>,
+) -> Result<Vec<QueueFamily>> {
+    families
+        .values()
+        .copied()
+        .map(|family| get_available_family(family, allocations))
+        .collect()
+}
+
+fn get_available_family(
+    mut family: QueueFamily,
+    allocations: &HashMap<QueueFamilyId, u32>,
+) -> Result<QueueFamily> {
+    let allocated = allocations.get(&family.id).copied().unwrap_or(0);
+    family.count = family.count.checked_sub(allocated).ok_or_else(|| {
+        let id: u32 = family.id.into();
+        anyhow!(
+            "internal queue allocation state invalid for family {}: allocated={} total={}",
+            id,
+            allocated,
+            family.count
+        )
+    })?;
+    Ok(family)
+}
+
+pub fn select_best_families(families: &[QueueFamily], roles: QueueRoleFlags) -> Vec<QueueFamily> {
+    let families = families
+        .iter()
+        .copied()
+        .filter(|family| family.count > 0)
+        .collect::<Vec<_>>();
+
+    if families.is_empty() {
+        return Vec::new();
+    }
+
+    let full_cover = get_fully_covering_families(&families, roles);
+    if !full_cover.is_empty() {
+        let ranked = get_bias_ranked_families(&full_cover);
+        return ranked.into_iter().take(1).collect();
+    }
+
+    get_greedily_covering_families(&families, roles)
+}
 
 fn get_fully_covering_families(
     families: &[QueueFamily],
@@ -61,29 +113,11 @@ fn get_bias_ranked_families(families: &[QueueFamily]) -> Vec<QueueFamily> {
     sorted
 }
 
-pub fn select_best_families(families: &[QueueFamily], roles: QueueRoleFlags) -> Vec<QueueFamily> {
-    let families = families
-        .iter()
-        .copied()
-        .filter(|family| family.count > 0)
-        .collect::<Vec<_>>();
-
-    if families.is_empty() {
-        return Vec::new();
-    }
-
-    let full_cover = get_fully_covering_families(&families, roles);
-    if !full_cover.is_empty() {
-        let ranked = get_bias_ranked_families(&full_cover);
-        return ranked.into_iter().take(1).collect();
-    }
-
-    get_greedily_covering_families(&families, roles)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeMap, HashMap};
+
     use crate::gpu_v2::{QueueFamily, QueueFamilyId, QueueRoleFlags};
 
     fn allocate_group(
@@ -262,6 +296,27 @@ mod tests {
 
         assert_eq!(best.len(), 1);
         assert_eq!(best[0].id, QueueFamilyId::from(1u32));
+    }
+
+    #[test]
+    fn project_available_families_errors_on_over_allocation() {
+        let id0 = QueueFamilyId::from(0u32);
+
+        let mut families = BTreeMap::new();
+        families.insert(
+            id0,
+            QueueFamily {
+                id: id0,
+                count: 1,
+                roles: QueueRoleFlags::TRANSFER,
+            },
+        );
+
+        let mut allocations = HashMap::new();
+        allocations.insert(id0, 2);
+
+        let projected = get_available_families(&families, &allocations);
+        assert!(projected.is_err());
     }
 
     #[test]
