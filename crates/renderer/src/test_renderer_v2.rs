@@ -55,6 +55,10 @@ impl Renderer for TestRendererV2 {
         let async_compute_group = builder.queue_group().compute().transfer().build().unwrap();
         let async_transfer_group = builder.queue_group().transfer().build().unwrap();
 
+        dbg!(&primary_group);
+        dbg!(&async_compute_group);
+        dbg!(&async_transfer_group);
+
         let device = builder.build()?;
 
         // println!("info: {:#?}", info);

@@ -12,7 +12,9 @@ use vulkanalia::window::{create_surface, get_required_instance_extensions};
 use vulkanalia::{Version, vk};
 use winit::window::Window;
 
-use crate::gpu_v2::{Device, DeviceBuilder, QueueFamilyId, QueueRoleFlags, ValidationLayers};
+use crate::gpu_v2::{
+    Device, DeviceBuilder, QueueFamily, QueueFamilyId, QueueRoleFlags, ValidationLayers,
+};
 
 const MIN_API_VERSION: Version = Version::V1_3_0;
 
@@ -69,41 +71,8 @@ pub struct DeviceInfo {
     pub score: f32,
     pub name: String,
     pub kind: Option<DeviceKind>,
-    pub families: Vec<QueueFamilyInfo>,
+    pub families: Vec<QueueFamily>,
 }
-
-#[derive(Debug)]
-pub struct QueueFamilyInfo {
-    pub id: QueueFamilyId,
-    pub count: u32,
-    pub roles: QueueRoleFlags,
-}
-
-// pub struct DeviceBuilder {
-//     pub id: Option<DeviceId>,
-//     pub queues: Vec<(QueueFamilyId, u32)>,
-// }
-
-// impl DeviceBuilder {
-//     pub fn new() -> Self {
-//         Self {
-//             id: None,
-//             queues: Vec::new(),
-//         }
-//     }
-
-//     pub fn id(mut self, id: DeviceId) -> Self {
-//         self.id = Some(id);
-//         self
-//     }
-
-//     pub fn queue(mut self, family: QueueFamilyId, count: u32) -> Self {
-//         if !self.queues.iter().any(|q| q.0 == family) {
-//             self.queues.push((family, count));
-//         }
-//         self
-//     }
-// }
 
 pub struct Engine {
     entry: vulkanalia::Entry,
@@ -409,7 +378,7 @@ fn score_device(
         let score = intersection.bits().count_ones() * family_info.properties.queue_count;
         device_info.score += score as f32;
 
-        device_info.families.push(QueueFamilyInfo {
+        device_info.families.push(QueueFamily {
             id: QueueFamilyId::from(i),
             count: properties.queue_count,
             roles: queue_flags,
