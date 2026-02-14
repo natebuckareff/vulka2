@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.100"
+bitflags = "2.10.0"
 bytemuck = { version = "1.24.0", features = ["derive"] }
 crevice = { version = "0.18.0", features = ["glam"] }
 glam = { version = "0.30.10", features = ["bytemuck"] }

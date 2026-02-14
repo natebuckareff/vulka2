@@ -9,16 +9,16 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
-use crate::test_renderer::Renderer;
+use crate::renderer::Renderer;
 
-pub struct WindowedApp {
+pub struct WindowedApp<T: Renderer> {
     window: Option<Arc<Window>>,
-    renderer: Option<Renderer>,
+    renderer: Option<Box<T>>,
     next_frame: Instant,
     frame_dt: Duration,
 }
 
-impl WindowedApp {
+impl<T: Renderer> WindowedApp<T> {
     pub fn new() -> Self {
         Self {
             window: None,
@@ -45,17 +45,17 @@ impl WindowedApp {
         Ok(Arc::new(window))
     }
 
-    pub fn create_renderer(window: Arc<Window>) -> Result<Renderer> {
+    pub fn create_renderer(window: Arc<Window>) -> Result<Box<T>> {
         let renderer = Renderer::new(window.clone())?;
         Ok(renderer)
     }
 }
 
-impl ApplicationHandler for WindowedApp {
+impl<T: Renderer> ApplicationHandler for WindowedApp<T> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.window = Some(Self::create_window(event_loop).expect("failed to create window"));
 
-        let window = self.window.as_ref().unwrap();
+        let window = self.window.as_ref().expect("window not created");
 
         self.renderer =
             Some(Self::create_renderer(window.clone()).expect("failed to create renderer"));
