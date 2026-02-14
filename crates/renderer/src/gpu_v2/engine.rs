@@ -17,6 +17,11 @@ const MIN_API_VERSION: Version = Version::V1_3_0;
 /// The Vulkan SDK version that started requiring the portability subset extension for macOS.
 const PORTABILITY_MACOS_VERSION: vulkanalia::Version = vulkanalia::Version::new(1, 3, 216);
 
+struct QueueFamilyPropertyInfo {
+    properties: vk::QueueFamilyProperties,
+    supports_surface: Option<bool>,
+}
+
 pub struct EngineParams {
     pub application_name: Option<String>,
     pub application_version: Option<u32>,
@@ -79,8 +84,8 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(params: EngineParams) -> Result<Arc<Self>> {
-        let entry = Self::load_library()?;
-        let (instance, surface) = Self::create_instance(&entry, &params)?;
+        let entry = load_library()?;
+        let (instance, surface) = build_instance(&entry, &params)?;
         let engine = Self {
             entry,
             instance,
@@ -88,140 +93,6 @@ impl Engine {
             physical_devices: OnceCell::new(),
         };
         Ok(Arc::new(engine))
-    }
-
-    fn load_library() -> Result<vulkanalia::Entry> {
-        use vulkanalia::Entry;
-        use vulkanalia::loader::LIBRARY;
-        use vulkanalia::loader::LibloadingLoader;
-        use vulkanalia::prelude::v1_1::*;
-
-        let loader = unsafe { LibloadingLoader::new(LIBRARY)? };
-        let entry = unsafe { Entry::new(loader).map_err(|e| anyhow::anyhow!("{}", e))? };
-        let version = unsafe { entry.enumerate_instance_version()? };
-
-        if !is_version_compatible(version) {
-            let (major, minor, patch) = (
-                vk::version_major(version),
-                vk::version_minor(version),
-                vk::version_patch(version),
-            );
-            eprintln!("vulkan version too old: {}.{}.{}", major, minor, patch);
-            return Err(anyhow!("vulkan 1.3 or newer is required"));
-        }
-
-        Ok(entry)
-    }
-
-    fn create_instance(
-        entry: &vulkanalia::Entry,
-        params: &EngineParams,
-    ) -> Result<(vulkanalia::Instance, Option<vk::SurfaceKHR>)> {
-        use vulkanalia::prelude::v1_0::*;
-
-        let mut validation_layers = ValidationLayers::new(entry);
-        let mut required_extensions = vec![];
-
-        if let Some(window) = &params.window {
-            let window_extensions = get_required_instance_extensions(window)
-                .iter()
-                .map(|ext| **ext);
-
-            required_extensions.push(vk::KHR_SURFACE_EXTENSION.name);
-            required_extensions.extend(window_extensions);
-        }
-
-        if let Some(validation_features) = &params.enable_validation_layers {
-            validation_layers.enable_features(*validation_features)?;
-            validation_layers.enable_extensions(&[vk::EXT_DEBUG_UTILS_EXTENSION])?;
-        }
-
-        // Required by Vulkan SDK on macOS since 1.3.216.
-        let flags = if cfg!(target_os = "macos") && entry.version()? >= PORTABILITY_MACOS_VERSION {
-            println!("enabling extensions for macos portability");
-            required_extensions.push(vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name);
-            required_extensions.push(vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name);
-            vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
-        } else {
-            vk::InstanceCreateFlags::empty()
-        };
-
-        let supported_instance_extensions =
-            unsafe { entry.enumerate_instance_extension_properties(None)? }
-                .into_iter()
-                .map(|ext| ext.extension_name)
-                .collect::<HashSet<_>>();
-
-        let missing_extensions: Vec<_> = required_extensions
-            .iter()
-            .copied()
-            .filter(|ext| !supported_instance_extensions.contains(ext))
-            .collect();
-
-        if !missing_extensions.is_empty() {
-            for ext in missing_extensions {
-                eprintln!("not supported: {}", ext);
-            }
-            return Err(anyhow!(
-                "some required instance extensions are not supported",
-            ));
-        }
-
-        let mut all_extensions = vec![];
-        all_extensions.extend(required_extensions.iter().map(|ext| ext.as_ptr()));
-        all_extensions.extend(validation_layers.get_layer_extensions()?);
-
-        all_extensions.sort();
-        all_extensions.dedup();
-
-        let application_name = params
-            .application_name
-            .as_ref()
-            .map(|name| CString::new(name.as_str()))
-            .transpose()?
-            .unwrap_or_default();
-
-        let application_version = params.application_version.unwrap_or(0);
-
-        let application_info = vk::ApplicationInfo::builder()
-            .api_version(vk::make_version(1, 3, 0))
-            .application_name(application_name.as_bytes_with_nul())
-            .application_version(application_version)
-            .engine_name(b"vulka\0")
-            .engine_version(vk::make_version(0, 0, 1));
-
-        let mut validation_features = validation_layers.get_validation_features();
-
-        let mut instance_info = vk::InstanceCreateInfo::builder()
-            .application_info(&application_info)
-            .enabled_extension_names(&all_extensions)
-            .enabled_layer_names(&validation_layers.layer_names())
-            .flags(flags)
-            .push_next(&mut validation_features);
-
-        let mut debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
-            .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::all())
-            .message_type(params.debug_message_types.unwrap_or_else(|| {
-                vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
-                    | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-                    | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE
-            }))
-            .user_callback(Some(debug_callback));
-
-        if params.enable_validation_layers.is_some() {
-            instance_info = instance_info.push_next(&mut debug_info);
-        }
-
-        let instance = unsafe { entry.create_instance(&instance_info, None)? };
-
-        let surface = if let Some(window) = &params.window {
-            let surface = unsafe { create_surface(&instance, window, window)? };
-            Some(surface)
-        } else {
-            None
-        };
-
-        Ok((instance, surface))
     }
 
     fn get_physical_devices_mut(&self) -> Result<&Vec<vk::PhysicalDevice>> {
@@ -327,9 +198,138 @@ impl Drop for Engine {
     }
 }
 
-struct QueueFamilyPropertyInfo {
-    properties: vk::QueueFamilyProperties,
-    supports_surface: Option<bool>,
+fn load_library() -> Result<vulkanalia::Entry> {
+    use vulkanalia::Entry;
+    use vulkanalia::loader::LIBRARY;
+    use vulkanalia::loader::LibloadingLoader;
+    use vulkanalia::prelude::v1_1::*;
+
+    let loader = unsafe { LibloadingLoader::new(LIBRARY)? };
+    let entry = unsafe { Entry::new(loader).map_err(|e| anyhow::anyhow!("{}", e))? };
+    let version = unsafe { entry.enumerate_instance_version()? };
+
+    if !is_version_compatible(version) {
+        let (major, minor, patch) = (
+            vk::version_major(version),
+            vk::version_minor(version),
+            vk::version_patch(version),
+        );
+        eprintln!("vulkan version too old: {}.{}.{}", major, minor, patch);
+        return Err(anyhow!("vulkan 1.3 or newer is required"));
+    }
+
+    Ok(entry)
+}
+
+fn build_instance(
+    entry: &vulkanalia::Entry,
+    params: &EngineParams,
+) -> Result<(vulkanalia::Instance, Option<vk::SurfaceKHR>)> {
+    use vulkanalia::prelude::v1_0::*;
+
+    let mut validation_layers = ValidationLayers::new(entry);
+    let mut required_extensions = vec![];
+
+    if let Some(window) = &params.window {
+        let window_extensions = get_required_instance_extensions(window)
+            .iter()
+            .map(|ext| **ext);
+
+        required_extensions.push(vk::KHR_SURFACE_EXTENSION.name);
+        required_extensions.extend(window_extensions);
+    }
+
+    if let Some(validation_features) = &params.enable_validation_layers {
+        validation_layers.enable_features(*validation_features)?;
+        validation_layers.enable_extensions(&[vk::EXT_DEBUG_UTILS_EXTENSION])?;
+    }
+
+    // Required by Vulkan SDK on macOS since 1.3.216.
+    let flags = if cfg!(target_os = "macos") && entry.version()? >= PORTABILITY_MACOS_VERSION {
+        println!("enabling extensions for macos portability");
+        required_extensions.push(vk::KHR_GET_PHYSICAL_DEVICE_PROPERTIES2_EXTENSION.name);
+        required_extensions.push(vk::KHR_PORTABILITY_ENUMERATION_EXTENSION.name);
+        vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
+    } else {
+        vk::InstanceCreateFlags::empty()
+    };
+
+    let supported_instance_extensions =
+        unsafe { entry.enumerate_instance_extension_properties(None)? }
+            .into_iter()
+            .map(|ext| ext.extension_name)
+            .collect::<HashSet<_>>();
+
+    let missing_extensions: Vec<_> = required_extensions
+        .iter()
+        .copied()
+        .filter(|ext| !supported_instance_extensions.contains(ext))
+        .collect();
+
+    if !missing_extensions.is_empty() {
+        for ext in missing_extensions {
+            eprintln!("not supported: {}", ext);
+        }
+        return Err(anyhow!(
+            "some required instance extensions are not supported",
+        ));
+    }
+
+    let mut all_extensions = vec![];
+    all_extensions.extend(required_extensions.iter().map(|ext| ext.as_ptr()));
+    all_extensions.extend(validation_layers.get_layer_extensions()?);
+
+    all_extensions.sort();
+    all_extensions.dedup();
+
+    let application_name = params
+        .application_name
+        .as_ref()
+        .map(|name| CString::new(name.as_str()))
+        .transpose()?
+        .unwrap_or_default();
+
+    let application_version = params.application_version.unwrap_or(0);
+
+    let application_info = vk::ApplicationInfo::builder()
+        .api_version(vk::make_version(1, 3, 0))
+        .application_name(application_name.as_bytes_with_nul())
+        .application_version(application_version)
+        .engine_name(b"vulka\0")
+        .engine_version(vk::make_version(0, 0, 1));
+
+    let mut validation_features = validation_layers.get_validation_features();
+
+    let mut instance_info = vk::InstanceCreateInfo::builder()
+        .application_info(&application_info)
+        .enabled_extension_names(&all_extensions)
+        .enabled_layer_names(&validation_layers.layer_names())
+        .flags(flags)
+        .push_next(&mut validation_features);
+
+    let mut debug_info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
+        .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::all())
+        .message_type(params.debug_message_types.unwrap_or_else(|| {
+            vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE
+        }))
+        .user_callback(Some(debug_callback));
+
+    if params.enable_validation_layers.is_some() {
+        instance_info = instance_info.push_next(&mut debug_info);
+    }
+
+    let instance = unsafe { entry.create_instance(&instance_info, None)? };
+
+    let surface = if let Some(window) = &params.window {
+        let surface = unsafe { create_surface(&instance, window, window)? };
+        Some(surface)
+    } else {
+        None
+    };
+
+    Ok((instance, surface))
 }
 
 fn score_device(
