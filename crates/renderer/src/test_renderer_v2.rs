@@ -4,14 +4,14 @@ use anyhow::{Context, Result};
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::gpu_v2::{
-    DeviceBuilder, DeviceKind, DeviceProfile, Engine, EngineParams, QueueRoleFlags,
-    ValidationFeatures,
+    Device, DeviceProfile, Engine, EngineParams, QueueRoleFlags, ValidationFeatures,
 };
 use crate::renderer::Renderer;
 
 pub struct TestRendererV2 {
     window: Arc<Window>,
     engine: Arc<Engine>,
+    device: Arc<Device>,
 }
 
 impl Renderer for TestRendererV2 {
@@ -43,7 +43,7 @@ impl Renderer for TestRendererV2 {
         let info = engine.get_best_device(profile)?.unwrap();
         let mut builder = engine.device(info);
 
-        let primary_group = builder
+        let primary_group_id = builder
             .queue_group()
             .graphics()
             .present()
@@ -52,28 +52,42 @@ impl Renderer for TestRendererV2 {
             .build()
             .context("failed to create primary queue group")?;
 
-        let async_compute_group = builder.queue_group().compute().transfer().build().unwrap();
-        let async_transfer_group = builder.queue_group().transfer().build().unwrap();
+        let async_compute_group_id = builder
+            .queue_group()
+            .compute()
+            .transfer()
+            .build()
+            .context("failed to create async compute queue group")?;
+
+        let async_transfer_group_id = builder
+            .queue_group()
+            .transfer()
+            .build()
+            .context("failed to create async transfer queue group")?;
+
+        let device = builder.build()?;
+
+        let primary_group = device
+            .take_queue_group(primary_group_id)
+            .context("failed to take primary queue group")?;
+
+        let async_compute_group = device
+            .take_queue_group(async_compute_group_id)
+            .context("failed to take async compute queue group")?;
+
+        let async_transfer_group = device
+            .take_queue_group(async_transfer_group_id)
+            .context("failed to take async transfer queue group")?;
 
         dbg!(&primary_group);
         dbg!(&async_compute_group);
         dbg!(&async_transfer_group);
 
-        let device = builder.build()?;
-
-        // println!("info: {:#?}", info);
-
-        // let mut device_builder = DeviceBuilder::new();
-
-        // for info in device_infos {
-        //     for family in info.families {
-        //         // family.roles.
-        //         // device_builder.queue(family.id, family.count);
-        //     }
-        //     // println!("device: {:#?}", info);
-        // }
-
-        Ok(Box::new(Self { window, engine }))
+        Ok(Box::new(Self {
+            window,
+            engine,
+            device,
+        }))
     }
 
     fn resized_window(&mut self, size: PhysicalSize<u32>) -> Result<()> {

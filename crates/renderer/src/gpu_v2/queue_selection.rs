@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use anyhow::{Result, anyhow};
 
@@ -6,26 +6,26 @@ use crate::gpu_v2::{QueueFamily, QueueFamilyId, QueueRoleFlags};
 
 pub fn get_available_families(
     families: &BTreeMap<QueueFamilyId, QueueFamily>,
-    allocations: &HashMap<QueueFamilyId, u32>,
+    reservations: &BTreeMap<QueueFamilyId, u32>,
 ) -> Result<Vec<QueueFamily>> {
     families
         .values()
         .copied()
-        .map(|family| get_available_family(family, allocations))
+        .map(|family| get_available_family(family, reservations))
         .collect()
 }
 
 fn get_available_family(
     mut family: QueueFamily,
-    allocations: &HashMap<QueueFamilyId, u32>,
+    reservations: &BTreeMap<QueueFamilyId, u32>,
 ) -> Result<QueueFamily> {
-    let allocated = allocations.get(&family.id).copied().unwrap_or(0);
-    family.count = family.count.checked_sub(allocated).ok_or_else(|| {
+    let reserved = reservations.get(&family.id).copied().unwrap_or(0);
+    family.count = family.count.checked_sub(reserved).ok_or_else(|| {
         let id: u32 = family.id.into();
         anyhow!(
-            "internal queue allocation state invalid for family {}: allocated={} total={}",
+            "internal queue reservation state invalid for family {}: reserved={} count={}",
             id,
-            allocated,
+            reserved,
             family.count
         )
     })?;
@@ -312,7 +312,7 @@ mod tests {
             },
         );
 
-        let mut allocations = HashMap::new();
+        let mut allocations = BTreeMap::new();
         allocations.insert(id0, 2);
 
         let projected = get_available_families(&families, &allocations);

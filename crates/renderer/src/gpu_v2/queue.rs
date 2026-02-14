@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use bitflags::bitflags;
 use vulkanalia::vk;
 
@@ -25,10 +25,19 @@ impl Into<u32> for QueueFamilyId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct QueueId {
     pub family: QueueFamilyId,
     pub index: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct QueueGroupId(u32);
+
+impl From<u32> for QueueGroupId {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,13 +75,15 @@ impl From<vk::QueueFlags> for QueueRoleFlags {
 
 pub struct QueueGroupBuilder<'a> {
     builder: &'a mut DeviceBuilder,
+    id: QueueGroupId,
     roles: QueueRoleFlags,
 }
 
 impl<'a> QueueGroupBuilder<'a> {
-    pub(crate) fn new(builder: &'a mut DeviceBuilder) -> Self {
+    pub(crate) fn new(builder: &'a mut DeviceBuilder, id: QueueGroupId) -> Self {
         Self {
             builder,
+            id,
             roles: QueueRoleFlags::empty(),
         }
     }
@@ -97,8 +108,11 @@ impl<'a> QueueGroupBuilder<'a> {
         self
     }
 
-    pub fn build(self) -> Result<Option<QueueGroup>> {
-        self.builder.allocate_group(self.roles)
+    pub fn build(self) -> Result<QueueGroupId> {
+        let Some(group_id) = self.builder.allocate_group(self.id, self.roles)? else {
+            return Err(anyhow!("no queue group found"));
+        };
+        Ok(group_id)
     }
 }
 
@@ -108,18 +122,47 @@ pub struct QueueAllocation {
     pub roles: QueueRoleFlags,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
+pub struct Queue {
+    id: QueueId,
+    roles: QueueRoleFlags,
+    handle: vk::Queue,
+}
+
+impl Queue {
+    pub(crate) fn new(id: QueueId, roles: QueueRoleFlags, handle: vk::Queue) -> Self {
+        Self { id, roles, handle }
+    }
+
+    pub fn id(&self) -> QueueId {
+        self.id
+    }
+
+    pub fn roles(&self) -> QueueRoleFlags {
+        self.roles
+    }
+
+    pub fn handle(&self) -> vk::Queue {
+        self.handle
+    }
+}
+
+#[derive(Debug)]
 pub struct QueueGroup {
-    allocations: Vec<QueueAllocation>,
+    id: QueueGroupId,
+    queues: Vec<Queue>,
 }
 
 impl QueueGroup {
-    pub(crate) fn new(allocations: Vec<QueueAllocation>) -> Self {
-        Self { allocations }
+    pub(crate) fn new(id: QueueGroupId, queues: Vec<Queue>) -> Self {
+        Self { id, queues }
     }
 
-    // TODO: do we need this?
-    pub fn allocations(&self) -> &[QueueAllocation] {
-        &self.allocations
+    pub fn id(&self) -> QueueGroupId {
+        self.id
+    }
+
+    pub fn queues(&self) -> &[Queue] {
+        &self.queues
     }
 }

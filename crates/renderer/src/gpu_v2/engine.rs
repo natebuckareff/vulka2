@@ -45,7 +45,7 @@ pub enum DeviceKind {
     Discrete,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct DeviceId(usize);
 
 impl Into<usize> for DeviceId {
@@ -67,6 +67,7 @@ pub struct DeviceInfo {
     pub name: String,
     pub kind: Option<DeviceKind>,
     pub families: BTreeMap<QueueFamilyId, QueueFamily>,
+    pub(crate) physical_device: vk::PhysicalDevice,
 }
 
 pub struct Engine {
@@ -275,7 +276,15 @@ impl Engine {
                 });
             }
 
-            if let Some(info) = score_device(i, &profile, device_properties, family_properties) {
+            let info = score_device(
+                i,
+                *physical_device,
+                &profile,
+                device_properties,
+                family_properties,
+            );
+
+            if let Some(info) = info {
                 infos.push(info);
             }
 
@@ -295,6 +304,14 @@ impl Engine {
 
     pub fn device(self: &Arc<Self>, info: DeviceInfo) -> DeviceBuilder {
         DeviceBuilder::new(self.clone(), info)
+    }
+
+    pub(crate) fn vk_instance(&self) -> &vulkanalia::Instance {
+        &self.instance
+    }
+
+    pub(crate) fn has_surface(&self) -> bool {
+        self.surface.is_some()
     }
 }
 
@@ -317,6 +334,7 @@ struct QueueFamilyPropertyInfo {
 
 fn score_device(
     index: usize,
+    physical_device: vk::PhysicalDevice,
     profile: &DeviceProfile,
     device_properties: vk::PhysicalDeviceProperties,
     family_properties: Vec<QueueFamilyPropertyInfo>,
@@ -347,6 +365,7 @@ fn score_device(
 
     let mut device_info = DeviceInfo {
         id: DeviceId::from(index),
+        physical_device,
         score: 0.0,
         name: device_properties.device_name.to_string(),
         kind,
