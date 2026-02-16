@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use bitflags::bitflags;
 use vulkanalia::vk;
 
-use crate::gpu_v2::DeviceBuilder;
+use crate::gpu_v2::{DeviceBuilder, Queue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct QueueFamilyId(u32);
@@ -25,7 +25,7 @@ impl Into<u32> for QueueFamilyId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct QueueId {
     pub family: QueueFamilyId,
     pub index: u32,
@@ -37,6 +37,12 @@ pub struct QueueGroupId(u32);
 impl From<u32> for QueueGroupId {
     fn from(value: u32) -> Self {
         Self(value)
+    }
+}
+
+impl Into<u32> for QueueGroupId {
+    fn into(self) -> u32 {
+        self.0
     }
 }
 
@@ -122,44 +128,25 @@ pub struct QueueAllocation {
     pub roles: QueueRoleFlags,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Queue {
-    id: QueueId,
-    roles: QueueRoleFlags,
-    handle: vk::Queue,
-}
-
-impl Queue {
-    pub(crate) fn new(id: QueueId, roles: QueueRoleFlags, handle: vk::Queue) -> Self {
-        Self { id, roles, handle }
-    }
-
-    pub fn id(&self) -> QueueId {
-        self.id
-    }
-
-    pub fn roles(&self) -> QueueRoleFlags {
-        self.roles
-    }
-
-    pub fn handle(&self) -> vk::Queue {
-        self.handle
-    }
-}
-
 #[derive(Debug)]
 pub struct QueueGroup {
     id: QueueGroupId,
+    roles: QueueRoleFlags,
     queues: Vec<Queue>,
 }
 
 impl QueueGroup {
     pub(crate) fn new(id: QueueGroupId, queues: Vec<Queue>) -> Self {
-        Self { id, queues }
+        let roles = queues.iter().map(|q| q.roles()).collect();
+        Self { id, roles, queues }
     }
 
     pub fn id(&self) -> QueueGroupId {
         self.id
+    }
+
+    pub fn roles(&self) -> QueueRoleFlags {
+        self.roles
     }
 
     pub fn queues(&self) -> &[Queue] {

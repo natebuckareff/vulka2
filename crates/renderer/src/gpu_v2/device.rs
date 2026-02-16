@@ -6,8 +6,8 @@ use vulkanalia::vk;
 
 use crate::gpu_v2::{
     DeviceInfo, Engine, Queue, QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup,
-    QueueGroupBuilder, QueueGroupId, QueueId, QueueRoleFlags, get_available_families,
-    select_best_families,
+    QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId, QueueRoleFlags,
+    get_available_families, select_best_families,
 };
 
 struct DevicePlan {
@@ -127,7 +127,9 @@ pub struct Device {
     info: DeviceInfo,
     device: vulkanalia::Device,
     queues: HashMap<QueueId, vk::Queue>,
+    queue_allocations: BTreeMap<QueueGroupId, Vec<QueueAllocation>>,
     queue_groups: Mutex<HashMap<QueueGroupId, QueueGroup>>,
+    queue_group_table: QueueGroupTable,
 }
 
 impl Device {
@@ -146,13 +148,16 @@ impl Device {
 
         let queues = load_queues(&vk_device, &plan.reservations);
         let queue_groups = build_queue_groups(&queues, &plan.allocations)?;
+        let queue_group_table = QueueGroupTable::new(&queue_groups);
 
         Ok(Self {
             _engine: engine,
             info: plan.info,
             device: vk_device,
             queues,
+            queue_allocations: plan.allocations,
             queue_groups: Mutex::new(queue_groups),
+            queue_group_table,
         })
     }
 
@@ -162,6 +167,16 @@ impl Device {
 
     pub fn info(&self) -> &DeviceInfo {
         &self.info
+    }
+
+    pub(crate) fn queue_allocations(&self, id: QueueGroupId) -> Result<&Vec<QueueAllocation>> {
+        self.queue_allocations
+            .get(&id)
+            .ok_or_else(|| anyhow!("queue group {:?} not found", id))
+    }
+
+    pub(crate) fn queue_group_table(&self) -> &QueueGroupTable {
+        &self.queue_group_table
     }
 
     pub fn take_queue_group(&self, id: QueueGroupId) -> Result<Option<QueueGroup>> {
