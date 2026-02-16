@@ -14,7 +14,7 @@ impl LivenessToken {
         }
     }
 
-    pub(crate) fn child(&self) -> LivenessGuard {
+    pub(crate) fn guard(&self) -> LivenessGuard {
         self.counter.set(self.counter.get() + 1);
         LivenessGuard {
             counter: self.counter.clone(),
@@ -28,7 +28,7 @@ impl LivenessToken {
         Self {}
     }
 
-    pub(crate) fn child(&self) -> LivenessGuard {
+    pub(crate) fn guard(&self) -> LivenessGuard {
         LivenessGuard {}
     }
 }

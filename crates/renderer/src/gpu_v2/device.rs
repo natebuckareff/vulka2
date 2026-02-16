@@ -1,12 +1,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    DeviceInfo, Engine, Queue, QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup,
-    QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId, QueueRoleFlags,
+    CommandAllocator, DeviceInfo, Engine, Queue, QueueAllocation, QueueFamily, QueueFamilyId,
+    QueueGroup, QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId, QueueRoleFlags,
     get_available_families, select_best_families,
 };
 
@@ -127,9 +128,9 @@ pub struct Device {
     info: DeviceInfo,
     device: vulkanalia::Device,
     queues: HashMap<QueueId, vk::Queue>,
-    queue_allocations: BTreeMap<QueueGroupId, Vec<QueueAllocation>>,
     queue_groups: Mutex<HashMap<QueueGroupId, QueueGroup>>,
     queue_group_table: QueueGroupTable,
+    next_child_id: AtomicUsize,
 }
 
 impl Device {
@@ -155,9 +156,9 @@ impl Device {
             info: plan.info,
             device: vk_device,
             queues,
-            queue_allocations: plan.allocations,
             queue_groups: Mutex::new(queue_groups),
             queue_group_table,
+            next_child_id: AtomicUsize::new(0),
         })
     }
 
@@ -167,12 +168,6 @@ impl Device {
 
     pub fn info(&self) -> &DeviceInfo {
         &self.info
-    }
-
-    pub(crate) fn queue_allocations(&self, id: QueueGroupId) -> Result<&Vec<QueueAllocation>> {
-        self.queue_allocations
-            .get(&id)
-            .ok_or_else(|| anyhow!("queue group {:?} not found", id))
     }
 
     pub(crate) fn queue_group_table(&self) -> &QueueGroupTable {
@@ -186,6 +181,16 @@ impl Device {
             .map_err(|_| anyhow!("queue group state lock poisoned"))?;
 
         Ok(queue_groups.remove(&id))
+    }
+
+    pub fn command_allocator(
+        self: &Arc<Self>,
+        queue_group_id: QueueGroupId,
+        capacity: usize,
+    ) -> Result<CommandAllocator> {
+        let id = self.next_child_id.fetch_add(1, Ordering::Relaxed);
+        let command_allocator = CommandAllocator::new(id, self.clone(), queue_group_id, capacity)?;
+        Ok(command_allocator)
     }
 }
 

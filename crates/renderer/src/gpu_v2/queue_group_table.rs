@@ -2,14 +2,23 @@ use std::{collections::HashMap, sync::Arc};
 
 use vulkanalia::vk;
 
-use crate::gpu_v2::{QueueGroup, QueueGroupId, QueueId};
+use crate::gpu_v2::{QueueGroup, QueueGroupId, QueueId, QueueRoleFlags};
 
-// need: QueueGroupId -> QueueId
-// need: QueueId -> vk::Semaphore
+#[derive(Debug, Clone)]
+pub struct QueueGroupInfo {
+    pub id: QueueGroupId,
+    pub bindings: Vec<QueueBinding>, // OPTIMIZE: SmallVec
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct QueueBinding {
+    pub id: QueueId,
+    pub roles: QueueRoleFlags,
+}
 
 struct Inner {
-    queue_groups: Vec<(QueueGroupId, QueueId)>,
-    semaphores: Vec<(u32, u32, vk::Semaphore)>,
+    infos: Vec<QueueGroupInfo>,
+    semaphores: HashMap<(u32, u32), vk::Semaphore>,
 }
 
 impl Inner {
@@ -18,25 +27,26 @@ impl Inner {
         for qg in queue_groups.values() {
             queue_count += qg.queues().len();
         }
-
-        let mut inner_queue_groups = Vec::with_capacity(queue_count);
-        let mut semaphores = Vec::with_capacity(queue_count);
-
+        let mut infos = Vec::with_capacity(queue_groups.len());
+        let mut semaphores = HashMap::with_capacity(queue_count);
         for qg in queue_groups.values() {
+            let mut info = QueueGroupInfo {
+                id: qg.id(),
+                bindings: Vec::with_capacity(qg.queues().len()),
+            };
             for queue in qg.queues() {
-                inner_queue_groups.push((qg.id(), queue.id()));
+                let binding = QueueBinding {
+                    id: queue.id(),
+                    roles: queue.roles(),
+                };
+                info.bindings.push(binding);
                 let family: u32 = queue.id().family.into();
-                semaphores.push((family, queue.id().index, queue.semaphore()));
+                semaphores.insert((family, queue.id().index), queue.semaphore());
             }
+            infos.push(info);
         }
-
-        inner_queue_groups.sort();
-        semaphores.sort_by_key(|(family, queue, _)| (*family, *queue));
-
-        Self {
-            queue_groups: inner_queue_groups,
-            semaphores,
-        }
+        infos.sort_by_key(|info| info.id);
+        Self { infos, semaphores }
     }
 }
 
@@ -53,36 +63,11 @@ impl QueueGroupTable {
         }
     }
 
-    pub fn get_queue_ids(&self, id: QueueGroupId) -> impl Iterator<Item = QueueId> {
-        let start = self
-            .inner
-            .queue_groups
-            .partition_point(|(group_id, _)| *group_id < id);
-
-        let len = self.inner.queue_groups.len();
-        let mut end = start;
-        while end < len && self.inner.queue_groups[end].0 == id {
-            end += 1;
-        }
-
-        self.inner.queue_groups[start..end]
-            .iter()
-            .map(|(_, queue_id)| *queue_id)
+    pub fn get_info(&self, id: QueueGroupId) -> Option<&QueueGroupInfo> {
+        self.inner.infos.iter().find(|info| info.id == id)
     }
 
     pub fn get_semaphore(&self, id: QueueId) -> Option<&vk::Semaphore> {
-        let result = self
-            .inner
-            .semaphores
-            .binary_search_by(|(family, queue, _)| {
-                family
-                    .cmp(&id.family.into())
-                    .then_with(|| queue.cmp(&id.index))
-            });
-
-        match result {
-            Ok(index) => Some(&self.inner.semaphores[index].2),
-            Err(_) => None,
-        }
+        self.inner.semaphores.get(&(id.family.into(), id.index))
     }
 }
