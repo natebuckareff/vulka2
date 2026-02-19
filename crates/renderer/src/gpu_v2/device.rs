@@ -11,7 +11,7 @@ use crate::gpu_v2::{
     get_available_families, select_best_families,
 };
 
-struct DevicePlan {
+pub(crate) struct DevicePlan {
     info: DeviceInfo,
     reservations: BTreeMap<QueueFamilyId, u32>,
     allocations: BTreeMap<QueueGroupId, Vec<QueueAllocation>>,
@@ -134,7 +134,7 @@ pub struct Device {
 }
 
 impl Device {
-    fn new(engine: Arc<Engine>, plan: DevicePlan) -> Result<Self> {
+    pub(crate) fn new(engine: Arc<Engine>, plan: DevicePlan) -> Result<Self> {
         let physical_device = plan.info.physical_device;
         let required_extensions = required_device_extensions(&engine);
 
@@ -149,7 +149,7 @@ impl Device {
 
         let queues = load_queues(&vk_device, &plan.reservations);
         let queue_groups = build_queue_groups(&queues, &plan.allocations)?;
-        let queue_group_table = QueueGroupTable::new(&queue_groups);
+        let queue_group_table = QueueGroupTable::new(vk_device.clone(), &queue_groups);
 
         Ok(Self {
             _engine: engine,
@@ -162,6 +162,7 @@ impl Device {
         })
     }
 
+    // XXX: feels a bit hacky
     pub(crate) fn vk_device(&self) -> &vulkanalia::Device {
         &self.device
     }

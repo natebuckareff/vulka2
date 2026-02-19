@@ -1,8 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{QueueGroup, QueueGroupId, QueueId, QueueRoleFlags};
+use crate::gpu_v2::{
+    QueueGroup, QueueGroupId, QueueId, QueueRoleFlags, SubmissionCounter, SubmissionId,
+};
 
 #[derive(Debug, Clone)]
 pub struct QueueGroupInfo {
@@ -10,25 +13,21 @@ pub struct QueueGroupInfo {
     pub bindings: Vec<QueueBinding>, // OPTIMIZE: SmallVec
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct QueueBinding {
     pub id: QueueId,
     pub roles: QueueRoleFlags,
+    pub counter: Arc<SubmissionCounter>,
+    pub semaphore: vk::Semaphore,
 }
 
 struct Inner {
     infos: Vec<QueueGroupInfo>,
-    semaphores: HashMap<(u32, u32), vk::Semaphore>,
 }
 
 impl Inner {
     fn new(queue_groups: &HashMap<QueueGroupId, QueueGroup>) -> Self {
-        let mut queue_count = 0;
-        for qg in queue_groups.values() {
-            queue_count += qg.queues().len();
-        }
         let mut infos = Vec::with_capacity(queue_groups.len());
-        let mut semaphores = HashMap::with_capacity(queue_count);
         for qg in queue_groups.values() {
             let mut info = QueueGroupInfo {
                 id: qg.id(),
@@ -38,36 +37,103 @@ impl Inner {
                 let binding = QueueBinding {
                     id: queue.id(),
                     roles: queue.roles(),
+                    counter: queue.submission_counter().clone(),
+                    semaphore: queue.semaphore(),
                 };
                 info.bindings.push(binding);
-                let family: u32 = queue.id().family.into();
-                semaphores.insert((family, queue.id().index), queue.semaphore());
             }
+            info.bindings.sort_by_key(|binding| binding.id);
             infos.push(info);
         }
         infos.sort_by_key(|info| info.id);
-        Self { infos, semaphores }
+        Self { infos }
     }
 }
 
 #[derive(Clone)]
 pub struct QueueGroupTable {
+    device: vulkanalia::Device,
     inner: Arc<Inner>,
 }
 
 impl QueueGroupTable {
-    pub fn new(queue_groups: &HashMap<QueueGroupId, QueueGroup>) -> Self {
+    pub(crate) fn new(
+        device: vulkanalia::Device,
+        queue_groups: &HashMap<QueueGroupId, QueueGroup>,
+    ) -> Self {
         let inner = Inner::new(queue_groups);
         Self {
+            device,
             inner: Arc::new(inner),
         }
     }
+
+    // fn get_semaphore(&self, id: QueueId) -> Result<vk::Semaphore> {
+    //     let semaphore = self
+    //         .inner
+    //         .semaphores
+    //         .get(&(id.family.into(), id.index))
+    //         .context("semaphore not found")?;
+    //     Ok(*semaphore)
+    // }
 
     pub fn get_info(&self, id: QueueGroupId) -> Option<&QueueGroupInfo> {
         self.inner.infos.iter().find(|info| info.id == id)
     }
 
-    pub fn get_semaphore(&self, id: QueueId) -> Option<&vk::Semaphore> {
-        self.inner.semaphores.get(&(id.family.into(), id.index))
-    }
+    // pub fn last_submission_id(&self, id: QueueId) -> Result<SubmissionId> {
+    //     use vulkanalia::prelude::v1_3::*;
+    //     let semaphore = self.get_semaphore(id)?;
+    //     let value = unsafe { self.device.get_semaphore_counter_value(semaphore) }?;
+    //     Ok(SubmissionId::new(value)?)
+    // }
+
+    // pub fn is_future_ready(&self, id: QueueId, future: &GpuFuture) -> Result<bool> {
+    //     let value = self.last_submission_id(id)?;
+    //     match future.get() {
+    //         Ok(Some(until)) => Ok(value >= until),
+    //         Ok(None) => Ok(false),
+    //         Err(e) => Err(e),
+    //     }
+    // }
+
+    // pub fn all_futures_ready(&self, futures: &[GpuFuture]) -> Result<bool> {
+    //     for future in futures {
+    //         if !self.is_future_ready(future.queue_id(), future)? {
+    //             return Ok(false);
+    //         }
+    //     }
+    //     Ok(true)
+    // }
+
+    // pub fn wait_for_all_futures(&self, futures: &[GpuFuture]) -> Result<()> {
+    //     // TODO: need to enable this feature on the device
+    //     use vulkanalia::prelude::v1_3::*;
+
+    //     // OPTIMIZE: Allocations in hot-path. Should split this out into a
+    //     // GpuFutureWaiter or something like that so we can reuse the scratch
+    //     // space
+    //     let mut semaphores = Vec::with_capacity(futures.len());
+    //     let mut values = Vec::with_capacity(futures.len());
+
+    //     for future in futures {
+    //         let Ok(Some(target)) = future.get() else {
+    //             return Err(anyhow!("cannot wait for uninitialized or failed futures"));
+    //         };
+    //         let semaphore = self.get_semaphore(future.queue_id())?;
+    //         semaphores.push(semaphore);
+    //         values.push(target.into());
+    //     }
+
+    //     if semaphores.is_empty() {
+    //         return Ok(());
+    //     }
+
+    //     let info = vk::SemaphoreWaitInfo::builder()
+    //         .semaphores(&semaphores)
+    //         .values(&values);
+
+    //     unsafe { self.device.wait_semaphores(&info, u64::MAX) }?;
+    //     Ok(())
+    // }
 }
