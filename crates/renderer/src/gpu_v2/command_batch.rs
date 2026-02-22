@@ -1,8 +1,8 @@
 use anyhow::{Result, anyhow};
-use smallvec::SmallVec;
 
 use crate::gpu_v2::{
     CommandBuffer, CommandPool, GpuFutureWriter, LaneIndex, LaneVec, QueueGroupId, SubmitSignal,
+    UsageToken,
 };
 
 pub(crate) struct QueuePacket {
@@ -14,6 +14,7 @@ pub struct CommandBatch {
     signal: SubmitSignal,
     pool: CommandPool,
     buffers: Vec<CommandBuffer>,
+    usage: UsageToken,
 }
 
 impl CommandBatch {
@@ -22,6 +23,7 @@ impl CommandBatch {
             signal,
             pool,
             buffers: Vec::new(),
+            usage: UsageToken::new(),
         }
     }
 
@@ -41,7 +43,9 @@ impl CommandBatch {
         Ok(())
     }
 
-    pub fn finish(self) -> Result<(Submission, CommandPool)> {
+    pub fn finish(mut self) -> Result<(Submission, CommandPool)> {
+        self.usage.consume();
+
         type Futures = LaneVec<Option<GpuFutureWriter>>;
         let pool_lanes = self.pool.lanes();
         let mut futures: Futures = LaneVec::new(self.pool.queue_group_id(), pool_lanes.len());
@@ -65,17 +69,12 @@ impl CommandBatch {
     }
 }
 
-// TODO: panic if batch is never finished
-// impl Drop for CommandBatch {
-//     fn drop(&mut self) {
-//     }
-// }
-
 pub struct Submission {
     pub(crate) queue_group_id: QueueGroupId,
     pub(crate) signal: SubmitSignal,
     pub(crate) futures: LaneVec<Option<GpuFutureWriter>>,
     pub(crate) packets: Vec<QueuePacket>,
+    pub(crate) usage: UsageToken,
 }
 
 impl Submission {
@@ -90,6 +89,7 @@ impl Submission {
             signal,
             futures,
             packets,
+            usage: UsageToken::new(),
         }
     }
 }

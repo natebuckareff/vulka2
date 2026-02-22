@@ -168,7 +168,10 @@ impl QueueGroup {
             signal,
             futures,
             packets,
+            mut usage,
         } = submission;
+
+        usage.consume();
 
         let result = self.submit_packets(queue_group_id, futures, packets);
 

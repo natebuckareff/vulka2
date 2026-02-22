@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 
 use crate::gpu_v2::{
     CommandBatch, CommandPool, Device, GpuFutureState, LaneVec, LivenessToken, MAX_STATIC_LANES,
-    QueueGroupId, QueueGroupInfo, QueueGroupTable, SubmitSignal, queue,
+    QueueGroupId, QueueGroupInfo, QueueGroupTable, SubmitSignal,
 };
 
 pub struct CommandAllocator {

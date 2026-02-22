@@ -13,6 +13,7 @@ mod queue_group_table;
 mod queue_selection;
 mod submission_id;
 mod submit_signal;
+mod usage_token;
 mod validation_layers;
 
 pub use command_allocator::*;
@@ -31,4 +32,5 @@ pub(crate) use queue::*;
 pub(crate) use queue_group_table::*;
 pub(crate) use queue_selection::*;
 pub(crate) use submit_signal::*;
+pub(crate) use usage_token::*;
 pub(crate) use validation_layers::*;
