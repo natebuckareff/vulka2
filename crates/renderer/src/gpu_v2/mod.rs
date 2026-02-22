@@ -1,4 +1,7 @@
 mod command_allocator;
+mod command_batch;
+mod command_buffer;
+mod command_pool;
 mod device;
 mod engine;
 mod gpu_future;
@@ -8,9 +11,13 @@ mod queue_group;
 mod queue_group_table;
 mod queue_selection;
 mod submission_id;
+mod submit_signal;
 mod validation_layers;
 
 pub use command_allocator::*;
+pub use command_batch::*;
+pub use command_buffer::*;
+pub use command_pool::*;
 pub use device::*;
 pub use engine::*;
 pub use queue_group::*;
@@ -21,4 +28,5 @@ pub(crate) use liveness::*;
 pub(crate) use queue::*;
 pub(crate) use queue_group_table::*;
 pub(crate) use queue_selection::*;
+pub(crate) use submit_signal::*;
 pub(crate) use validation_layers::*;

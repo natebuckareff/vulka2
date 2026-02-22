@@ -1,49 +1,15 @@
-use std::ops::DerefMut;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::{collections::VecDeque, ops::Deref};
+use std::collections::VecDeque;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use smallvec::SmallVec;
 
 use crate::gpu_v2::{
-    Device, GpuFuture, GpuFutureState, GpuFutureWriter, LivenessGuard, LivenessToken, QueueBinding,
-    QueueGroupId, QueueGroupInfo, QueueGroupTable, QueueId, QueueRoleFlags,
+    CommandBatch, CommandPool, Device, GpuFutureState, LivenessToken, QueueGroupId, QueueGroupInfo,
+    QueueGroupTable, SubmitSignal,
 };
 
 pub const MAX_LANES: usize = 4;
-
-#[derive(Clone)]
-pub struct SubmitSignal {
-    pair: Arc<(Mutex<u64>, Condvar)>,
-}
-
-impl SubmitSignal {
-    fn new() -> Self {
-        let mutex = Mutex::new(0);
-        let condvar = Condvar::new();
-        Self {
-            pair: Arc::new((mutex, condvar)),
-        }
-    }
-
-    fn lock(&self) -> MutexGuard<'_, u64> {
-        self.pair.0.lock().expect("failed to lock notify mutex")
-    }
-
-    fn wait<'a>(&self, guard: MutexGuard<'a, u64>) -> MutexGuard<'a, u64> {
-        self.pair
-            .1
-            .wait(guard)
-            .expect("failed to wait on notify condvar")
-    }
-
-    pub fn notify(&self) -> Result<()> {
-        let mut guard = self.lock();
-        *guard += 1;
-        self.pair.1.notify_one();
-        Ok(())
-    }
-}
 
 pub struct CommandAllocator {
     id: usize,
@@ -184,7 +150,7 @@ impl CommandAllocator {
             let pool = &self.waiting[i];
 
             // TODO: move to PoolLane::is_ready() or something
-            for lane in pool.lanes.iter() {
+            for lane in pool.lanes().iter() {
                 match lane.future.get()? {
                     GpuFutureState::Unset => {
                         // skip lanes that were never submitted
@@ -226,10 +192,10 @@ impl CommandAllocator {
             'pools: for i in 0..self.pending.len() {
                 let pool = &self.pending[i];
 
-                debug_assert_eq!(pool.lanes.len(), current_values.len());
+                debug_assert_eq!(pool.lanes().len(), current_values.len());
 
-                for lane in 0..pool.lanes.len() {
-                    match pool.lanes[lane].future.get()? {
+                for lane in 0..pool.lanes().len() {
+                    match pool.lanes()[lane].future.get()? {
                         GpuFutureState::Unset => {
                             // skip lanes that were never submitted
                             continue;
@@ -269,10 +235,10 @@ impl CommandAllocator {
             }
 
             for pool in self.pending.iter() {
-                debug_assert_eq!(pool.lanes.len(), wait_list.len());
+                debug_assert_eq!(pool.lanes().len(), wait_list.len());
 
-                for lane in 0..pool.lanes.len() {
-                    let value = match pool.lanes[lane].future.get()? {
+                for lane in 0..pool.lanes().len() {
+                    let value = match pool.lanes()[lane].future.get()? {
                         GpuFutureState::Unset => {
                             // skip lanes that were never submitted
                             continue;
@@ -335,7 +301,7 @@ impl CommandAllocator {
     }
 
     pub fn release(&mut self, pool: CommandPool) -> Result<()> {
-        if self.id != pool.allocator_id {
+        if self.id != pool.allocator_id() {
             return Err(anyhow!("allocator id mismatch"));
         }
         self.acquired = self.acquired.checked_sub(1).context("acquired underflow")?;
@@ -344,245 +310,5 @@ impl CommandAllocator {
         debug_assert!(self.len() <= self.capacity);
 
         Ok(())
-    }
-}
-
-#[derive(Clone, Copy)]
-struct QueueLane {
-    id: QueueId,
-    roles: QueueRoleFlags,
-}
-
-#[derive(Clone)]
-struct PoolLane {
-    queue: QueueLane,
-    roles: QueueRoleFlags,
-    future: GpuFuture,
-}
-
-impl PoolLane {
-    fn reset(&mut self) -> Result<()> {
-        self.future.reset()?;
-        Ok(())
-    }
-}
-
-// TODO: not sure how I feel about this, feels over-engineered
-#[derive(Clone)]
-struct PoolLanes(SmallVec<[PoolLane; MAX_LANES]>);
-
-impl PoolLanes {
-    fn new(bindings: &[QueueBinding]) -> Result<Self> {
-        let mut lanes = SmallVec::with_capacity(MAX_LANES);
-        for binding in bindings {
-            let queue = QueueLane {
-                id: binding.id,
-                roles: binding.roles,
-            };
-            let lane = PoolLane {
-                queue,
-                roles: binding.roles,
-                future: GpuFuture::unset(),
-            };
-            lanes.push(lane);
-        }
-        Ok(Self(lanes))
-    }
-
-    fn reset(&mut self) -> Result<()> {
-        for lane in self.0.iter_mut() {
-            lane.reset()?;
-        }
-        Ok(())
-    }
-}
-
-impl Deref for PoolLanes {
-    type Target = [PoolLane];
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for PoolLanes {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-pub struct CommandPool {
-    allocator_id: usize,
-    queue_group_id: QueueGroupId,
-    lanes: PoolLanes,
-    liveness: LivenessToken,
-    guard: LivenessGuard,
-}
-
-impl CommandPool {
-    fn new(allocator_id: usize, queue_info: QueueGroupInfo, guard: LivenessGuard) -> Result<Self> {
-        let lanes = PoolLanes::new(&queue_info.bindings)?;
-        Ok(Self {
-            allocator_id,
-            queue_group_id: queue_info.id,
-            lanes,
-            liveness: LivenessToken::new(),
-            guard,
-        })
-    }
-
-    fn reset(&mut self) -> Result<()> {
-        self.lanes.reset()?;
-        Ok(())
-    }
-}
-
-struct BufferLane {
-    pool: PoolLane,
-    dirty: bool,
-}
-
-// TODO: bring back?
-// #[derive(Default)]
-// struct DirtyBufferGuard {
-//     dirty: bool,
-// }
-
-// impl Drop for DirtyBufferGuard {
-//     fn drop(&mut self) {
-//         debug_assert!(!self.dirty, "unsubmitted command buffer dropped");
-//     }
-// }
-
-struct CommandBuffer {
-    queue_group_id: QueueGroupId,
-    lanes: SmallVec<[BufferLane; MAX_LANES]>,
-    guard: LivenessGuard,
-}
-
-impl CommandBuffer {
-    fn new(
-        queue_group_id: QueueGroupId,
-        pool_lanes: &PoolLanes,
-        guard: LivenessGuard,
-    ) -> Result<Self> {
-        let mut lanes = SmallVec::with_capacity(MAX_LANES);
-        for pool_lane in pool_lanes.iter() {
-            let lane = BufferLane {
-                pool: pool_lane.clone(),
-                dirty: false,
-            };
-            lanes.push(lane);
-        }
-        Ok(Self {
-            queue_group_id,
-            lanes,
-            guard,
-        })
-    }
-
-    // called by command recoding methods
-    fn touch_by_id(&mut self, id: QueueId) {
-        for lane in self.lanes.iter_mut() {
-            if lane.pool.queue.id == id {
-                lane.dirty = true;
-            }
-        }
-    }
-
-    // called by command recoding methods
-    fn touch_by_roles(&mut self, roles: QueueRoleFlags) {
-        for lane in self.lanes.iter_mut() {
-            if lane.pool.roles.contains(roles) {
-                lane.dirty = true;
-            }
-        }
-    }
-}
-
-pub struct QueuePacket {
-    pub lane_index: usize,
-    // TODO: will contain only what the queue will need to submit
-}
-
-struct CommandBatch {
-    signal: SubmitSignal,
-    pool: CommandPool,
-    buffers: Vec<CommandBuffer>,
-}
-
-impl CommandBatch {
-    fn new(signal: SubmitSignal, pool: CommandPool) -> Self {
-        Self {
-            signal,
-            pool,
-            buffers: Vec::new(),
-        }
-    }
-
-    fn allocate(&mut self) -> Result<CommandBuffer> {
-        CommandBuffer::new(
-            self.pool.queue_group_id,
-            &self.pool.lanes,
-            self.pool.liveness.guard(),
-        )
-    }
-
-    fn add(&mut self, buffer: CommandBuffer) -> Result<()> {
-        if self.pool.queue_group_id != buffer.queue_group_id {
-            return Err(anyhow!("mismatched queue groups"));
-        }
-        self.buffers.push(buffer);
-        Ok(())
-    }
-
-    fn finish(self) -> Result<(Submission, CommandPool)> {
-        type Futures = SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>;
-        let mut futures: Futures = SmallVec::with_capacity(MAX_LANES);
-        futures.resize_with(self.pool.lanes.len(), || None);
-
-        let mut packets = vec![];
-        for buffers in self.buffers.into_iter() {
-            for (lane_index, lane) in buffers.lanes.iter().enumerate() {
-                if lane.dirty {
-                    if futures[lane_index].is_none() {
-                        futures[lane_index] = Some(self.pool.lanes[lane_index].future.send()?);
-                    }
-                    packets.push(QueuePacket { lane_index });
-                }
-            }
-        }
-
-        let pool = self.pool;
-        let submission = Submission::new(pool.queue_group_id, self.signal, futures, packets);
-        Ok((submission, pool))
-    }
-}
-
-// TODO: panic if batch is never finished
-// impl Drop for CommandBatch {
-//     fn drop(&mut self) {
-//     }
-// }
-
-pub struct Submission {
-    pub queue_group_id: QueueGroupId,
-    pub signal: SubmitSignal,
-    pub futures: SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>,
-    pub packets: Vec<QueuePacket>,
-}
-
-impl Submission {
-    fn new(
-        queue_group_id: QueueGroupId,
-        signal: SubmitSignal,
-        futures: SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>,
-        packets: Vec<QueuePacket>,
-    ) -> Self {
-        Self {
-            queue_group_id,
-            signal,
-            futures,
-            packets,
-        }
     }
 }
