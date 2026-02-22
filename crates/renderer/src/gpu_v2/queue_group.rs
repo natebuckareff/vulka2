@@ -1,8 +1,9 @@
 use anyhow::{Result, anyhow};
 use bitflags::bitflags;
+use smallvec::SmallVec;
 use vulkanalia::vk;
 
-use crate::gpu_v2::{DeviceBuilder, Queue};
+use crate::gpu_v2::{DeviceBuilder, GpuFutureWriter, MAX_LANES, Queue, QueuePacket, Submission};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct QueueFamilyId(u32);
@@ -128,17 +129,24 @@ pub struct QueueAllocation {
     pub roles: QueueRoleFlags,
 }
 
-#[derive(Debug)]
 pub struct QueueGroup {
     id: QueueGroupId,
     roles: QueueRoleFlags,
     queues: Vec<Queue>,
+    scratch_buffers: SmallVec<[Vec<QueuePacket>; MAX_LANES]>,
 }
 
 impl QueueGroup {
     pub(crate) fn new(id: QueueGroupId, queues: Vec<Queue>) -> Self {
         let roles = queues.iter().map(|q| q.roles()).collect();
-        Self { id, roles, queues }
+        let mut scratch_buffers = SmallVec::with_capacity(MAX_LANES);
+        scratch_buffers.resize_with(queues.len(), Vec::new);
+        Self {
+            id,
+            roles,
+            queues,
+            scratch_buffers,
+        }
     }
 
     pub fn id(&self) -> QueueGroupId {
@@ -151,5 +159,79 @@ impl QueueGroup {
 
     pub fn queues(&self) -> &[Queue] {
         &self.queues
+    }
+
+    pub fn submit(&mut self, submission: Submission) -> Result<()> {
+        let Submission {
+            queue_group_id,
+            signal,
+            futures,
+            packets,
+        } = submission;
+
+        let result = self.submit_packets(queue_group_id, futures, packets);
+
+        // notify the command allocator that all GpuFutures were set, making
+        // sure to *always* signal, even if submit_packets() failed
+        if let Err(e) = signal.notify() {
+            if let Err(e2) = result {
+                return Err(e2.context(e));
+            } else {
+                return Err(e);
+            }
+        }
+
+        result
+    }
+
+    fn submit_packets(
+        &mut self,
+        queue_group_id: QueueGroupId,
+        futures: SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>,
+        packets: Vec<QueuePacket>,
+    ) -> Result<()> {
+        if queue_group_id != self.id {
+            return Err(anyhow!("mismatched queue groups"));
+        }
+
+        if cfg!(debug_assertions) {
+            debug_assert!(
+                self.scratch_buffers.iter().all(|buf| buf.is_empty()),
+                "scratch buffers always reset after use"
+            );
+        }
+
+        for buf in self.scratch_buffers.iter_mut() {
+            buf.clear();
+        }
+
+        // split packets by queue lane
+        for packet in packets.into_iter() {
+            let lane = packet.lane_index;
+            // TODO: harden indexing guarantees here
+            let buf = &mut self.scratch_buffers[lane];
+            buf.push(packet);
+        }
+
+        // submit the packets
+        for (lane, future) in futures.into_iter().enumerate() {
+            let Some(future) = future else {
+                continue;
+            };
+
+            // TODO: harden indexing guarantees here
+            let buf = &mut self.scratch_buffers[lane];
+
+            // if future is passed then buf will always be non-empty
+            //
+            // TODO: this guarantee feels a bit sketchy, can we harden it with
+            // better types?
+            debug_assert!(!buf.is_empty());
+
+            let queue = &mut self.queues[lane];
+            queue.submit(future, buf)?;
+        }
+
+        Ok(())
     }
 }

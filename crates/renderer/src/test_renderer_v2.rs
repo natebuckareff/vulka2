@@ -79,9 +79,9 @@ impl Renderer for TestRendererV2 {
             .take_queue_group(async_transfer_group_id)
             .context("failed to take async transfer queue group")?;
 
-        dbg!(&primary_group);
-        dbg!(&async_compute_group);
-        dbg!(&async_transfer_group);
+        // dbg!(&primary_group);
+        // dbg!(&async_compute_group);
+        // dbg!(&async_transfer_group);
 
         Ok(Box::new(Self {
             window,

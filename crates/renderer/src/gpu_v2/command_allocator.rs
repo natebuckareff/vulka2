@@ -1,12 +1,49 @@
+use std::ops::DerefMut;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::{collections::VecDeque, ops::Deref};
+
 use anyhow::{Context, Result, anyhow};
 use smallvec::SmallVec;
-use std::collections::VecDeque;
-use std::sync::Arc;
 
 use crate::gpu_v2::{
-    Device, LivenessGuard, LivenessToken, QueueBinding, QueueGroupId, QueueGroupInfo,
-    QueueGroupTable, QueueId, QueueRoleFlags, SubmissionId,
+    Device, GpuFuture, GpuFutureState, GpuFutureWriter, LivenessGuard, LivenessToken, QueueBinding,
+    QueueGroupId, QueueGroupInfo, QueueGroupTable, QueueId, QueueRoleFlags,
 };
+
+pub const MAX_LANES: usize = 4;
+
+#[derive(Clone)]
+pub struct SubmitSignal {
+    pair: Arc<(Mutex<u64>, Condvar)>,
+}
+
+impl SubmitSignal {
+    fn new() -> Self {
+        let mutex = Mutex::new(0);
+        let condvar = Condvar::new();
+        Self {
+            pair: Arc::new((mutex, condvar)),
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, u64> {
+        self.pair.0.lock().expect("failed to lock notify mutex")
+    }
+
+    fn wait<'a>(&self, guard: MutexGuard<'a, u64>) -> MutexGuard<'a, u64> {
+        self.pair
+            .1
+            .wait(guard)
+            .expect("failed to wait on notify condvar")
+    }
+
+    pub fn notify(&self) -> Result<()> {
+        let mut guard = self.lock();
+        *guard += 1;
+        self.pair.1.notify_one();
+        Ok(())
+    }
+}
 
 pub struct CommandAllocator {
     id: usize,
@@ -14,10 +51,11 @@ pub struct CommandAllocator {
     queue_group_table: QueueGroupTable, // TODO: inner vs outer Arc design?
     queue_info: QueueGroupInfo,
     capacity: usize,
+    signal: SubmitSignal,
+    waiting: Vec<CommandPool>,
     pending: Vec<CommandPool>,
     ready: VecDeque<CommandPool>,
     acquired: usize,
-    next_pool_id: usize,
     liveness: LivenessToken,
 }
 
@@ -43,30 +81,82 @@ impl CommandAllocator {
             queue_group_table,
             queue_info,
             capacity,
+            signal: SubmitSignal::new(),
+            waiting: Vec::new(),
             pending: Vec::new(),
             ready: VecDeque::new(),
             acquired: 0,
-            next_pool_id: 0,
             liveness: LivenessToken::new(),
         };
         Ok(allocator)
     }
 
-    fn len(&self) -> usize {
-        self.pending.len() + self.ready.len() + self.acquired
+    pub fn len(&self) -> usize {
+        self.waiting.len() + self.pending.len() + self.ready.len() + self.acquired
     }
 
-    pub fn acquire(&mut self) -> Result<Option<CommandPool>> {
+    pub fn acquire(&mut self) -> Result<Option<CommandBatch>> {
+        let Some(pool) = self.acquire_pool()? else {
+            return Ok(None);
+        };
+        let batch = CommandBatch::new(self.signal.clone(), pool);
+        Ok(Some(batch))
+    }
+
+    fn acquire_pool(&mut self) -> Result<Option<CommandPool>> {
+        loop {
+            // attempt to acquire on the fast path:
+            // 1. first from ready
+            // 2. then creating a new pool if under capacity
+            // 3. otherwise moving from waiting to pending and attempting to reclaim
+            if let Some(pool) = self.acquire_ready_or_pending()? {
+                return Ok(Some(pool));
+            }
+
+            // it nothing *and* no pools are waiting, there is really nothing
+            if self.waiting.is_empty() {
+                return Ok(None);
+            }
+
+            // read the current condition value
+            let seen = {
+                let guard = self.signal.lock();
+                *guard
+            };
+
+            // attempt to acquire again in case some waiting pools can now move
+            // to pending
+            if let Some(pool) = self.acquire_ready_or_pending()? {
+                return Ok(Some(pool));
+            }
+
+            // nothing to acquire
+            if self.waiting.is_empty() {
+                return Ok(None);
+            }
+
+            // read current condition again
+            let mut guard = self.signal.lock();
+
+            // loop and wait until until the condition changes
+            while *guard == seen {
+                guard = self.signal.wait(guard);
+            }
+        }
+    }
+
+    fn acquire_ready_or_pending(&mut self) -> Result<Option<CommandPool>> {
         // check if self.ready has something
         if let Some(pool) = self.ready.pop_front() {
+            self.acquired += 1;
             return Ok(Some(pool));
         }
 
         let pool = if self.len() < self.capacity {
-            // check if we're under capacity and can just create a new pool
+            // under capacity and can just create a new pool
             Some(self.create_pool()?)
         } else {
-            // otherwise call self.reclaim(), blocking if necessary
+            // attempt to reclaim a pending pool
             self.reclaim()?
         };
 
@@ -74,22 +164,47 @@ impl CommandAllocator {
             self.acquired += 1;
         }
 
+        debug_assert!(self.len() <= self.capacity);
+
         Ok(pool)
     }
 
     fn create_pool(&mut self) -> Result<CommandPool> {
-        let pool = CommandPool::new(
-            self.id,
-            self.next_pool_id,
-            self.queue_info.clone(),
-            self.liveness.guard(),
-        )?;
-        self.next_pool_id = self.next_pool_id.checked_add(1).expect("pool id overflow");
+        let pool = CommandPool::new(self.id, self.queue_info.clone(), self.liveness.guard())?;
         Ok(pool)
     }
 
     fn reclaim(&mut self) -> Result<Option<CommandPool>> {
         use vulkanalia::prelude::v1_3::*;
+
+        // first, attempt to move waiting pools into pending if their waiting
+        // futures are all set
+        let mut i = 0;
+        'pools: while i < self.waiting.len() {
+            let pool = &self.waiting[i];
+
+            // TODO: move to PoolLane::is_ready() or something
+            for lane in pool.lanes.iter() {
+                match lane.future.get()? {
+                    GpuFutureState::Unset => {
+                        // skip lanes that were never submitted
+                        continue;
+                    }
+                    GpuFutureState::Waiting => {
+                        // if the lane is still waiting on a submission, then
+                        // this pool must remain in waiting
+                        i += 1;
+                        continue 'pools;
+                    }
+                    GpuFutureState::Set(_) => {
+                        // future for this lane was set, fallthrough to
+                        // potentially move this pool from waiting to pending
+                    }
+                }
+            }
+            let pool = self.waiting.swap_remove(i);
+            self.pending.push(pool);
+        }
 
         if self.pending.is_empty() {
             // nothing to reclaim
@@ -97,9 +212,7 @@ impl CommandAllocator {
         }
 
         loop {
-            // will poll the current timeline value for each lane's semaphore,
-            // stack allocating for up to 4 lanes
-            const MAX_LANES: usize = 4;
+            // will poll the current timeline value for each lane's semaphore
             let device = self.device.vk_device();
             let mut current_values: SmallVec<[u64; MAX_LANES]> = SmallVec::new();
 
@@ -113,25 +226,33 @@ impl CommandAllocator {
             'pools: for i in 0..self.pending.len() {
                 let pool = &self.pending[i];
 
-                for lane in 0..pool.pool_state.lanes.len() {
-                    let last_submitted = pool.pool_state.last_submitted[lane];
+                debug_assert_eq!(pool.lanes.len(), current_values.len());
 
-                    // check that the pool actually submitted on this lane
-                    if last_submitted.is_set() {
-                        // the last polled value is still less than the expected
-                        // value, therefore the pool is not ready to be
-                        // reclaimed
-                        if current_values[lane] < last_submitted.into() {
-                            continue 'pools;
+                for lane in 0..pool.lanes.len() {
+                    match pool.lanes[lane].future.get()? {
+                        GpuFutureState::Unset => {
+                            // skip lanes that were never submitted
+                            continue;
+                        }
+                        GpuFutureState::Waiting => {
+                            unreachable!("waiting future should never be in pending");
+                        }
+                        GpuFutureState::Set(value) => {
+                            // the last polled value is still less than the
+                            // expected value, therefore the pool is not ready
+                            // to be reclaimed
+                            if current_values[lane] < value.into() {
+                                continue 'pools;
+                            }
                         }
                     }
                 }
 
                 // if we get here after looping over each lane, then all lanes
-                // for the pool were either never submitted or >= their
-                // last_submitted values, and therefore the pool is reclaimable
+                // for the pool were either never submitted or >= their timeline
+                // values, and therefore the pool is reclaimable
                 let mut pool = self.pending.swap_remove(i);
-                pool.reset();
+                pool.reset()?;
                 return Ok(Some(pool));
             }
 
@@ -148,23 +269,34 @@ impl CommandAllocator {
             }
 
             for pool in self.pending.iter() {
-                for lane in 0..pool.pool_state.lanes.len() {
-                    let last_submitted = pool.pool_state.last_submitted[lane];
+                debug_assert_eq!(pool.lanes.len(), wait_list.len());
+
+                for lane in 0..pool.lanes.len() {
+                    let value = match pool.lanes[lane].future.get()? {
+                        GpuFutureState::Unset => {
+                            // skip lanes that were never submitted
+                            continue;
+                        }
+                        GpuFutureState::Waiting => {
+                            unreachable!("waiting future should never be in pending");
+                        }
+                        GpuFutureState::Set(value) => value.into(),
+                    };
 
                     // only include this pool's lane value in the wait list if
-                    // it was actually set *and* the last-polled value is less
-                    // that the value it is waiting for still. this is necessary
-                    // otherwise device.wait_semaphores will immediate return
-                    // since this value is already signalled
+                    // the last-polled value is less that the value it is
+                    // waiting for still. this is necessary otherwise
+                    // device.wait_semaphores will immediate return since this
+                    // value is already signalled
 
-                    if last_submitted.is_set() && current_values[lane] < last_submitted.into() {
+                    if current_values[lane] < value {
                         let wait_value = wait_list[lane].1;
                         if wait_value == u64::MAX {
-                            wait_list[lane].1 = last_submitted.into();
+                            wait_list[lane].1 = value;
                         } else {
                             // take the min so device.wait_semaphores wakes as soon
                             // as possible
-                            wait_list[lane].1 = wait_value.min(last_submitted.into());
+                            wait_list[lane].1 = wait_value.min(value);
                         }
                     }
                 }
@@ -173,10 +305,13 @@ impl CommandAllocator {
             // filter out any lanes that were not pending for all pending pools
             wait_list.retain(|(_, value)| *value < u64::MAX);
 
-            // in order for wait_list to be empty, all lanes for all pools must
-            // be unset, but that would've caused an early return in the pool
-            // poll loop, therefore it's not possible at this point
-            assert!(!wait_list.is_empty());
+            // INVARIANT: in order for wait_list to be empty, all lanes for all
+            // pools must be unset, but that would've caused an early return in
+            // the pool poll loop, therefore it's not possible at this point
+            assert!(
+                !wait_list.is_empty(),
+                "wait list is empty but pending pools exist"
+            );
 
             let (wait_semaphores, wait_values): (
                 SmallVec<[vk::Semaphore; MAX_LANES]>,
@@ -204,7 +339,10 @@ impl CommandAllocator {
             return Err(anyhow!("allocator id mismatch"));
         }
         self.acquired = self.acquired.checked_sub(1).context("acquired underflow")?;
-        self.pending.push(pool);
+        self.waiting.push(pool);
+
+        debug_assert!(self.len() <= self.capacity);
+
         Ok(())
     }
 }
@@ -215,259 +353,235 @@ struct QueueLane {
     roles: QueueRoleFlags,
 }
 
-struct PoolState {
-    lanes: Vec<QueueLane>,             // OPTIMIZE: SmallVec
-    last_submitted: Vec<SubmissionId>, // OPTIMIZE: SmallVec
+#[derive(Clone)]
+struct PoolLane {
+    queue: QueueLane,
+    roles: QueueRoleFlags,
+    future: GpuFuture,
 }
 
-impl PoolState {
+impl PoolLane {
+    fn reset(&mut self) -> Result<()> {
+        self.future.reset()?;
+        Ok(())
+    }
+}
+
+// TODO: not sure how I feel about this, feels over-engineered
+#[derive(Clone)]
+struct PoolLanes(SmallVec<[PoolLane; MAX_LANES]>);
+
+impl PoolLanes {
     fn new(bindings: &[QueueBinding]) -> Result<Self> {
-        let mut lanes = Vec::with_capacity(bindings.len());
-        let mut last_submitted = Vec::with_capacity(bindings.len());
+        let mut lanes = SmallVec::with_capacity(MAX_LANES);
         for binding in bindings {
-            lanes.push(QueueLane {
+            let queue = QueueLane {
                 id: binding.id,
                 roles: binding.roles,
-            });
-            last_submitted.push(SubmissionId::new(0)?);
+            };
+            let lane = PoolLane {
+                queue,
+                roles: binding.roles,
+                future: GpuFuture::unset(),
+            };
+            lanes.push(lane);
         }
-        Ok(Self {
-            lanes,
-            last_submitted,
-        })
+        Ok(Self(lanes))
+    }
+
+    fn reset(&mut self) -> Result<()> {
+        for lane in self.0.iter_mut() {
+            lane.reset()?;
+        }
+        Ok(())
+    }
+}
+
+impl Deref for PoolLanes {
+    type Target = [PoolLane];
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for PoolLanes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
 pub struct CommandPool {
     allocator_id: usize,
-    pool_id: usize, // TODO: needs to be (allocator_id, pool_id) for correctness
-    queue_info: QueueGroupInfo,
-    pool_state: PoolState,
+    queue_group_id: QueueGroupId,
+    lanes: PoolLanes,
     liveness: LivenessToken,
     guard: LivenessGuard,
 }
 
 impl CommandPool {
-    // TODO: probably need to pass in a QueueGroupInfo or something that comes
-    // from Device
-    fn new(
-        allocator_id: usize,
-        pool_id: usize,
-        queue_info: QueueGroupInfo, // TODO: do we need full QueueGroupInfo?
-        guard: LivenessGuard,
-    ) -> Result<Self> {
-        let pool_state = PoolState::new(&queue_info.bindings)?;
+    fn new(allocator_id: usize, queue_info: QueueGroupInfo, guard: LivenessGuard) -> Result<Self> {
+        let lanes = PoolLanes::new(&queue_info.bindings)?;
         Ok(Self {
             allocator_id,
-            pool_id,
-            queue_info,
-            pool_state,
+            queue_group_id: queue_info.id,
+            lanes,
             liveness: LivenessToken::new(),
             guard,
         })
     }
 
-    fn allocate(&mut self) -> Result<CommandBuffer> {
-        Ok(CommandBuffer::new(
-            self.pool_id,
-            self.queue_info.id,
-            &self.pool_state,
-            self.liveness.guard(),
-        )?)
-    }
-
-    fn batch(&mut self) -> CommandBatch {
-        CommandBatch::new(self.pool_id, self.queue_info.id)
-    }
-
-    fn reset(&mut self) {
-        todo!()
-        // self.future_set.reset()
-    }
-
-    fn flush(&mut self, batch: CommandBatch) -> Result<Submission> {
-        if self.pool_id != batch.pool_id {
-            return Err(anyhow!("mismatched pool id"));
-        }
-        if self.queue_info.id != batch.queue_group_id {
-            return Err(anyhow!("mismatched queue groups"));
-        }
-
-        let (batch_state, packets) = batch.consume();
-
-        let Some(batch_state) = batch_state else {
-            // TODO: same as empty?
-            return Err(anyhow!("no queues in batch"));
-        };
-
-        if packets.is_empty() {
-            // TODO: maybe not an error??
-            return Err(anyhow!("empty batch"));
-        }
-
-        let mut i = 0;
-        while i < batch_state.lanes.len() {
-            if batch_state.dirty[i] {
-                let binding = &self.queue_info.bindings[i];
-                let value = binding.counter.reserve()?;
-                let last_submitted = self.pool_state.last_submitted[i];
-                self.pool_state.last_submitted[i] = last_submitted.max(value);
-            }
-            i += 1;
-        }
-
-        let queue_group_id = self.queue_info.id;
-        let submission = Submission::new(queue_group_id, packets);
-        Ok(submission)
+    fn reset(&mut self) -> Result<()> {
+        self.lanes.reset()?;
+        Ok(())
     }
 }
+
+struct BufferLane {
+    pool: PoolLane,
+    dirty: bool,
+}
+
+// TODO: bring back?
+// #[derive(Default)]
+// struct DirtyBufferGuard {
+//     dirty: bool,
+// }
+
+// impl Drop for DirtyBufferGuard {
+//     fn drop(&mut self) {
+//         debug_assert!(!self.dirty, "unsubmitted command buffer dropped");
+//     }
+// }
+
 struct CommandBuffer {
-    pool_id: usize,
     queue_group_id: QueueGroupId,
-    batch_state: BatchState,
+    lanes: SmallVec<[BufferLane; MAX_LANES]>,
     guard: LivenessGuard,
 }
 
 impl CommandBuffer {
     fn new(
-        pool_id: usize,
         queue_group_id: QueueGroupId,
-        pool_state: &PoolState,
+        pool_lanes: &PoolLanes,
         guard: LivenessGuard,
     ) -> Result<Self> {
-        let batch_state = BatchState::new(pool_state)?;
+        let mut lanes = SmallVec::with_capacity(MAX_LANES);
+        for pool_lane in pool_lanes.iter() {
+            let lane = BufferLane {
+                pool: pool_lane.clone(),
+                dirty: false,
+            };
+            lanes.push(lane);
+        }
         Ok(Self {
-            pool_id,
             queue_group_id,
-            batch_state,
+            lanes,
             guard,
         })
     }
 
-    // TODO: this is private and will only be called from the command recording
-    // methods after choosing the appropriate queue based on role using
-    // self.queues
-    // fn touch(&mut self, id: QueueId) {
-    //     debug_assert!(self.queue_info.bindings.iter().any(|q| q.id == id));
-    //     if !self.dirty.contains(&id) {
-    //         self.dirty.push(id);
-    //     }
-    // }
-
-    fn finish(mut self) -> CommandRecording {
-        CommandRecording::new(self.pool_id, self.queue_group_id, self.batch_state)
+    // called by command recoding methods
+    fn touch_by_id(&mut self, id: QueueId) {
+        for lane in self.lanes.iter_mut() {
+            if lane.pool.queue.id == id {
+                lane.dirty = true;
+            }
+        }
     }
-}
 
-struct RecordingPacket {
-    // TODO: will only put in here what the QueueGroup needs to submit
-}
-
-struct CommandRecording {
-    pool_id: usize,
-    queue_group_id: QueueGroupId,
-    batch_state: BatchState,
-    packet: RecordingPacket,
-}
-
-impl CommandRecording {
-    fn new(pool_id: usize, queue_group_id: QueueGroupId, batch_state: BatchState) -> Self {
-        Self {
-            pool_id,
-            queue_group_id,
-            batch_state,
-            packet: RecordingPacket {},
+    // called by command recoding methods
+    fn touch_by_roles(&mut self, roles: QueueRoleFlags) {
+        for lane in self.lanes.iter_mut() {
+            if lane.pool.roles.contains(roles) {
+                lane.dirty = true;
+            }
         }
     }
 }
 
-struct BatchState {
-    lanes: Vec<QueueLane>, // OPTIMIZE: SmallVec
-    dirty: Vec<bool>,      // OPTIMIZE: SmallVec
-}
-
-impl BatchState {
-    fn new(pool_state: &PoolState) -> Result<Self> {
-        let lanes = pool_state.lanes.clone();
-        let mut dirty = Vec::new();
-        dirty.resize_with(pool_state.lanes.len(), || false);
-        Ok(Self { lanes, dirty })
-    }
+pub struct QueuePacket {
+    pub lane_index: usize,
+    // TODO: will contain only what the queue will need to submit
 }
 
 struct CommandBatch {
-    pool_id: usize,
-    queue_group_id: QueueGroupId,
-    batch_state: Option<BatchState>,
-    packets: Vec<RecordingPacket>,
-    is_dirty: bool,
-    is_flushed: bool,
+    signal: SubmitSignal,
+    pool: CommandPool,
+    buffers: Vec<CommandBuffer>,
 }
 
 impl CommandBatch {
-    fn new(pool_id: usize, queue_group_id: QueueGroupId) -> Self {
+    fn new(signal: SubmitSignal, pool: CommandPool) -> Self {
         Self {
-            pool_id,
-            queue_group_id,
-            batch_state: None,
-            packets: Vec::new(),
-            is_dirty: false,
-            is_flushed: false,
+            signal,
+            pool,
+            buffers: Vec::new(),
         }
     }
 
-    fn len(&self) -> usize {
-        self.packets.len()
+    fn allocate(&mut self) -> Result<CommandBuffer> {
+        CommandBuffer::new(
+            self.pool.queue_group_id,
+            &self.pool.lanes,
+            self.pool.liveness.guard(),
+        )
     }
 
-    fn add(&mut self, recording: CommandRecording) -> Result<()> {
-        if self.pool_id != recording.pool_id {
-            return Err(anyhow!("mismatched pool id"));
-        }
-        if self.queue_group_id != recording.queue_group_id {
+    fn add(&mut self, buffer: CommandBuffer) -> Result<()> {
+        if self.pool.queue_group_id != buffer.queue_group_id {
             return Err(anyhow!("mismatched queue groups"));
         }
-        self.is_dirty = true;
-        match &mut self.batch_state {
-            Some(batch_state) => {
-                let mut i = 0;
-                while i < recording.batch_state.lanes.len() {
-                    batch_state.dirty[i] |= recording.batch_state.dirty[i];
-                    i += 1;
-                }
-            }
-            None => {
-                self.batch_state = Some(recording.batch_state);
-            }
-        }
-        self.packets.push(recording.packet);
+        self.buffers.push(buffer);
         Ok(())
     }
 
-    // should only be called from flush()
-    fn consume(mut self) -> (Option<BatchState>, Vec<RecordingPacket>) {
-        self.is_flushed = true;
-        (self.batch_state.take(), std::mem::take(&mut self.packets))
-    }
-}
+    fn finish(self) -> Result<(Submission, CommandPool)> {
+        type Futures = SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>;
+        let mut futures: Futures = SmallVec::with_capacity(MAX_LANES);
+        futures.resize_with(self.pool.lanes.len(), || None);
 
-impl Drop for CommandBatch {
-    fn drop(&mut self) {
-        if self.is_dirty {
-            debug_assert!(self.is_flushed, "command batch dirty but not flushed");
+        let mut packets = vec![];
+        for buffers in self.buffers.into_iter() {
+            for (lane_index, lane) in buffers.lanes.iter().enumerate() {
+                if lane.dirty {
+                    if futures[lane_index].is_none() {
+                        futures[lane_index] = Some(self.pool.lanes[lane_index].future.send()?);
+                    }
+                    packets.push(QueuePacket { lane_index });
+                }
+            }
         }
+
+        let pool = self.pool;
+        let submission = Submission::new(pool.queue_group_id, self.signal, futures, packets);
+        Ok((submission, pool))
     }
 }
 
-struct Submission {
-    queue_group_id: QueueGroupId,
-    packets: Vec<RecordingPacket>,
+// TODO: panic if batch is never finished
+// impl Drop for CommandBatch {
+//     fn drop(&mut self) {
+//     }
+// }
+
+pub struct Submission {
+    pub queue_group_id: QueueGroupId,
+    pub signal: SubmitSignal,
+    pub futures: SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>,
+    pub packets: Vec<QueuePacket>,
 }
 
 impl Submission {
-    fn new(queue_group_id: QueueGroupId, packets: Vec<RecordingPacket>) -> Self {
+    fn new(
+        queue_group_id: QueueGroupId,
+        signal: SubmitSignal,
+        futures: SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>,
+        packets: Vec<QueuePacket>,
+    ) -> Self {
         Self {
             queue_group_id,
+            signal,
+            futures,
             packets,
         }
     }

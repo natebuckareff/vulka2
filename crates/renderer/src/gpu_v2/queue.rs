@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{QueueId, QueueRoleFlags, SubmissionId};
+use crate::gpu_v2::{GpuFutureWriter, QueueId, QueuePacket, QueueRoleFlags, SubmissionId};
 
 #[derive(Debug, Clone)]
 pub struct Queue {
@@ -41,6 +41,10 @@ impl Queue {
     }
 
     pub fn semaphore(&self) -> vk::Semaphore {
+        todo!()
+    }
+
+    pub fn submit(&mut self, future: GpuFutureWriter, packets: &[QueuePacket]) -> Result<()> {
         todo!()
     }
 }

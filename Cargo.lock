@@ -1402,12 +1402,14 @@ name = "renderer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bitflags 2.10.0",
  "bytemuck",
  "crevice",
  "glam",
  "image",
  "slang",
  "slang_struct",
+ "smallvec",
  "vulkanalia",
  "vulkanalia-vma",
  "winit",
