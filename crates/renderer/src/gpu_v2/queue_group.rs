@@ -3,7 +3,7 @@ use bitflags::bitflags;
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    DeviceBuilder, GpuFutureWriter, LaneVec, LaneVecBuilder, Queue, QueuePacket, Submission,
+    DeviceBuilder, LaneVec, LaneVecBuilder, Queue, QueuePacket, Submission, SubmissionLane,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -166,16 +166,15 @@ impl QueueGroup {
 
     pub fn submit(&mut self, submission: Submission) -> Result<()> {
         let Submission {
-            queue_group_id,
+            lanes,
             signal,
-            futures,
             packets,
             mut usage,
         } = submission;
 
         usage.disarm();
 
-        let result = self.submit_packets(queue_group_id, futures, packets);
+        let result = self.submit_packets(lanes, packets);
 
         // notify the command allocator that all GpuFutures were set, making
         // sure to *always* signal, even if submit_packets() failed
@@ -192,11 +191,10 @@ impl QueueGroup {
 
     fn submit_packets(
         &mut self,
-        queue_group_id: QueueGroupId,
-        futures: LaneVec<Option<GpuFutureWriter>>,
+        lanes: LaneVec<SubmissionLane>,
         packets: Vec<QueuePacket>,
     ) -> Result<()> {
-        if queue_group_id != self.id {
+        if self.id != lanes.queue_group_id() {
             return Err(anyhow!("mismatched queue groups"));
         }
 
@@ -218,8 +216,8 @@ impl QueueGroup {
         }
 
         // submit the packets
-        for (index, future) in futures.into_entries() {
-            let Some(future) = future else {
+        for (index, lane) in lanes.into_entries() {
+            let Some(future) = lane.future else {
                 continue;
             };
 

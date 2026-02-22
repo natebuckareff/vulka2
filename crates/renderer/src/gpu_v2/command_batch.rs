@@ -1,8 +1,7 @@
 use anyhow::{Result, anyhow};
 
 use crate::gpu_v2::{
-    CommandBuffer, CommandPool, GpuFutureWriter, LaneIndex, LaneVec, QueueGroupId, SubmitSignal,
-    UsageToken,
+    CommandBuffer, CommandPool, GpuFutureWriter, LaneIndex, LaneVec, SubmitSignal, UsageToken,
 };
 
 pub(crate) struct QueuePacket {
@@ -46,19 +45,19 @@ impl CommandBatch {
             buffer.disarm();
         }
 
-        type Futures = LaneVec<Option<GpuFutureWriter>>;
         let pool_lanes = self.pool.lanes();
-        let mut futures: Futures = LaneVec::filled(pool_lanes, || None);
+        let mut sub_lanes = LaneVec::filled(pool_lanes, || SubmissionLane::default());
         let mut packets = vec![];
 
         for buffer in self.buffers.into_iter() {
-            for (index, lane) in buffer.lanes().iter_entries() {
-                if lane.dirty {
-                    if futures.get(index).is_none() {
+            for (index, buf_lane) in buffer.lanes().iter_entries() {
+                if buf_lane.dirty {
+                    let sub_lane = sub_lanes.get_mut(index);
+                    if sub_lane.future.is_none() {
                         // TODO: there is a lifecycle hole here if there is an
                         // error on send, owned pool is dropped
                         let value = pool_lanes.get(index).future().send()?;
-                        futures.set(index, Some(value));
+                        sub_lane.future = Some(value);
                     }
                     packets.push(QueuePacket { index });
                 }
@@ -66,30 +65,32 @@ impl CommandBatch {
         }
 
         let pool = self.pool;
-        let submission = Submission::new(pool.queue_group_id(), self.signal, futures, packets);
+        let submission = Submission::new(sub_lanes, self.signal, packets);
         Ok((submission, pool))
     }
 }
 
+#[derive(Default)]
+pub(crate) struct SubmissionLane {
+    pub(crate) future: Option<GpuFutureWriter>,
+}
+
 pub struct Submission {
-    pub(crate) queue_group_id: QueueGroupId,
+    pub(crate) lanes: LaneVec<SubmissionLane>,
     pub(crate) signal: SubmitSignal,
-    pub(crate) futures: LaneVec<Option<GpuFutureWriter>>,
     pub(crate) packets: Vec<QueuePacket>,
     pub(crate) usage: UsageToken,
 }
 
 impl Submission {
     fn new(
-        queue_group_id: QueueGroupId,
+        lanes: LaneVec<SubmissionLane>,
         signal: SubmitSignal,
-        futures: LaneVec<Option<GpuFutureWriter>>,
         packets: Vec<QueuePacket>,
     ) -> Self {
         Self {
-            queue_group_id,
+            lanes,
             signal,
-            futures,
             packets,
             usage: UsageToken::new(),
         }
