@@ -3,7 +3,9 @@ use bitflags::bitflags;
 use smallvec::SmallVec;
 use vulkanalia::vk;
 
-use crate::gpu_v2::{DeviceBuilder, GpuFutureWriter, MAX_LANES, Queue, QueuePacket, Submission};
+use crate::gpu_v2::{
+    DeviceBuilder, GpuFutureWriter, MAX_STATIC_LANES, Queue, QueuePacket, Submission,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct QueueFamilyId(u32);
@@ -133,13 +135,13 @@ pub struct QueueGroup {
     id: QueueGroupId,
     roles: QueueRoleFlags,
     queues: Vec<Queue>,
-    scratch_buffers: SmallVec<[Vec<QueuePacket>; MAX_LANES]>,
+    scratch_buffers: SmallVec<[Vec<QueuePacket>; MAX_STATIC_LANES]>,
 }
 
 impl QueueGroup {
     pub(crate) fn new(id: QueueGroupId, queues: Vec<Queue>) -> Self {
         let roles = queues.iter().map(|q| q.roles()).collect();
-        let mut scratch_buffers = SmallVec::with_capacity(MAX_LANES);
+        let mut scratch_buffers = SmallVec::with_capacity(MAX_STATIC_LANES);
         scratch_buffers.resize_with(queues.len(), Vec::new);
         Self {
             id,
@@ -187,7 +189,7 @@ impl QueueGroup {
     fn submit_packets(
         &mut self,
         queue_group_id: QueueGroupId,
-        futures: SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>,
+        futures: SmallVec<[Option<GpuFutureWriter>; MAX_STATIC_LANES]>,
         packets: Vec<QueuePacket>,
     ) -> Result<()> {
         if queue_group_id != self.id {

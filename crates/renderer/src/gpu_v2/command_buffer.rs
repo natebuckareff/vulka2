@@ -2,7 +2,7 @@ use anyhow::Result;
 use smallvec::SmallVec;
 
 use crate::gpu_v2::{
-    LivenessGuard, MAX_LANES, PoolLane, PoolLanes, QueueGroupId, QueueId, QueueRoleFlags,
+    LivenessGuard, MAX_STATIC_LANES, PoolLane, PoolLanes, QueueGroupId, QueueId, QueueRoleFlags,
 };
 
 pub(crate) struct BufferLane {
@@ -24,7 +24,7 @@ pub(crate) struct BufferLane {
 
 pub struct CommandBuffer {
     queue_group_id: QueueGroupId,
-    lanes: SmallVec<[BufferLane; MAX_LANES]>,
+    lanes: SmallVec<[BufferLane; MAX_STATIC_LANES]>,
     guard: LivenessGuard,
 }
 
@@ -34,7 +34,7 @@ impl CommandBuffer {
         pool_lanes: &PoolLanes,
         guard: LivenessGuard,
     ) -> Result<Self> {
-        let mut lanes = SmallVec::with_capacity(MAX_LANES);
+        let mut lanes = SmallVec::with_capacity(MAX_STATIC_LANES);
         for pool_lane in pool_lanes.iter() {
             let lane = BufferLane {
                 pool: pool_lane.clone(),
@@ -53,7 +53,7 @@ impl CommandBuffer {
         self.queue_group_id
     }
 
-    pub(crate) fn lanes(&self) -> &SmallVec<[BufferLane; MAX_LANES]> {
+    pub(crate) fn lanes(&self) -> &SmallVec<[BufferLane; MAX_STATIC_LANES]> {
         &self.lanes
     }
 
@@ -69,7 +69,7 @@ impl CommandBuffer {
     // called by command recoding methods
     fn touch_by_roles(&mut self, roles: QueueRoleFlags) {
         for lane in self.lanes.iter_mut() {
-            if lane.pool.roles.contains(roles) {
+            if lane.pool.queue.roles.contains(roles) {
                 lane.dirty = true;
             }
         }

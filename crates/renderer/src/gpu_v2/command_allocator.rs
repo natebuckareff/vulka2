@@ -5,11 +5,9 @@ use anyhow::{Context, Result, anyhow};
 use smallvec::SmallVec;
 
 use crate::gpu_v2::{
-    CommandBatch, CommandPool, Device, GpuFutureState, LivenessToken, QueueGroupId, QueueGroupInfo,
-    QueueGroupTable, SubmitSignal,
+    CommandBatch, CommandPool, Device, GpuFutureState, LivenessToken, MAX_STATIC_LANES,
+    QueueGroupId, QueueGroupInfo, QueueGroupTable, SubmitSignal,
 };
-
-pub const MAX_LANES: usize = 4;
 
 pub struct CommandAllocator {
     id: usize,
@@ -180,7 +178,7 @@ impl CommandAllocator {
         loop {
             // will poll the current timeline value for each lane's semaphore
             let device = self.device.vk_device();
-            let mut current_values: SmallVec<[u64; MAX_LANES]> = SmallVec::new();
+            let mut current_values: SmallVec<[u64; MAX_STATIC_LANES]> = SmallVec::new();
 
             for binding in self.queue_info.bindings.iter() {
                 let value = unsafe { device.get_semaphore_counter_value(binding.semaphore) }?;
@@ -227,7 +225,7 @@ impl CommandAllocator {
             // will build a list of semaphores, and will wait until at least one
             // signals a timeline value >= the corresponding value
             type WaitItem = (vk::Semaphore, u64);
-            let mut wait_list = SmallVec::<[WaitItem; MAX_LANES]>::new();
+            let mut wait_list = SmallVec::<[WaitItem; MAX_STATIC_LANES]>::new();
 
             for binding in self.queue_info.bindings.iter() {
                 // use u64::MAX as a placeholder for now
@@ -280,8 +278,8 @@ impl CommandAllocator {
             );
 
             let (wait_semaphores, wait_values): (
-                SmallVec<[vk::Semaphore; MAX_LANES]>,
-                SmallVec<[u64; MAX_LANES]>,
+                SmallVec<[vk::Semaphore; MAX_STATIC_LANES]>,
+                SmallVec<[u64; MAX_STATIC_LANES]>,
             ) = wait_list.into_iter().unzip();
 
             let info = vk::SemaphoreWaitInfo::builder()

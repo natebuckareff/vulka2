@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use smallvec::SmallVec;
 
 use crate::gpu_v2::{
-    CommandBuffer, CommandPool, GpuFutureWriter, MAX_LANES, QueueGroupId, SubmitSignal,
+    CommandBuffer, CommandPool, GpuFutureWriter, MAX_STATIC_LANES, QueueGroupId, SubmitSignal,
 };
 
 pub(crate) struct QueuePacket {
@@ -42,8 +42,8 @@ impl CommandBatch {
     }
 
     pub fn finish(self) -> Result<(Submission, CommandPool)> {
-        type Futures = SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>;
-        let mut futures: Futures = SmallVec::with_capacity(MAX_LANES);
+        type Futures = SmallVec<[Option<GpuFutureWriter>; MAX_STATIC_LANES]>;
+        let mut futures: Futures = SmallVec::with_capacity(MAX_STATIC_LANES);
         futures.resize_with(self.pool.lanes().len(), || None);
 
         let mut packets = vec![];
@@ -73,7 +73,7 @@ impl CommandBatch {
 pub struct Submission {
     pub(crate) queue_group_id: QueueGroupId,
     pub(crate) signal: SubmitSignal,
-    pub(crate) futures: SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>,
+    pub(crate) futures: SmallVec<[Option<GpuFutureWriter>; MAX_STATIC_LANES]>,
     pub(crate) packets: Vec<QueuePacket>,
 }
 
@@ -81,7 +81,7 @@ impl Submission {
     fn new(
         queue_group_id: QueueGroupId,
         signal: SubmitSignal,
-        futures: SmallVec<[Option<GpuFutureWriter>; MAX_LANES]>,
+        futures: SmallVec<[Option<GpuFutureWriter>; MAX_STATIC_LANES]>,
         packets: Vec<QueuePacket>,
     ) -> Self {
         Self {
