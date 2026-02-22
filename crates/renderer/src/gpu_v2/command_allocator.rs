@@ -5,8 +5,8 @@ use anyhow::{Context, Result, anyhow};
 use smallvec::SmallVec;
 
 use crate::gpu_v2::{
-    CommandBatch, CommandPool, Device, GpuFutureState, LaneVec, LivenessToken, MAX_STATIC_LANES,
-    QueueGroupId, QueueGroupInfo, QueueGroupTable, SubmitSignal,
+    CommandBatch, CommandPool, Device, GpuFutureState, LaneVec, LaneVecBuilder, LivenessToken,
+    MAX_STATIC_LANES, QueueGroupId, QueueGroupInfo, QueueGroupTable, SubmitSignal,
 };
 
 pub struct CommandAllocator {
@@ -183,13 +183,12 @@ impl CommandAllocator {
         loop {
             // will poll the current timeline value for each lane's semaphore
             let device = self.device.vk_device();
-            let queue_group_id = self.queue_info.id;
-            let mut current_values = LaneVec::with_lanes(&self.queue_info.bindings);
-
+            let mut current_values = LaneVecBuilder::with_lanes(&self.queue_info.bindings);
             for binding in self.queue_info.bindings.iter() {
                 let value = unsafe { device.get_semaphore_counter_value(binding.semaphore) }?;
                 current_values.push(value);
             }
+            let current_values = current_values.build();
 
             // loop through each pool and check if all lanes for that pool are
             // either unsubmitted or are no longer in use by the gpu
@@ -231,11 +230,12 @@ impl CommandAllocator {
 
             // will build a list of semaphores, and will wait until at least one
             // signals a timeline value >= the corresponding value
-            let mut wait_list = LaneVec::with_lanes(&self.queue_info.bindings);
+            let mut wait_list = LaneVecBuilder::with_lanes(&self.queue_info.bindings);
             for binding in self.queue_info.bindings.iter() {
                 // use u64::MAX as a placeholder for now
                 wait_list.push((binding.semaphore, u64::MAX));
             }
+            let mut wait_list = wait_list.build();
 
             for pool in self.pending.iter() {
                 let pool_lanes = pool.lanes();

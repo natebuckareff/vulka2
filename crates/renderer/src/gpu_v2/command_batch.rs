@@ -48,7 +48,7 @@ impl CommandBatch {
 
         type Futures = LaneVec<Option<GpuFutureWriter>>;
         let pool_lanes = self.pool.lanes();
-        let mut futures: Futures = LaneVec::with(pool_lanes, || None);
+        let mut futures: Futures = LaneVec::filled(pool_lanes, || None);
         let mut packets = vec![];
 
         for buffer in self.buffers.into_iter() {

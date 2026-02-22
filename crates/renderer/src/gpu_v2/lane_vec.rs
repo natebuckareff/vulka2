@@ -1,4 +1,3 @@
-use anyhow::{Result, anyhow};
 use smallvec::SmallVec;
 
 use crate::gpu_v2::QueueGroupId;
@@ -17,18 +16,18 @@ impl Into<usize> for LaneIndex {
     }
 }
 
-#[derive(Clone)]
-pub struct LaneVec<T> {
+pub struct LaneVecBuilder<T> {
     queue_group_id: QueueGroupId,
+    len: usize,
     vec: SmallVec<[T; MAX_STATIC_LANES]>,
 }
 
-impl<T> LaneVec<T> {
-    pub fn new(queue_group_id: QueueGroupId, capacity: usize) -> Self {
-        let vec = SmallVec::with_capacity(capacity);
+impl<T> LaneVecBuilder<T> {
+    pub fn new(queue_group_id: QueueGroupId, len: usize) -> Self {
         Self {
             queue_group_id,
-            vec,
+            len,
+            vec: SmallVec::with_capacity(len),
         }
     }
 
@@ -36,7 +35,28 @@ impl<T> LaneVec<T> {
         Self::new(lanes.queue_group_id(), lanes.len())
     }
 
-    pub fn with<U>(lanes: &LaneVec<U>, f: impl FnMut() -> T) -> Self {
+    pub fn push(&mut self, value: T) {
+        assert!(self.vec.len() < self.len);
+        self.vec.push(value);
+    }
+
+    pub fn build(self) -> LaneVec<T> {
+        assert!(self.vec.len() == self.len);
+        LaneVec {
+            queue_group_id: self.queue_group_id,
+            vec: self.vec,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct LaneVec<T> {
+    queue_group_id: QueueGroupId,
+    vec: SmallVec<[T; MAX_STATIC_LANES]>,
+}
+
+impl<T> LaneVec<T> {
+    pub fn filled<U>(lanes: &LaneVec<U>, f: impl FnMut() -> T) -> Self {
         let mut vec = SmallVec::with_capacity(lanes.len());
         vec.resize_with(lanes.len(), f);
         Self {
@@ -51,20 +71,6 @@ impl<T> LaneVec<T> {
 
     pub fn len(&self) -> usize {
         self.vec.len()
-    }
-
-    pub fn capacity(&self) -> usize {
-        self.vec.capacity()
-    }
-
-    pub fn index(&self, index: usize) -> Result<LaneIndex> {
-        if index >= self.len() {
-            return Err(anyhow!("lane index out of bounds"));
-        }
-        Ok(LaneIndex {
-            index,
-            queue_group_id: self.queue_group_id,
-        })
     }
 
     pub fn get(&self, index: LaneIndex) -> &T {
@@ -88,15 +94,7 @@ impl<T> LaneVec<T> {
             self.queue_group_id == index.queue_group_id,
             "mismatched queue groups"
         );
-        debug_assert!(index.index < self.len(), "lane index out of bounds");
         self.vec[index.index] = value;
-    }
-
-    // TODO: this should be a seperate builder type, because then we can assume
-    // OOB is impossible if push is not possible
-    pub fn push(&mut self, value: T) {
-        assert!(self.len() < self.capacity());
-        self.vec.push(value);
     }
 
     pub fn each(&self) -> impl Iterator<Item = LaneIndex> {

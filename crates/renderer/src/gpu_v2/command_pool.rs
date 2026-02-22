@@ -4,8 +4,8 @@ use anyhow::Result;
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    BufferLane, Device, GpuFuture, LaneVec, LivenessGuard, LivenessToken, QueueFamilyId,
-    QueueGroupId, QueueGroupInfo, QueueId, QueueRoleFlags,
+    BufferLane, Device, GpuFuture, LaneVec, LaneVecBuilder, LivenessGuard, LivenessToken,
+    QueueFamilyId, QueueGroupId, QueueGroupInfo, QueueId, QueueRoleFlags,
 };
 
 #[derive(Clone, Copy)]
@@ -59,7 +59,7 @@ impl CommandPool {
         queue_info: QueueGroupInfo,
         guard: LivenessGuard,
     ) -> Result<Self> {
-        let mut lanes = LaneVec::with_lanes(&queue_info.bindings);
+        let mut lanes = LaneVecBuilder::with_lanes(&queue_info.bindings);
 
         for binding in queue_info.bindings.iter() {
             let queue = QueueLane {
@@ -80,7 +80,7 @@ impl CommandPool {
         Ok(Self {
             device,
             allocator_id,
-            lanes,
+            lanes: lanes.build(),
             liveness: LivenessToken::new(),
             guard,
         })
@@ -107,7 +107,7 @@ impl CommandPool {
     }
 
     pub(crate) fn allocate(&mut self) -> Result<LaneVec<BufferLane>> {
-        let mut buffer_lanes = LaneVec::with_lanes(&self.lanes);
+        let mut buffer_lanes = LaneVecBuilder::with_lanes(&self.lanes);
         for lane in self.lanes.iter_mut() {
             let buffer = match lane.waiting.pop_front() {
                 Some(buffer) => buffer,
@@ -117,7 +117,7 @@ impl CommandPool {
             let buffer_lane = BufferLane::new(lane.queue, buffer);
             buffer_lanes.push(buffer_lane);
         }
-        Ok(buffer_lanes)
+        Ok(buffer_lanes.build())
     }
 
     pub(crate) fn reset(&mut self) -> Result<()> {

@@ -6,9 +6,9 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    CommandAllocator, DeviceInfo, Engine, LaneIndex, LaneVec, Queue, QueueAllocation, QueueFamily,
-    QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId,
-    QueueRoleFlags, get_available_families, select_best_families,
+    CommandAllocator, DeviceInfo, Engine, LaneIndex, LaneVec, LaneVecBuilder, Queue,
+    QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId,
+    QueueGroupTable, QueueId, QueueRoleFlags, get_available_families, select_best_families,
 };
 
 pub(crate) struct DevicePlan {
@@ -241,7 +241,7 @@ fn build_queue_groups(
         }
 
         // assumes that allocates are sorted by queue family
-        let mut allocation_lanes = LaneVec::new(*queue_group_id, allocations.len());
+        let mut allocation_lanes = LaneVecBuilder::new(*queue_group_id, allocations.len());
         for allocation in allocations {
             let handle = *queues
                 .get(&allocation.queue_id)
@@ -251,8 +251,8 @@ fn build_queue_groups(
 
         // bit repetitive looking, but this buys us really nice queue lane
         // semantics everywhere else
-        let mut group_queues = LaneVec::new(*queue_group_id, allocations.len());
-        for (lane, (allocation, handle)) in allocation_lanes.into_entries() {
+        let mut group_queues = LaneVecBuilder::new(*queue_group_id, allocations.len());
+        for (lane, (allocation, handle)) in allocation_lanes.build().into_entries() {
             group_queues.push(Queue::new(
                 allocation.queue_id,
                 lane,
@@ -263,7 +263,7 @@ fn build_queue_groups(
 
         queue_groups.insert(
             *queue_group_id,
-            QueueGroup::new(*queue_group_id, group_queues),
+            QueueGroup::new(*queue_group_id, group_queues.build()),
         );
     }
 

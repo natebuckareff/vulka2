@@ -2,7 +2,9 @@ use anyhow::{Result, anyhow};
 use bitflags::bitflags;
 use vulkanalia::vk;
 
-use crate::gpu_v2::{DeviceBuilder, GpuFutureWriter, LaneVec, Queue, QueuePacket, Submission};
+use crate::gpu_v2::{
+    DeviceBuilder, GpuFutureWriter, LaneVec, LaneVecBuilder, Queue, QueuePacket, Submission,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct QueueFamilyId(u32);
@@ -138,7 +140,7 @@ pub struct QueueGroup {
 impl QueueGroup {
     pub(crate) fn new(id: QueueGroupId, queues: LaneVec<Queue>) -> Self {
         let roles = queues.iter().map(|q| q.roles()).collect();
-        let mut scratch = LaneVec::with_lanes(&queues);
+        let mut scratch = LaneVecBuilder::with_lanes(&queues);
         for _ in 0..queues.len() {
             scratch.push(Vec::new());
         }
@@ -146,7 +148,7 @@ impl QueueGroup {
             id,
             roles,
             queues,
-            scratch,
+            scratch: scratch.build(),
         }
     }
 

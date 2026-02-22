@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    LaneVec, QueueGroup, QueueGroupId, QueueId, QueueRoleFlags, SubmissionCounter,
+    LaneVec, LaneVecBuilder, QueueGroup, QueueGroupId, QueueId, QueueRoleFlags, SubmissionCounter,
 };
 
 #[derive(Clone)]
@@ -28,10 +28,7 @@ impl Inner {
     fn new(queue_groups: &HashMap<QueueGroupId, QueueGroup>) -> Self {
         let mut infos = Vec::with_capacity(queue_groups.len());
         for qg in queue_groups.values() {
-            let mut info = QueueGroupInfo {
-                id: qg.id(),
-                bindings: LaneVec::with_lanes(qg.queues()),
-            };
+            let mut bindings = LaneVecBuilder::with_lanes(qg.queues());
             for queue in qg.queues().iter() {
                 let binding = QueueBinding {
                     id: queue.id(),
@@ -39,8 +36,12 @@ impl Inner {
                     counter: queue.submission_counter().clone(),
                     semaphore: queue.semaphore(),
                 };
-                info.bindings.push(binding);
+                bindings.push(binding);
             }
+            let info = QueueGroupInfo {
+                id: qg.id(),
+                bindings: bindings.build(),
+            };
             infos.push(info);
         }
         infos.sort_by_key(|info| info.id);
