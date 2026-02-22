@@ -35,8 +35,9 @@ impl CommandBatch {
         )
     }
 
-    pub fn add(&mut self, buffer: CommandBuffer) -> Result<()> {
+    pub fn add(&mut self, mut buffer: CommandBuffer) -> Result<()> {
         if self.pool.queue_group_id() != buffer.queue_group_id() {
+            buffer.disarm();
             return Err(anyhow!("mismatched queue groups"));
         }
         self.buffers.push(buffer);
@@ -44,15 +45,18 @@ impl CommandBatch {
     }
 
     pub fn finish(mut self) -> Result<(Submission, CommandPool)> {
-        self.usage.consume();
+        self.usage.disarm();
+        for buffer in self.buffers.iter_mut() {
+            buffer.disarm();
+        }
 
         type Futures = LaneVec<Option<GpuFutureWriter>>;
         let pool_lanes = self.pool.lanes();
         let mut futures: Futures = LaneVec::new(self.pool.queue_group_id(), pool_lanes.len());
         let mut packets = vec![];
 
-        for buffers in self.buffers.into_iter() {
-            for (index, lane) in buffers.lanes().iter_entries() {
+        for buffer in self.buffers.into_iter() {
+            for (index, lane) in buffer.lanes().iter_entries() {
                 if lane.dirty {
                     if futures.get(index).is_none() {
                         let value = pool_lanes.get(index).future.send()?;

@@ -1,28 +1,19 @@
 use anyhow::Result;
 
-use crate::gpu_v2::{LaneVec, LivenessGuard, PoolLane, QueueGroupId, QueueId, QueueRoleFlags};
+use crate::gpu_v2::{
+    LaneVec, LivenessGuard, PoolLane, QueueGroupId, QueueId, QueueRoleFlags, UsageToken,
+};
 
 pub(crate) struct BufferLane {
     pub(crate) pool: PoolLane,
     pub(crate) dirty: bool,
 }
 
-// TODO: bring back?
-// #[derive(Default)]
-// struct DirtyBufferGuard {
-//     dirty: bool,
-// }
-
-// impl Drop for DirtyBufferGuard {
-//     fn drop(&mut self) {
-//         debug_assert!(!self.dirty, "unsubmitted command buffer dropped");
-//     }
-// }
-
 pub struct CommandBuffer {
     queue_group_id: QueueGroupId,
     lanes: LaneVec<BufferLane>,
     guard: LivenessGuard,
+    usage: Option<UsageToken>,
 }
 
 impl CommandBuffer {
@@ -43,6 +34,7 @@ impl CommandBuffer {
             queue_group_id,
             lanes,
             guard,
+            usage: None,
         })
     }
 
@@ -59,6 +51,9 @@ impl CommandBuffer {
         for lane in self.lanes.iter_mut() {
             if lane.pool.queue.id == id {
                 lane.dirty = true;
+                if self.usage.is_none() {
+                    self.usage = Some(UsageToken::new());
+                }
             }
         }
     }
@@ -68,7 +63,16 @@ impl CommandBuffer {
         for lane in self.lanes.iter_mut() {
             if lane.pool.queue.roles.contains(roles) {
                 lane.dirty = true;
+                if self.usage.is_none() {
+                    self.usage = Some(UsageToken::new());
+                }
             }
+        }
+    }
+
+    pub(crate) fn disarm(&mut self) {
+        if let Some(mut usage) = self.usage.take() {
+            usage.disarm();
         }
     }
 }

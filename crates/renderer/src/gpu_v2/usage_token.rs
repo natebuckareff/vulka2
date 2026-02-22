@@ -7,7 +7,7 @@ impl UsageToken {
         Self { used: false }
     }
 
-    pub fn consume(&mut self) {
+    pub fn disarm(&mut self) {
         self.used = true;
     }
 }
