@@ -2,11 +2,11 @@ use anyhow::{Result, anyhow};
 use smallvec::SmallVec;
 
 use crate::gpu_v2::{
-    CommandBuffer, CommandPool, GpuFutureWriter, MAX_STATIC_LANES, QueueGroupId, SubmitSignal,
+    CommandBuffer, CommandPool, GpuFutureWriter, LaneIndex, LaneVec, QueueGroupId, SubmitSignal,
 };
 
 pub(crate) struct QueuePacket {
-    pub(crate) lane_index: usize,
+    pub(crate) index: LaneIndex,
     // TODO: will contain only what the queue will need to submit
 }
 
@@ -42,18 +42,19 @@ impl CommandBatch {
     }
 
     pub fn finish(self) -> Result<(Submission, CommandPool)> {
-        type Futures = SmallVec<[Option<GpuFutureWriter>; MAX_STATIC_LANES]>;
-        let mut futures: Futures = SmallVec::with_capacity(MAX_STATIC_LANES);
-        futures.resize_with(self.pool.lanes().len(), || None);
-
+        type Futures = LaneVec<Option<GpuFutureWriter>>;
+        let pool_lanes = self.pool.lanes();
+        let mut futures: Futures = LaneVec::new(self.pool.queue_group_id(), pool_lanes.len());
         let mut packets = vec![];
+
         for buffers in self.buffers.into_iter() {
-            for (lane_index, lane) in buffers.lanes().iter().enumerate() {
+            for (index, lane) in buffers.lanes().iter_entries() {
                 if lane.dirty {
-                    if futures[lane_index].is_none() {
-                        futures[lane_index] = Some(self.pool.lanes()[lane_index].future.send()?);
+                    if futures.get(index).is_none() {
+                        let value = pool_lanes.get(index).future.send()?;
+                        futures.set(index, Some(value));
                     }
-                    packets.push(QueuePacket { lane_index });
+                    packets.push(QueuePacket { index });
                 }
             }
         }
@@ -73,7 +74,7 @@ impl CommandBatch {
 pub struct Submission {
     pub(crate) queue_group_id: QueueGroupId,
     pub(crate) signal: SubmitSignal,
-    pub(crate) futures: SmallVec<[Option<GpuFutureWriter>; MAX_STATIC_LANES]>,
+    pub(crate) futures: LaneVec<Option<GpuFutureWriter>>,
     pub(crate) packets: Vec<QueuePacket>,
 }
 
@@ -81,7 +82,7 @@ impl Submission {
     fn new(
         queue_group_id: QueueGroupId,
         signal: SubmitSignal,
-        futures: SmallVec<[Option<GpuFutureWriter>; MAX_STATIC_LANES]>,
+        futures: LaneVec<Option<GpuFutureWriter>>,
         packets: Vec<QueuePacket>,
     ) -> Self {
         Self {

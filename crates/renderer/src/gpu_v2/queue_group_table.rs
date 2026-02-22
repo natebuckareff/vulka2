@@ -1,16 +1,15 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    QueueGroup, QueueGroupId, QueueId, QueueRoleFlags, SubmissionCounter, SubmissionId,
+    LaneVec, QueueGroup, QueueGroupId, QueueId, QueueRoleFlags, SubmissionCounter,
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct QueueGroupInfo {
     pub id: QueueGroupId,
-    pub bindings: Vec<QueueBinding>, // OPTIMIZE: SmallVec
+    pub bindings: LaneVec<QueueBinding>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,9 +30,9 @@ impl Inner {
         for qg in queue_groups.values() {
             let mut info = QueueGroupInfo {
                 id: qg.id(),
-                bindings: Vec::with_capacity(qg.queues().len()),
+                bindings: LaneVec::new(qg.id(), qg.queues().len()),
             };
-            for queue in qg.queues() {
+            for queue in qg.queues().iter() {
                 let binding = QueueBinding {
                     id: queue.id(),
                     roles: queue.roles(),
@@ -42,7 +41,6 @@ impl Inner {
                 };
                 info.bindings.push(binding);
             }
-            info.bindings.sort_by_key(|binding| binding.id);
             infos.push(info);
         }
         infos.sort_by_key(|info| info.id);

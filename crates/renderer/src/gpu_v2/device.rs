@@ -6,9 +6,9 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    CommandAllocator, DeviceInfo, Engine, Queue, QueueAllocation, QueueFamily, QueueFamilyId,
-    QueueGroup, QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId, QueueRoleFlags,
-    get_available_families, select_best_families,
+    CommandAllocator, DeviceInfo, Engine, LaneIndex, LaneVec, Queue, QueueAllocation, QueueFamily,
+    QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId,
+    QueueRoleFlags, get_available_families, select_best_families,
 };
 
 pub(crate) struct DevicePlan {
@@ -68,10 +68,15 @@ impl DeviceBuilder {
             return Ok(None);
         }
 
-        let allocations = selected_families
+        let mut allocations = selected_families
             .into_iter()
             .map(|family| self.allocate_queue(family))
             .collect::<Result<Vec<_>>>()?;
+
+        // sort allocations by queue family; core assumption here is that queues
+        // in a queue group are all from different queue families, and this
+        // order carries through to all lane usage
+        allocations.sort_by_key(|allocation| allocation.queue_id.family);
 
         self.queue_groups.insert(queue_group_id, allocations);
 
@@ -235,15 +240,26 @@ fn build_queue_groups(
             }
         }
 
-        let group_queues = allocations
-            .iter()
-            .map(|allocation| {
-                let handle = *queues
-                    .get(&allocation.queue_id)
-                    .expect("validated in previous loop");
-                Queue::new(allocation.queue_id, allocation.roles, handle)
-            })
-            .collect::<Vec<_>>();
+        // assumes that allocates are sorted by queue family
+        let mut allocation_lanes = LaneVec::new(*queue_group_id, allocations.len());
+        for allocation in allocations {
+            let handle = *queues
+                .get(&allocation.queue_id)
+                .expect("validated in previous loop");
+            allocation_lanes.push((allocation, handle));
+        }
+
+        // bit repetitive looking, but this buys us really nice queue lane
+        // semantics everywhere else
+        let mut group_queues = LaneVec::new(*queue_group_id, allocations.len());
+        for (lane, (allocation, handle)) in allocation_lanes.into_entries() {
+            group_queues.push(Queue::new(
+                allocation.queue_id,
+                lane,
+                allocation.roles,
+                handle,
+            ));
+        }
 
         queue_groups.insert(
             *queue_group_id,

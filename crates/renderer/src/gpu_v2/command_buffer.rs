@@ -1,9 +1,6 @@
 use anyhow::Result;
-use smallvec::SmallVec;
 
-use crate::gpu_v2::{
-    LivenessGuard, MAX_STATIC_LANES, PoolLane, PoolLanes, QueueGroupId, QueueId, QueueRoleFlags,
-};
+use crate::gpu_v2::{LaneVec, LivenessGuard, PoolLane, QueueGroupId, QueueId, QueueRoleFlags};
 
 pub(crate) struct BufferLane {
     pub(crate) pool: PoolLane,
@@ -24,17 +21,17 @@ pub(crate) struct BufferLane {
 
 pub struct CommandBuffer {
     queue_group_id: QueueGroupId,
-    lanes: SmallVec<[BufferLane; MAX_STATIC_LANES]>,
+    lanes: LaneVec<BufferLane>,
     guard: LivenessGuard,
 }
 
 impl CommandBuffer {
     pub(crate) fn new(
         queue_group_id: QueueGroupId,
-        pool_lanes: &PoolLanes,
+        pool_lanes: &LaneVec<PoolLane>,
         guard: LivenessGuard,
     ) -> Result<Self> {
-        let mut lanes = SmallVec::with_capacity(MAX_STATIC_LANES);
+        let mut lanes = LaneVec::new(queue_group_id, pool_lanes.len());
         for pool_lane in pool_lanes.iter() {
             let lane = BufferLane {
                 pool: pool_lane.clone(),
@@ -53,7 +50,7 @@ impl CommandBuffer {
         self.queue_group_id
     }
 
-    pub(crate) fn lanes(&self) -> &SmallVec<[BufferLane; MAX_STATIC_LANES]> {
+    pub(crate) fn lanes(&self) -> &LaneVec<BufferLane> {
         &self.lanes
     }
 

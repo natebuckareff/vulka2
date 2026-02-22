@@ -5,8 +5,8 @@ use anyhow::{Context, Result, anyhow};
 use smallvec::SmallVec;
 
 use crate::gpu_v2::{
-    CommandBatch, CommandPool, Device, GpuFutureState, LivenessToken, MAX_STATIC_LANES,
-    QueueGroupId, QueueGroupInfo, QueueGroupTable, SubmitSignal,
+    CommandBatch, CommandPool, Device, GpuFutureState, LaneVec, LivenessToken, MAX_STATIC_LANES,
+    QueueGroupId, QueueGroupInfo, QueueGroupTable, SubmitSignal, queue,
 };
 
 pub struct CommandAllocator {
@@ -178,7 +178,8 @@ impl CommandAllocator {
         loop {
             // will poll the current timeline value for each lane's semaphore
             let device = self.device.vk_device();
-            let mut current_values: SmallVec<[u64; MAX_STATIC_LANES]> = SmallVec::new();
+            let queue_group_id = self.queue_info.id;
+            let mut current_values = LaneVec::new(queue_group_id, self.queue_info.bindings.len());
 
             for binding in self.queue_info.bindings.iter() {
                 let value = unsafe { device.get_semaphore_counter_value(binding.semaphore) }?;
@@ -189,11 +190,12 @@ impl CommandAllocator {
             // either unsubmitted or are no longer in use by the gpu
             'pools: for i in 0..self.pending.len() {
                 let pool = &self.pending[i];
+                let pool_lanes = pool.lanes();
 
-                debug_assert_eq!(pool.lanes().len(), current_values.len());
+                debug_assert_eq!(pool_lanes.len(), current_values.len());
 
-                for lane in 0..pool.lanes().len() {
-                    match pool.lanes()[lane].future.get()? {
+                for (index, lane) in pool_lanes.iter_entries() {
+                    match lane.future.get()? {
                         GpuFutureState::Unset => {
                             // skip lanes that were never submitted
                             continue;
@@ -205,7 +207,7 @@ impl CommandAllocator {
                             // the last polled value is still less than the
                             // expected value, therefore the pool is not ready
                             // to be reclaimed
-                            if current_values[lane] < value.into() {
+                            if *current_values.get(index) < value.into() {
                                 continue 'pools;
                             }
                         }
@@ -224,19 +226,18 @@ impl CommandAllocator {
 
             // will build a list of semaphores, and will wait until at least one
             // signals a timeline value >= the corresponding value
-            type WaitItem = (vk::Semaphore, u64);
-            let mut wait_list = SmallVec::<[WaitItem; MAX_STATIC_LANES]>::new();
-
+            let mut wait_list = LaneVec::new(queue_group_id, self.queue_info.bindings.len());
             for binding in self.queue_info.bindings.iter() {
                 // use u64::MAX as a placeholder for now
                 wait_list.push((binding.semaphore, u64::MAX));
             }
 
             for pool in self.pending.iter() {
-                debug_assert_eq!(pool.lanes().len(), wait_list.len());
+                let pool_lanes = pool.lanes();
+                debug_assert_eq!(pool_lanes.len(), wait_list.len());
 
-                for lane in 0..pool.lanes().len() {
-                    let value = match pool.lanes()[lane].future.get()? {
+                for (index, lane) in pool_lanes.iter_entries() {
+                    let value = match lane.future.get()? {
                         GpuFutureState::Unset => {
                             // skip lanes that were never submitted
                             continue;
@@ -253,21 +254,21 @@ impl CommandAllocator {
                     // device.wait_semaphores will immediate return since this
                     // value is already signalled
 
-                    if current_values[lane] < value {
-                        let wait_value = wait_list[lane].1;
+                    if *current_values.get(index) < value {
+                        let wait_value = wait_list.get(index).1;
                         if wait_value == u64::MAX {
-                            wait_list[lane].1 = value;
+                            wait_list.get_mut(index).1 = value;
                         } else {
                             // take the min so device.wait_semaphores wakes as soon
                             // as possible
-                            wait_list[lane].1 = wait_value.min(value);
+                            wait_list.get_mut(index).1 = wait_value.min(value);
                         }
                     }
                 }
             }
 
             // filter out any lanes that were not pending for all pending pools
-            wait_list.retain(|(_, value)| *value < u64::MAX);
+            let wait_list = wait_list.retain_into(|(_, value)| *value < u64::MAX);
 
             // INVARIANT: in order for wait_list to be empty, all lanes for all
             // pools must be unset, but that would've caused an early return in

@@ -1,23 +1,32 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use vulkanalia::vk;
 
-use crate::gpu_v2::{GpuFutureWriter, QueueId, QueuePacket, QueueRoleFlags, SubmissionId};
+use crate::gpu_v2::{
+    GpuFutureWriter, LaneIndex, QueueId, QueuePacket, QueueRoleFlags, SubmissionId,
+};
 
 #[derive(Debug, Clone)]
 pub struct Queue {
     id: QueueId,
+    lane: LaneIndex,
     roles: QueueRoleFlags,
     handle: vk::Queue,
     submission_counter: Arc<SubmissionCounter>,
 }
 
 impl Queue {
-    pub(crate) fn new(id: QueueId, roles: QueueRoleFlags, handle: vk::Queue) -> Self {
+    pub(crate) fn new(
+        id: QueueId,
+        lane: LaneIndex,
+        roles: QueueRoleFlags,
+        handle: vk::Queue,
+    ) -> Self {
         Self {
             id,
+            lane,
             roles,
             handle,
             submission_counter: Arc::new(SubmissionCounter::new(id)),
@@ -30,6 +39,10 @@ impl Queue {
 
     pub fn id(&self) -> QueueId {
         self.id
+    }
+
+    pub(crate) fn lane(&self) -> LaneIndex {
+        self.lane
     }
 
     pub fn roles(&self) -> QueueRoleFlags {

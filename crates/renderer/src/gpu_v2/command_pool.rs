@@ -1,11 +1,27 @@
 use anyhow::Result;
 
-use crate::gpu_v2::{LivenessGuard, LivenessToken, PoolLanes, QueueGroupId, QueueGroupInfo};
+use crate::gpu_v2::{
+    GpuFuture, LaneVec, LivenessGuard, LivenessToken, QueueGroupId, QueueGroupInfo, QueueId,
+    QueueRoleFlags,
+};
+
+// TODO: what is this from again? is it pool-specific?
+#[derive(Clone, Copy)]
+pub(crate) struct QueueLane {
+    pub(crate) id: QueueId,
+    pub(crate) roles: QueueRoleFlags,
+}
+
+#[derive(Clone)]
+pub(crate) struct PoolLane {
+    pub(crate) queue: QueueLane,
+    pub(crate) future: GpuFuture,
+}
 
 pub struct CommandPool {
     allocator_id: usize,
     queue_group_id: QueueGroupId,
-    lanes: PoolLanes,
+    lanes: LaneVec<PoolLane>,
     liveness: LivenessToken,
     guard: LivenessGuard,
 }
@@ -16,7 +32,20 @@ impl CommandPool {
         queue_info: QueueGroupInfo,
         guard: LivenessGuard,
     ) -> Result<Self> {
-        let lanes = PoolLanes::new(&queue_info.bindings)?;
+        // TODO: something about this smells; do we need all this?
+        let queue_group_id = queue_info.id;
+        let mut lanes = LaneVec::new(queue_group_id, queue_info.bindings.len());
+        for binding in queue_info.bindings.iter() {
+            let queue = QueueLane {
+                id: binding.id,
+                roles: binding.roles,
+            };
+            let lane = PoolLane {
+                queue,
+                future: GpuFuture::new(),
+            };
+            lanes.push(lane);
+        }
         Ok(Self {
             allocator_id,
             queue_group_id: queue_info.id,
@@ -34,7 +63,7 @@ impl CommandPool {
         self.queue_group_id
     }
 
-    pub(crate) fn lanes(&self) -> &PoolLanes {
+    pub(crate) fn lanes(&self) -> &LaneVec<PoolLane> {
         &self.lanes
     }
 
@@ -43,7 +72,9 @@ impl CommandPool {
     }
 
     pub(crate) fn reset(&mut self) -> Result<()> {
-        self.lanes.reset()?;
+        for lane in self.lanes.iter_mut() {
+            lane.future.reset()?;
+        }
         Ok(())
     }
 }
