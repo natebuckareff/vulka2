@@ -28,11 +28,7 @@ impl CommandBatch {
     }
 
     pub fn allocate(&mut self) -> Result<CommandBuffer> {
-        CommandBuffer::new(
-            self.pool.queue_group_id(),
-            self.pool.lanes(),
-            self.pool.liveness().guard(),
-        )
+        CommandBuffer::new(self.pool.allocate()?, self.pool.liveness().guard())
     }
 
     pub fn add(&mut self, mut buffer: CommandBuffer) -> Result<()> {
@@ -52,14 +48,16 @@ impl CommandBatch {
 
         type Futures = LaneVec<Option<GpuFutureWriter>>;
         let pool_lanes = self.pool.lanes();
-        let mut futures: Futures = LaneVec::new(self.pool.queue_group_id(), pool_lanes.len());
+        let mut futures: Futures = LaneVec::with(pool_lanes, || None);
         let mut packets = vec![];
 
         for buffer in self.buffers.into_iter() {
             for (index, lane) in buffer.lanes().iter_entries() {
                 if lane.dirty {
                     if futures.get(index).is_none() {
-                        let value = pool_lanes.get(index).future.send()?;
+                        // TODO: there is a lifecycle hole here if there is an
+                        // error on send, owned pool is dropped
+                        let value = pool_lanes.get(index).future().send()?;
                         futures.set(index, Some(value));
                     }
                     packets.push(QueuePacket { index });

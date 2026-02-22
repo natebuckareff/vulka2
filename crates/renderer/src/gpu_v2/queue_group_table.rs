@@ -30,7 +30,7 @@ impl Inner {
         for qg in queue_groups.values() {
             let mut info = QueueGroupInfo {
                 id: qg.id(),
-                bindings: LaneVec::new(qg.id(), qg.queues().len()),
+                bindings: LaneVec::with_lanes(qg.queues()),
             };
             for queue in qg.queues().iter() {
                 let binding = QueueBinding {

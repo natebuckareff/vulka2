@@ -32,13 +32,21 @@ impl<T> LaneVec<T> {
         }
     }
 
-    pub fn with(queue_group_id: QueueGroupId, len: usize, f: impl FnMut() -> T) -> Self {
-        let mut vec = SmallVec::with_capacity(len);
-        vec.resize_with(len, f);
+    pub fn with_lanes<U>(lanes: &LaneVec<U>) -> Self {
+        Self::new(lanes.queue_group_id(), lanes.len())
+    }
+
+    pub fn with<U>(lanes: &LaneVec<U>, f: impl FnMut() -> T) -> Self {
+        let mut vec = SmallVec::with_capacity(lanes.len());
+        vec.resize_with(lanes.len(), f);
         Self {
-            queue_group_id,
+            queue_group_id: lanes.queue_group_id(),
             vec,
         }
+    }
+
+    pub fn queue_group_id(&self) -> QueueGroupId {
+        self.queue_group_id
     }
 
     pub fn len(&self) -> usize {
@@ -114,6 +122,17 @@ impl<T> LaneVec<T> {
     pub fn iter_entries(&self) -> impl Iterator<Item = (LaneIndex, &T)> {
         let queue_group_id = self.queue_group_id;
         self.vec.iter().enumerate().map(move |(index, value)| {
+            let index = LaneIndex {
+                queue_group_id,
+                index,
+            };
+            (index, value)
+        })
+    }
+
+    pub fn iter_entries_mut(&mut self) -> impl Iterator<Item = (LaneIndex, &mut T)> {
+        let queue_group_id = self.queue_group_id;
+        self.vec.iter_mut().enumerate().map(move |(index, value)| {
             let index = LaneIndex {
                 queue_group_id,
                 index,

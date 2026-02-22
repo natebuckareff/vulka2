@@ -138,7 +138,7 @@ pub struct QueueGroup {
 impl QueueGroup {
     pub(crate) fn new(id: QueueGroupId, queues: LaneVec<Queue>) -> Self {
         let roles = queues.iter().map(|q| q.roles()).collect();
-        let mut scratch = LaneVec::new(id, queues.len());
+        let mut scratch = LaneVec::with_lanes(&queues);
         for _ in 0..queues.len() {
             scratch.push(Vec::new());
         }

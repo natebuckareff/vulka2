@@ -1,37 +1,35 @@
 use anyhow::Result;
+use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    LaneVec, LivenessGuard, PoolLane, QueueGroupId, QueueId, QueueRoleFlags, UsageToken,
+    LaneVec, LivenessGuard, QueueGroupId, QueueId, QueueLane, QueueRoleFlags, UsageToken,
 };
 
 pub(crate) struct BufferLane {
-    pub(crate) pool: PoolLane,
+    pub(crate) queue: QueueLane,
     pub(crate) dirty: bool,
+    pub(crate) buffer: vk::CommandBuffer,
+}
+
+impl BufferLane {
+    pub(crate) fn new(queue: QueueLane, buffer: vk::CommandBuffer) -> Self {
+        Self {
+            queue,
+            dirty: false,
+            buffer,
+        }
+    }
 }
 
 pub struct CommandBuffer {
-    queue_group_id: QueueGroupId,
     lanes: LaneVec<BufferLane>,
     guard: LivenessGuard,
     usage: Option<UsageToken>,
 }
 
 impl CommandBuffer {
-    pub(crate) fn new(
-        queue_group_id: QueueGroupId,
-        pool_lanes: &LaneVec<PoolLane>,
-        guard: LivenessGuard,
-    ) -> Result<Self> {
-        let mut lanes = LaneVec::new(queue_group_id, pool_lanes.len());
-        for pool_lane in pool_lanes.iter() {
-            let lane = BufferLane {
-                pool: pool_lane.clone(),
-                dirty: false,
-            };
-            lanes.push(lane);
-        }
+    pub(crate) fn new(lanes: LaneVec<BufferLane>, guard: LivenessGuard) -> Result<Self> {
         Ok(Self {
-            queue_group_id,
             lanes,
             guard,
             usage: None,
@@ -39,7 +37,7 @@ impl CommandBuffer {
     }
 
     pub fn queue_group_id(&self) -> QueueGroupId {
-        self.queue_group_id
+        self.lanes.queue_group_id()
     }
 
     pub(crate) fn lanes(&self) -> &LaneVec<BufferLane> {
@@ -49,7 +47,7 @@ impl CommandBuffer {
     // called by command recoding methods
     fn touch_by_id(&mut self, id: QueueId) {
         for lane in self.lanes.iter_mut() {
-            if lane.pool.queue.id == id {
+            if lane.queue.id == id {
                 lane.dirty = true;
                 if self.usage.is_none() {
                     self.usage = Some(UsageToken::new());
@@ -61,7 +59,7 @@ impl CommandBuffer {
     // called by command recoding methods
     fn touch_by_roles(&mut self, roles: QueueRoleFlags) {
         for lane in self.lanes.iter_mut() {
-            if lane.pool.queue.roles.contains(roles) {
+            if lane.queue.roles.contains(roles) {
                 lane.dirty = true;
                 if self.usage.is_none() {
                     self.usage = Some(UsageToken::new());

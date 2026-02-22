@@ -134,7 +134,12 @@ impl CommandAllocator {
     }
 
     fn create_pool(&mut self) -> Result<CommandPool> {
-        let pool = CommandPool::new(self.id, self.queue_info.clone(), self.liveness.guard())?;
+        let pool = CommandPool::new(
+            self.device.clone(),
+            self.id,
+            self.queue_info.clone(),
+            self.liveness.guard(),
+        )?;
         Ok(pool)
     }
 
@@ -149,7 +154,7 @@ impl CommandAllocator {
 
             // TODO: move to PoolLane::is_ready() or something
             for lane in pool.lanes().iter() {
-                match lane.future.get()? {
+                match lane.future().get()? {
                     GpuFutureState::Unset => {
                         // skip lanes that were never submitted
                         continue;
@@ -179,7 +184,7 @@ impl CommandAllocator {
             // will poll the current timeline value for each lane's semaphore
             let device = self.device.vk_device();
             let queue_group_id = self.queue_info.id;
-            let mut current_values = LaneVec::new(queue_group_id, self.queue_info.bindings.len());
+            let mut current_values = LaneVec::with_lanes(&self.queue_info.bindings);
 
             for binding in self.queue_info.bindings.iter() {
                 let value = unsafe { device.get_semaphore_counter_value(binding.semaphore) }?;
@@ -195,7 +200,7 @@ impl CommandAllocator {
                 debug_assert_eq!(pool_lanes.len(), current_values.len());
 
                 for (index, lane) in pool_lanes.iter_entries() {
-                    match lane.future.get()? {
+                    match lane.future().get()? {
                         GpuFutureState::Unset => {
                             // skip lanes that were never submitted
                             continue;
@@ -226,7 +231,7 @@ impl CommandAllocator {
 
             // will build a list of semaphores, and will wait until at least one
             // signals a timeline value >= the corresponding value
-            let mut wait_list = LaneVec::new(queue_group_id, self.queue_info.bindings.len());
+            let mut wait_list = LaneVec::with_lanes(&self.queue_info.bindings);
             for binding in self.queue_info.bindings.iter() {
                 // use u64::MAX as a placeholder for now
                 wait_list.push((binding.semaphore, u64::MAX));
@@ -237,7 +242,7 @@ impl CommandAllocator {
                 debug_assert_eq!(pool_lanes.len(), wait_list.len());
 
                 for (index, lane) in pool_lanes.iter_entries() {
-                    let value = match lane.future.get()? {
+                    let value = match lane.future().get()? {
                         GpuFutureState::Unset => {
                             // skip lanes that were never submitted
                             continue;
