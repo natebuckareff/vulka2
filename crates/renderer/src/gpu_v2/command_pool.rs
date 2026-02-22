@@ -43,7 +43,7 @@ impl PoolLanes {
             let lane = PoolLane {
                 queue,
                 roles: binding.roles,
-                future: GpuFuture::unset(),
+                future: GpuFuture::new(),
             };
             lanes.push(lane);
         }
