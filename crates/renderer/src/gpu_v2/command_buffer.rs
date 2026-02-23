@@ -8,15 +8,15 @@ use crate::gpu_v2::{
 pub(crate) struct BufferLane {
     pub(crate) queue: QueueLane,
     pub(crate) dirty: bool,
-    pub(crate) buffer: vk::CommandBuffer,
+    pub(crate) cmdbuf: vk::CommandBuffer,
 }
 
 impl BufferLane {
-    pub(crate) fn new(queue: QueueLane, buffer: vk::CommandBuffer) -> Self {
+    pub(crate) fn new(queue: QueueLane, cmdbuf: vk::CommandBuffer) -> Self {
         Self {
             queue,
             dirty: false,
-            buffer,
+            cmdbuf,
         }
     }
 }

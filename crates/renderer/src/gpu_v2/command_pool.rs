@@ -109,12 +109,12 @@ impl CommandPool {
     pub(crate) fn allocate(&mut self) -> Result<LaneVec<BufferLane>> {
         let mut buffer_lanes = LaneVecBuilder::with_lanes(&self.lanes);
         for lane in self.lanes.iter_mut() {
-            let buffer = match lane.waiting.pop_front() {
+            let cmdbuf = match lane.waiting.pop_front() {
                 Some(buffer) => buffer,
                 None => allocate_command_buffer(&self.device, lane.pool)?,
             };
-            lane.active.push(buffer);
-            let buffer_lane = BufferLane::new(lane.queue, buffer);
+            lane.active.push(cmdbuf);
+            let buffer_lane = BufferLane::new(lane.queue, cmdbuf);
             buffer_lanes.push(buffer_lane);
         }
         Ok(buffer_lanes.build())
@@ -153,7 +153,7 @@ fn allocate_command_buffer(device: &Device, pool: vk::CommandPool) -> Result<vk:
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_buffer_count(1);
 
-    let buffers = unsafe { device.vk_device().allocate_command_buffers(&alloc_info) }?;
+    let cmdbufs = unsafe { device.vk_device().allocate_command_buffers(&alloc_info) }?;
 
-    Ok(buffers[0])
+    Ok(cmdbufs[0])
 }

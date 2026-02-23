@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use vulkanalia::vk;
 
 use crate::gpu_v2::{
     CommandBuffer, CommandPool, GpuFutureWriter, LaneIndex, LaneVec, SubmitSignal, UsageToken,
@@ -6,7 +7,7 @@ use crate::gpu_v2::{
 
 pub(crate) struct QueuePacket {
     pub(crate) index: LaneIndex,
-    // TODO: will contain only what the queue will need to submit
+    pub(crate) cmdbuf: vk::CommandBuffer,
 }
 
 pub struct CommandBatch {
@@ -59,7 +60,8 @@ impl CommandBatch {
                         let value = pool_lanes.get(index).future().send()?;
                         sub_lane.future = Some(value);
                     }
-                    packets.push(QueuePacket { index });
+                    let cmdbuf = buf_lane.cmdbuf;
+                    packets.push(QueuePacket { index, cmdbuf });
                 }
             }
         }
