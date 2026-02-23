@@ -156,7 +156,7 @@ impl Drop for VulkanDevice {
 }
 
 pub struct Device {
-    _engine: Arc<Engine>,
+    engine: Arc<Engine>,
     info: DeviceInfo,
     device: Arc<VulkanDevice>,
     queues: HashMap<QueueId, vk::Queue>,
@@ -187,7 +187,7 @@ impl Device {
         let queue_group_table = QueueGroupTable::new(device.clone(), &queue_groups);
 
         Ok(Self {
-            _engine: engine,
+            engine,
             info: plan.info,
             device,
             queues,
@@ -195,6 +195,10 @@ impl Device {
             queue_group_table,
             next_child_id: AtomicUsize::new(0),
         })
+    }
+
+    pub fn engine(&self) -> &Arc<Engine> {
+        &self.engine
     }
 
     // XXX: feels a bit hacky

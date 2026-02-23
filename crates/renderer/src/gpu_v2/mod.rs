@@ -12,6 +12,7 @@ mod queue_group;
 mod queue_group_table;
 mod queue_selection;
 mod submit_signal;
+mod swapchain;
 mod usage_token;
 mod validation_layers;
 
@@ -22,6 +23,7 @@ pub use command_pool::*;
 pub use device::*;
 pub use engine::*;
 pub use queue_group::*;
+pub use swapchain::*;
 
 pub(crate) use gpu_future::*;
 pub(crate) use lane_vec::*;

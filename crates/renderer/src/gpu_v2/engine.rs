@@ -184,6 +184,10 @@ impl Engine {
     pub(crate) fn has_surface(&self) -> bool {
         self.surface.is_some()
     }
+
+    pub(crate) fn surface(&self) -> Option<vk::SurfaceKHR> {
+        self.surface
+    }
 }
 
 impl Drop for Engine {
