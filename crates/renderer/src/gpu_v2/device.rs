@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -6,9 +7,9 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    CommandAllocator, DeviceInfo, Engine, LaneIndex, LaneVec, LaneVecBuilder, Queue,
-    QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId,
-    QueueGroupTable, QueueId, QueueRoleFlags, get_available_families, select_best_families,
+    CommandAllocator, DeviceInfo, Engine, LaneVecBuilder, Queue, QueueAllocation, QueueFamily,
+    QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId,
+    QueueRoleFlags, get_available_families, select_best_families,
 };
 
 pub(crate) struct DevicePlan {
@@ -128,10 +129,36 @@ impl DeviceBuilder {
     }
 }
 
+pub(crate) struct VulkanDevice {
+    handle: vulkanalia::Device,
+}
+
+impl VulkanDevice {
+    fn new(handle: vulkanalia::Device) -> Self {
+        Self { handle }
+    }
+}
+
+impl Deref for VulkanDevice {
+    type Target = vulkanalia::Device;
+    fn deref(&self) -> &Self::Target {
+        &self.handle
+    }
+}
+
+impl Drop for VulkanDevice {
+    fn drop(&mut self) {
+        use vulkanalia::prelude::v1_0::*;
+        unsafe {
+            self.handle.destroy_device(None);
+        }
+    }
+}
+
 pub struct Device {
     _engine: Arc<Engine>,
     info: DeviceInfo,
-    device: vulkanalia::Device,
+    device: Arc<VulkanDevice>,
     queues: HashMap<QueueId, vk::Queue>,
     queue_groups: Mutex<HashMap<QueueGroupId, QueueGroup>>,
     queue_group_table: QueueGroupTable,
@@ -145,21 +172,24 @@ impl Device {
 
         validate_required_extensions(engine.vk_instance(), physical_device, &required_extensions)?;
 
-        let vk_device = create_vk_device(
-            engine.vk_instance(),
-            physical_device,
-            &plan.reservations,
-            &required_extensions,
-        )?;
+        let device = {
+            let handle = create_vk_device(
+                engine.vk_instance(),
+                physical_device,
+                &plan.reservations,
+                &required_extensions,
+            )?;
+            Arc::new(VulkanDevice::new(handle))
+        };
 
-        let queues = load_queues(&vk_device, &plan.reservations);
-        let queue_groups = build_queue_groups(&queues, &plan.allocations)?;
-        let queue_group_table = QueueGroupTable::new(vk_device.clone(), &queue_groups);
+        let queues = load_queues(&*device, &plan.reservations);
+        let queue_groups = build_queue_groups(device.clone(), &queues, &plan.allocations)?;
+        let queue_group_table = QueueGroupTable::new(device.clone(), &queue_groups);
 
         Ok(Self {
             _engine: engine,
             info: plan.info,
-            device: vk_device,
+            device,
             queues,
             queue_groups: Mutex::new(queue_groups),
             queue_group_table,
@@ -200,16 +230,8 @@ impl Device {
     }
 }
 
-impl Drop for Device {
-    fn drop(&mut self) {
-        use vulkanalia::prelude::v1_0::*;
-        unsafe {
-            self.device.destroy_device(None);
-        }
-    }
-}
-
 fn build_queue_groups(
+    device: Arc<VulkanDevice>,
     queues: &HashMap<QueueId, vk::Queue>,
     queue_group_allocations: &BTreeMap<QueueGroupId, Vec<QueueAllocation>>,
 ) -> Result<HashMap<QueueGroupId, QueueGroup>> {
@@ -254,11 +276,12 @@ fn build_queue_groups(
         let mut group_queues = LaneVecBuilder::new(*queue_group_id, allocations.len());
         for (lane, (allocation, handle)) in allocation_lanes.build().into_entries() {
             group_queues.push(Queue::new(
+                device.clone(),
                 allocation.queue_id,
                 lane,
                 allocation.roles,
                 handle,
-            ));
+            )?);
         }
 
         queue_groups.insert(
@@ -326,7 +349,7 @@ fn create_vk_device(
     reservations: &BTreeMap<QueueFamilyId, u32>,
     required_extensions: &[vk::ExtensionName],
 ) -> Result<vulkanalia::Device> {
-    use vulkanalia::prelude::v1_0::*;
+    use vulkanalia::prelude::v1_1::*;
 
     let queue_priorities = reservations
         .values()
@@ -349,9 +372,40 @@ fn create_vk_device(
         .map(|extension| extension.as_ptr())
         .collect::<Vec<_>>();
 
+    let mut supported_v12 = vk::PhysicalDeviceVulkan12Features::default();
+    let mut supported_v13 = vk::PhysicalDeviceVulkan13Features::default();
+    let mut supported_features = vk::PhysicalDeviceFeatures2::builder()
+        .push_next(&mut supported_v12)
+        .push_next(&mut supported_v13)
+        .build();
+
+    unsafe { instance.get_physical_device_features2(physical_device, &mut supported_features) };
+
+    let mut missing_features = Vec::new();
+    if supported_v12.timeline_semaphore != vk::TRUE {
+        missing_features.push("timelineSemaphore");
+    }
+    if supported_v13.synchronization2 != vk::TRUE {
+        missing_features.push("synchronization2");
+    }
+    if !missing_features.is_empty() {
+        return Err(anyhow!(
+            "required device features are not supported: {}",
+            missing_features.join(", ")
+        ));
+    }
+
+    let mut enabled_v12 = vk::PhysicalDeviceVulkan12Features::default();
+    enabled_v12.timeline_semaphore = vk::TRUE;
+
+    let mut enabled_v13 = vk::PhysicalDeviceVulkan13Features::default();
+    enabled_v13.synchronization2 = vk::TRUE;
+
     let device_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queue_create_infos)
-        .enabled_extension_names(&extension_ptrs);
+        .enabled_extension_names(&extension_ptrs)
+        .push_next(&mut enabled_v12)
+        .push_next(&mut enabled_v13);
 
     let device = unsafe {
         instance

@@ -1,40 +1,48 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    GpuFutureWriter, LaneIndex, QueueId, QueuePacket, QueueRoleFlags, SubmissionId,
+    GpuFutureWriter, LaneIndex, QueueId, QueuePacket, QueueRoleFlags, VulkanDevice,
 };
 
-#[derive(Debug, Clone)]
 pub struct Queue {
+    device: Arc<VulkanDevice>,
     id: QueueId,
     lane: LaneIndex,
     roles: QueueRoleFlags,
-    handle: vk::Queue,
-    submission_counter: Arc<SubmissionCounter>,
+    queue: vk::Queue,
+    semaphore: vk::Semaphore,
+    submission_counter: u64,
 }
 
 impl Queue {
     pub(crate) fn new(
+        device: Arc<VulkanDevice>,
         id: QueueId,
         lane: LaneIndex,
         roles: QueueRoleFlags,
-        handle: vk::Queue,
-    ) -> Self {
-        Self {
+        queue: vk::Queue,
+    ) -> Result<Self> {
+        use vulkanalia::prelude::v1_0::*;
+
+        let mut type_info = vk::SemaphoreTypeCreateInfo::builder()
+            .semaphore_type(vk::SemaphoreType::TIMELINE)
+            .initial_value(0);
+
+        let create_info = vk::SemaphoreCreateInfo::builder().push_next(&mut type_info);
+        let semaphore = unsafe { device.create_semaphore(&create_info, None)? };
+
+        Ok(Self {
+            device,
             id,
             lane,
             roles,
-            handle,
-            submission_counter: Arc::new(SubmissionCounter::new(id)),
-        }
-    }
-
-    pub(crate) fn submission_counter(&self) -> &Arc<SubmissionCounter> {
-        &self.submission_counter
+            queue,
+            semaphore,
+            submission_counter: 0,
+        })
     }
 
     pub fn id(&self) -> QueueId {
@@ -50,34 +58,63 @@ impl Queue {
     }
 
     pub fn handle(&self) -> vk::Queue {
-        self.handle
+        self.queue
     }
 
     pub fn semaphore(&self) -> vk::Semaphore {
-        todo!()
+        self.semaphore
     }
 
     pub fn submit(&mut self, future: GpuFutureWriter, packets: &[QueuePacket]) -> Result<()> {
-        todo!()
+        let submission_id = self.submit_packets(packets)?;
+        future.set(submission_id)?;
+        Ok(())
     }
-}
 
-#[derive(Debug, Clone)]
-pub(crate) struct SubmissionCounter {
-    id: QueueId,
-    counter: Arc<AtomicU64>,
-}
+    fn submit_packets(&mut self, packets: &[QueuePacket]) -> Result<u64> {
+        use vulkanalia::prelude::v1_3::*;
 
-impl SubmissionCounter {
-    pub(crate) fn new(id: QueueId) -> Self {
-        Self {
-            id,
-            counter: Arc::new(AtomicU64::new(0)),
+        if packets.is_empty() {
+            return Err(anyhow!("no packets to submit"));
         }
-    }
 
-    pub(crate) fn reserve(&self) -> Result<SubmissionId> {
-        let value = self.counter.fetch_add(1, Ordering::Release);
-        SubmissionId::new(value + 1)
+        let submission_id = self.submission_counter + 1;
+        self.submission_counter += 1;
+
+        let cmdbuf_infos = packets
+            .iter()
+            .map(|packet| {
+                vk::CommandBufferSubmitInfo::builder()
+                    .command_buffer(packet.cmdbuf)
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
+        let signal_infos = [vk::SemaphoreSubmitInfo::builder()
+            .semaphore(self.semaphore)
+            .value(submission_id)
+            .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+            .build()];
+
+        let submit_infos = [vk::SubmitInfo2::builder()
+            .command_buffer_infos(&cmdbuf_infos)
+            .signal_semaphore_infos(&signal_infos)
+            .build()];
+
+        unsafe {
+            self.device
+                .queue_submit2(self.queue, &submit_infos, vk::Fence::null())
+        }?;
+
+        Ok(submission_id)
+    }
+}
+
+impl Drop for Queue {
+    fn drop(&mut self) {
+        use vulkanalia::prelude::v1_0::*;
+        unsafe {
+            self.device.destroy_semaphore(self.semaphore, None);
+        }
     }
 }
