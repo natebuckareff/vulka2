@@ -1,4 +1,4 @@
-use std::{mem::ManuallyDrop, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
