@@ -197,6 +197,10 @@ impl Device {
         })
     }
 
+    pub(crate) fn owned(&self) -> &Arc<VulkanDevice> {
+        &self.device
+    }
+
     pub fn engine(&self) -> &Arc<Engine> {
         &self.engine
     }

@@ -1,16 +1,14 @@
-use std::sync::Arc;
+use std::{mem::ManuallyDrop, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
-use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
 
-use crate::gpu_v2::Device;
+use crate::gpu_v2::{Device, OwnedImageView, OwnedSwapchain};
 
 pub struct Swapchain {
     device: Arc<Device>,
     surface: vk::SurfaceKHR,
-    swapchain: vk::SwapchainKHR,
-    format: vk::SurfaceFormatKHR,
+    resources: SwapchainResources,
 }
 
 impl Swapchain {
@@ -18,24 +16,17 @@ impl Swapchain {
         let Some(surface) = device.engine().surface() else {
             return Err(anyhow!("surface not found"));
         };
-        let (swapchain, format) = create_swapchain(&device, surface, extent, None)?;
+        let resources = SwapchainResources::new(&device, surface, extent, None)?;
         Ok(Self {
             device,
             surface,
-            swapchain,
-            format,
+            resources,
         })
     }
 
     pub fn recreate(&mut self, extent: vk::Extent2D) -> Result<()> {
-        let old_swapchain = self.swapchain;
-        let result = create_swapchain(&self.device, self.surface, extent, Some(old_swapchain))?;
-        (self.swapchain, self.format) = result;
-        unsafe {
-            self.device
-                .vk_device()
-                .destroy_swapchain_khr(old_swapchain, None);
-        }
+        let old = Some(&self.resources);
+        self.resources = SwapchainResources::new(&self.device, self.surface, extent, old)?;
         Ok(())
     }
 
@@ -45,16 +36,6 @@ impl Swapchain {
 
     pub fn present(&self) {
         todo!()
-    }
-}
-
-impl Drop for Swapchain {
-    fn drop(&mut self) {
-        unsafe {
-            self.device
-                .vk_device()
-                .destroy_swapchain_khr(self.swapchain, None);
-        }
     }
 }
 
@@ -184,49 +165,86 @@ impl SurfaceSupport {
     }
 }
 
-fn create_swapchain(
-    device: &Device,
-    surface: vk::SurfaceKHR,
-    extent: vk::Extent2D,
-    old_swapchain: Option<vk::SwapchainKHR>,
-) -> Result<(vk::SwapchainKHR, vk::SurfaceFormatKHR)> {
-    use vulkanalia::prelude::v1_0::*;
+struct SwapchainResources {
+    format: vk::SurfaceFormatKHR,
+    views: Vec<OwnedImageView>, // drop before swapchain
+    swapchain: OwnedSwapchain,
+}
 
-    let support = SurfaceSupport::new(device, surface)?;
+impl SwapchainResources {
+    fn new(
+        device: &Device,
+        surface: vk::SurfaceKHR,
+        extent: vk::Extent2D,
+        old: Option<&SwapchainResources>,
+    ) -> Result<Self> {
+        use vulkanalia::prelude::v1_0::*;
+        use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
 
-    let min_image_count = support.get_min_image_count();
-    let format = support.get_best_surface_format();
-    let image_format = format.format;
-    let image_color_space = format.color_space;
-    let extent = support.get_clamped_extent(extent);
-    let pre_transform = support.pre_transform();
-    let composite_alpha = support.composite_alpha()?;
-    let present_mode = support.get_present_mode()?;
+        let support = SurfaceSupport::new(device, surface)?;
 
-    let mut info = vk::SwapchainCreateInfoKHR::builder()
-        .surface(surface)
-        .min_image_count(min_image_count)
-        .image_format(image_format)
-        .image_color_space(image_color_space)
-        .image_extent(extent)
-        .image_array_layers(1)
-        .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
-        .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-        .pre_transform(pre_transform)
-        .composite_alpha(composite_alpha)
-        .present_mode(present_mode)
-        .clipped(true);
+        let min_image_count = support.get_min_image_count();
+        let format = support.get_best_surface_format();
+        let image_format = format.format;
+        let image_color_space = format.color_space;
+        let extent = support.get_clamped_extent(extent);
+        let pre_transform = support.pre_transform();
+        let composite_alpha = support.composite_alpha()?;
+        let present_mode = support.get_present_mode()?;
 
-    if let Some(old_swapchain) = old_swapchain {
-        info = info.old_swapchain(old_swapchain);
+        let mut info = vk::SwapchainCreateInfoKHR::builder()
+            .surface(surface)
+            .min_image_count(min_image_count)
+            .image_format(image_format)
+            .image_color_space(image_color_space)
+            .image_extent(extent)
+            .image_array_layers(1)
+            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+            .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .pre_transform(pre_transform)
+            .composite_alpha(composite_alpha)
+            .present_mode(present_mode)
+            .clipped(true);
+
+        if let Some(old) = &old {
+            info = info.old_swapchain(*old.swapchain);
+        }
+
+        let device = device.owned().clone();
+        let swapchain = OwnedSwapchain::new(device.clone(), &info)?;
+
+        let images = unsafe { device.get_swapchain_images_khr(*swapchain)? };
+        let mut views = Vec::with_capacity(images.len());
+
+        let components = vk::ComponentMapping::builder()
+            .r(vk::ComponentSwizzle::IDENTITY)
+            .g(vk::ComponentSwizzle::IDENTITY)
+            .b(vk::ComponentSwizzle::IDENTITY)
+            .a(vk::ComponentSwizzle::IDENTITY);
+
+        let range = vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        };
+
+        for image in images {
+            let info = vk::ImageViewCreateInfo::builder()
+                .image(image)
+                .view_type(vk::ImageViewType::_2D)
+                .format(image_format)
+                .components(components)
+                .subresource_range(range);
+
+            views.push(OwnedImageView::new(device.clone(), &info)?);
+        }
+
+        Ok(Self {
+            format,
+            swapchain,
+            views,
+        })
     }
-
-    let swapchain = unsafe {
-        device
-            .vk_device()
-            .create_swapchain_khr(&info, None)
-            .context("failed to create swapchain")?
-    };
-
-    Ok((swapchain, format))
 }
