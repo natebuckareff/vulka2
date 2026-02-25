@@ -1,4 +1,5 @@
 #![feature(once_cell_try)]
+#![feature(associated_type_defaults)]
 
 use anyhow::Result;
 use winit::event_loop::EventLoop;

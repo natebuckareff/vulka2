@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -7,9 +6,10 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    CommandAllocator, DeviceInfo, Engine, LaneVecBuilder, Queue, QueueAllocation, QueueFamily,
-    QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId,
-    QueueRoleFlags, get_available_families, select_best_families,
+    CommandAllocator, DeviceInfo, Engine, LaneVecBuilder, OwnedDevice, OwnedSemaphore, Queue,
+    QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId,
+    QueueGroupTable, QueueId, QueueRoleFlags, ResourceArena, VulkanHandle, get_available_families,
+    select_best_families,
 };
 
 pub(crate) struct DevicePlan {
@@ -129,36 +129,11 @@ impl DeviceBuilder {
     }
 }
 
-pub(crate) struct VulkanDevice {
-    handle: vulkanalia::Device,
-}
-
-impl VulkanDevice {
-    fn new(handle: vulkanalia::Device) -> Self {
-        Self { handle }
-    }
-}
-
-impl Deref for VulkanDevice {
-    type Target = vulkanalia::Device;
-    fn deref(&self) -> &Self::Target {
-        &self.handle
-    }
-}
-
-impl Drop for VulkanDevice {
-    fn drop(&mut self) {
-        use vulkanalia::prelude::v1_0::*;
-        unsafe {
-            self.handle.destroy_device(None);
-        }
-    }
-}
-
 pub struct Device {
     engine: Arc<Engine>,
     info: DeviceInfo,
-    device: Arc<VulkanDevice>,
+    arena: ResourceArena,
+    device: VulkanHandle<Arc<vulkanalia::Device>>,
     queues: HashMap<QueueId, vk::Queue>,
     queue_groups: Mutex<HashMap<QueueGroupId, QueueGroup>>,
     queue_group_table: QueueGroupTable,
@@ -170,25 +145,25 @@ impl Device {
         let physical_device = plan.info.physical_device;
         let required_extensions = required_device_extensions(&engine);
 
-        validate_required_extensions(engine.vk_instance(), physical_device, &required_extensions)?;
+        validate_required_extensions(engine.instance(), physical_device, &required_extensions)?;
 
-        let device = {
-            let handle = create_vk_device(
-                engine.vk_instance(),
-                physical_device,
-                &plan.reservations,
-                &required_extensions,
-            )?;
-            Arc::new(VulkanDevice::new(handle))
-        };
+        let arena = ResourceArena::new("device");
+        let device = create_vk_device(
+            engine.instance(),
+            &arena,
+            physical_device,
+            &plan.reservations,
+            &required_extensions,
+        )?;
 
-        let queues = load_queues(&*device, &plan.reservations);
-        let queue_groups = build_queue_groups(device.clone(), &queues, &plan.allocations)?;
-        let queue_group_table = QueueGroupTable::new(device.clone(), &queue_groups);
+        let queues = load_queues(&device, &plan.reservations)?;
+        let queue_groups = build_queue_groups(device.clone(), &arena, &queues, &plan.allocations)?;
+        let queue_group_table = QueueGroupTable::new(&queue_groups);
 
         Ok(Self {
             engine,
             info: plan.info,
+            arena,
             device,
             queues,
             queue_groups: Mutex::new(queue_groups),
@@ -197,17 +172,12 @@ impl Device {
         })
     }
 
-    pub(crate) fn owned(&self) -> &Arc<VulkanDevice> {
+    pub(crate) fn handle(&self) -> &VulkanHandle<Arc<vulkanalia::Device>> {
         &self.device
     }
 
     pub fn engine(&self) -> &Arc<Engine> {
         &self.engine
-    }
-
-    // XXX: feels a bit hacky
-    pub(crate) fn vk_device(&self) -> &vulkanalia::Device {
-        &self.device
     }
 
     pub fn info(&self) -> &DeviceInfo {
@@ -227,6 +197,7 @@ impl Device {
         Ok(queue_groups.remove(&id))
     }
 
+    // TODO XXX: factory API is really all over the place right now
     pub fn command_allocator(
         self: &Arc<Self>,
         queue_group_id: QueueGroupId,
@@ -239,10 +210,13 @@ impl Device {
 }
 
 fn build_queue_groups(
-    device: Arc<VulkanDevice>,
+    device: VulkanHandle<Arc<vulkanalia::Device>>,
+    arena: &ResourceArena,
     queues: &HashMap<QueueId, vk::Queue>,
     queue_group_allocations: &BTreeMap<QueueGroupId, Vec<QueueAllocation>>,
 ) -> Result<HashMap<QueueGroupId, QueueGroup>> {
+    use vulkanalia::prelude::v1_0::*;
+
     let mut claimed_queue_ids = HashSet::new();
     let mut queue_groups = HashMap::new();
 
@@ -282,19 +256,29 @@ fn build_queue_groups(
         // bit repetitive looking, but this buys us really nice queue lane
         // semantics everywhere else
         let mut group_queues = LaneVecBuilder::new(*queue_group_id, allocations.len());
-        for (lane, (allocation, handle)) in allocation_lanes.build().into_entries() {
+        for (lane, (allocation, queue)) in allocation_lanes.build().into_entries() {
+            let mut type_info = vk::SemaphoreTypeCreateInfo::builder()
+                .semaphore_type(vk::SemaphoreType::TIMELINE)
+                .initial_value(0);
+
+            let create_info = vk::SemaphoreCreateInfo::builder().push_next(&mut type_info);
+
+            let semaphore = OwnedSemaphore::new(device.clone(), &create_info)?;
+            let semaphore = arena.add(semaphore)?;
+
             group_queues.push(Queue::new(
                 device.clone(),
                 allocation.queue_id,
                 lane,
                 allocation.roles,
-                handle,
+                queue,
+                semaphore,
             )?);
         }
 
         queue_groups.insert(
             *queue_group_id,
-            QueueGroup::new(*queue_group_id, group_queues.build()),
+            QueueGroup::new(device.clone(), *queue_group_id, group_queues.build()),
         );
     }
 
@@ -310,7 +294,7 @@ fn required_device_extensions(engine: &Engine) -> Vec<vk::ExtensionName> {
 }
 
 fn validate_required_extensions(
-    instance: &vulkanalia::Instance,
+    instance: &VulkanHandle<Arc<vulkanalia::Instance>>,
     physical_device: vk::PhysicalDevice,
     required_extensions: &[vk::ExtensionName],
 ) -> Result<()> {
@@ -322,6 +306,7 @@ fn validate_required_extensions(
 
     let supported_extensions = unsafe {
         instance
+            .raw()
             .enumerate_device_extension_properties(physical_device, None)
             .context("failed to enumerate device extension properties")
     }?
@@ -352,11 +337,12 @@ fn validate_required_extensions(
 }
 
 fn create_vk_device(
-    instance: &vulkanalia::Instance,
+    instance: &VulkanHandle<Arc<vulkanalia::Instance>>,
+    arena: &ResourceArena,
     physical_device: vk::PhysicalDevice,
     reservations: &BTreeMap<QueueFamilyId, u32>,
     required_extensions: &[vk::ExtensionName],
-) -> Result<vulkanalia::Device> {
+) -> Result<VulkanHandle<Arc<vulkanalia::Device>>> {
     use vulkanalia::prelude::v1_1::*;
 
     let queue_priorities = reservations
@@ -387,7 +373,11 @@ fn create_vk_device(
         .push_next(&mut supported_v13)
         .build();
 
-    unsafe { instance.get_physical_device_features2(physical_device, &mut supported_features) };
+    unsafe {
+        instance
+            .raw()
+            .get_physical_device_features2(physical_device, &mut supported_features)
+    };
 
     let mut missing_features = Vec::new();
     if supported_v12.timeline_semaphore != vk::TRUE {
@@ -415,19 +405,15 @@ fn create_vk_device(
         .push_next(&mut enabled_v12)
         .push_next(&mut enabled_v13);
 
-    let device = unsafe {
-        instance
-            .create_device(physical_device, &device_info, None)
-            .context("failed to create device")
-    }?;
-
+    let device = OwnedDevice::new(instance.clone(), physical_device, &device_info)?;
+    let device = arena.add(device)?;
     Ok(device)
 }
 
 fn load_queues(
-    vk_device: &vulkanalia::Device,
+    vk_device: &VulkanHandle<Arc<vulkanalia::Device>>,
     queue_family_counts: &BTreeMap<QueueFamilyId, u32>,
-) -> HashMap<QueueId, vk::Queue> {
+) -> Result<HashMap<QueueId, vk::Queue>> {
     use vulkanalia::prelude::v1_0::*;
 
     let mut queues = HashMap::new();
@@ -439,10 +425,10 @@ fn load_queues(
                 family: *family_id,
                 index: queue_index,
             };
-            let queue = unsafe { vk_device.get_device_queue(family_index, queue_index) };
+            let queue = unsafe { vk_device.raw().get_device_queue(family_index, queue_index) };
             queues.insert(queue_id, queue);
         }
     }
 
-    queues
+    Ok(queues)
 }

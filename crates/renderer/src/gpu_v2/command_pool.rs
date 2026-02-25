@@ -5,7 +5,8 @@ use vulkanalia::vk;
 
 use crate::gpu_v2::{
     BufferLane, Device, GpuFuture, LaneVec, LaneVecBuilder, LivenessGuard, LivenessToken,
-    QueueFamilyId, QueueGroupId, QueueGroupInfo, QueueId, QueueRoleFlags,
+    OwnedCommandPool, QueueFamilyId, QueueGroupId, QueueGroupInfo, QueueId, QueueRoleFlags,
+    ResourceArena, VulkanHandle,
 };
 
 #[derive(Clone, Copy)]
@@ -18,7 +19,7 @@ pub(crate) struct PoolLane {
     device: Arc<Device>,
     queue: QueueLane,
     future: GpuFuture,
-    pool: vk::CommandPool,
+    pool: VulkanHandle<vk::CommandPool>,
     waiting: VecDeque<vk::CommandBuffer>,
     active: Vec<vk::CommandBuffer>,
 }
@@ -30,17 +31,6 @@ impl PoolLane {
 
     pub(crate) fn future(&self) -> &GpuFuture {
         &self.future
-    }
-}
-
-impl Drop for PoolLane {
-    fn drop(&mut self) {
-        use vulkanalia::prelude::v1_0::*;
-        unsafe {
-            self.device
-                .vk_device()
-                .destroy_command_pool(self.pool, None);
-        }
     }
 }
 
@@ -56,6 +46,7 @@ impl CommandPool {
     pub(crate) fn new(
         device: Arc<Device>,
         allocator_id: usize,
+        arena: &ResourceArena,
         queue_info: QueueGroupInfo,
         guard: LivenessGuard,
     ) -> Result<Self> {
@@ -70,7 +61,7 @@ impl CommandPool {
                 device: device.clone(),
                 queue,
                 future: GpuFuture::new(),
-                pool: create_command_pool(&device, binding.id.family)?,
+                pool: create_command_pool(&device, &arena, binding.id.family)?,
                 waiting: VecDeque::new(),
                 active: Vec::new(),
             };
@@ -111,7 +102,7 @@ impl CommandPool {
         for lane in self.lanes.iter_mut() {
             let cmdbuf = match lane.waiting.pop_front() {
                 Some(buffer) => buffer,
-                None => allocate_command_buffer(&self.device, lane.pool)?,
+                None => allocate_command_buffer(&self.device, &lane.pool)?,
             };
             lane.active.push(cmdbuf);
             let buffer_lane = BufferLane::new(lane.queue, cmdbuf);
@@ -125,8 +116,9 @@ impl CommandPool {
         for lane in self.lanes.iter_mut() {
             unsafe {
                 self.device
-                    .vk_device()
-                    .reset_command_pool(lane.pool, vk::CommandPoolResetFlags::empty())
+                    .handle()
+                    .raw()
+                    .reset_command_pool(*lane.pool.raw(), vk::CommandPoolResetFlags::empty())
             }?;
             lane.future.reset()?;
             lane.waiting.extend(lane.active.drain(..));
@@ -135,25 +127,35 @@ impl CommandPool {
     }
 }
 
-fn create_command_pool(device: &Device, family: QueueFamilyId) -> Result<vk::CommandPool> {
+fn create_command_pool(
+    device: &Device,
+    arena: &ResourceArena,
+    family: QueueFamilyId,
+) -> Result<VulkanHandle<vk::CommandPool>> {
     use vulkanalia::prelude::v1_0::*;
 
     let create_info = vk::CommandPoolCreateInfo::builder()
         .queue_family_index(family.into())
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
 
-    Ok(unsafe { device.vk_device().create_command_pool(&create_info, None) }?)
+    let device = device.handle().clone();
+    let pool = OwnedCommandPool::new(device, &create_info)?;
+    let pool = arena.add(pool)?;
+    Ok(pool)
 }
 
-fn allocate_command_buffer(device: &Device, pool: vk::CommandPool) -> Result<vk::CommandBuffer> {
+fn allocate_command_buffer(
+    device: &Device,
+    pool: &VulkanHandle<vk::CommandPool>,
+) -> Result<vk::CommandBuffer> {
     use vulkanalia::prelude::v1_0::*;
 
     let alloc_info = vk::CommandBufferAllocateInfo::builder()
-        .command_pool(pool)
+        .command_pool(unsafe { *pool.raw() })
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_buffer_count(1);
 
-    let cmdbufs = unsafe { device.vk_device().allocate_command_buffers(&alloc_info) }?;
+    let cmdbufs = unsafe { device.handle().raw().allocate_command_buffers(&alloc_info) }?;
 
     Ok(cmdbufs[0])
 }

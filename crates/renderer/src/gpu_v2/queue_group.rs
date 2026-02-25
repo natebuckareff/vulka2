@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use anyhow::{Result, anyhow};
 use bitflags::bitflags;
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
     DeviceBuilder, LaneVec, LaneVecBuilder, Queue, QueuePacket, Submission, SubmissionLane,
+    VulkanHandle,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -131,6 +134,7 @@ pub struct QueueAllocation {
 }
 
 pub struct QueueGroup {
+    device: VulkanHandle<Arc<vulkanalia::Device>>,
     id: QueueGroupId,
     roles: QueueRoleFlags,
     queues: LaneVec<Queue>,
@@ -138,13 +142,18 @@ pub struct QueueGroup {
 }
 
 impl QueueGroup {
-    pub(crate) fn new(id: QueueGroupId, queues: LaneVec<Queue>) -> Self {
+    pub(crate) fn new(
+        device: VulkanHandle<Arc<vulkanalia::Device>>,
+        id: QueueGroupId,
+        queues: LaneVec<Queue>,
+    ) -> Self {
         let roles = queues.iter().map(|q| q.roles()).collect();
         let mut scratch = LaneVecBuilder::with_lanes(&queues);
         for _ in 0..queues.len() {
             scratch.push(Vec::new());
         }
         Self {
+            device,
             id,
             roles,
             queues,

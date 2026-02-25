@@ -4,36 +4,28 @@ use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    GpuFutureWriter, LaneIndex, QueueId, QueuePacket, QueueRoleFlags, VulkanDevice,
+    GpuFutureWriter, LaneIndex, QueueId, QueuePacket, QueueRoleFlags, VulkanHandle,
 };
 
 pub struct Queue {
-    device: Arc<VulkanDevice>,
+    device: VulkanHandle<Arc<vulkanalia::Device>>,
     id: QueueId,
     lane: LaneIndex,
     roles: QueueRoleFlags,
     queue: vk::Queue,
-    semaphore: vk::Semaphore,
+    semaphore: VulkanHandle<vk::Semaphore>,
     submission_counter: u64,
 }
 
 impl Queue {
     pub(crate) fn new(
-        device: Arc<VulkanDevice>,
+        device: VulkanHandle<Arc<vulkanalia::Device>>,
         id: QueueId,
         lane: LaneIndex,
         roles: QueueRoleFlags,
         queue: vk::Queue,
+        semaphore: VulkanHandle<vk::Semaphore>,
     ) -> Result<Self> {
-        use vulkanalia::prelude::v1_0::*;
-
-        let mut type_info = vk::SemaphoreTypeCreateInfo::builder()
-            .semaphore_type(vk::SemaphoreType::TIMELINE)
-            .initial_value(0);
-
-        let create_info = vk::SemaphoreCreateInfo::builder().push_next(&mut type_info);
-        let semaphore = unsafe { device.create_semaphore(&create_info, None)? };
-
         Ok(Self {
             device,
             id,
@@ -61,8 +53,8 @@ impl Queue {
         self.queue
     }
 
-    pub fn semaphore(&self) -> vk::Semaphore {
-        self.semaphore
+    pub fn semaphore(&self) -> &VulkanHandle<vk::Semaphore> {
+        &self.semaphore
     }
 
     pub fn submit(&mut self, future: GpuFutureWriter, packets: &[QueuePacket]) -> Result<()> {
@@ -91,7 +83,7 @@ impl Queue {
             .collect::<Vec<_>>();
 
         let signal_infos = [vk::SemaphoreSubmitInfo::builder()
-            .semaphore(self.semaphore)
+            .semaphore(unsafe { *self.semaphore.raw() })
             .value(submission_id)
             .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
             .build()];
@@ -103,18 +95,10 @@ impl Queue {
 
         unsafe {
             self.device
+                .raw()
                 .queue_submit2(self.queue, &submit_infos, vk::Fence::null())
         }?;
 
         Ok(submission_id)
-    }
-}
-
-impl Drop for Queue {
-    fn drop(&mut self) {
-        use vulkanalia::prelude::v1_0::*;
-        unsafe {
-            self.device.destroy_semaphore(self.semaphore, None);
-        }
     }
 }

@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    LaneVec, LaneVecBuilder, QueueGroup, QueueGroupId, QueueId, QueueRoleFlags, VulkanDevice,
+    LaneVec, LaneVecBuilder, QueueGroup, QueueGroupId, QueueId, QueueRoleFlags, VulkanHandle,
 };
 
 #[derive(Clone)]
@@ -12,11 +12,11 @@ pub struct QueueGroupInfo {
     pub bindings: LaneVec<QueueBinding>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct QueueBinding {
     pub id: QueueId,
     pub roles: QueueRoleFlags,
-    pub semaphore: vk::Semaphore,
+    pub semaphore: VulkanHandle<vk::Semaphore>, // TODO: VulkanHandle
 }
 
 struct Inner {
@@ -32,7 +32,7 @@ impl Inner {
                 let binding = QueueBinding {
                     id: queue.id(),
                     roles: queue.roles(),
-                    semaphore: queue.semaphore(),
+                    semaphore: queue.semaphore().clone(),
                 };
                 bindings.push(binding);
             }
@@ -49,18 +49,13 @@ impl Inner {
 
 #[derive(Clone)]
 pub struct QueueGroupTable {
-    device: Arc<VulkanDevice>,
     inner: Arc<Inner>,
 }
 
 impl QueueGroupTable {
-    pub(crate) fn new(
-        device: Arc<VulkanDevice>,
-        queue_groups: &HashMap<QueueGroupId, QueueGroup>,
-    ) -> Self {
+    pub(crate) fn new(queue_groups: &HashMap<QueueGroupId, QueueGroup>) -> Self {
         let inner = Inner::new(queue_groups);
         Self {
-            device,
             inner: Arc::new(inner),
         }
     }

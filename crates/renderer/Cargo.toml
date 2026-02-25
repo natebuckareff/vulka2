@@ -8,6 +8,7 @@ anyhow = "1.0.100"
 bitflags = "2.10.0"
 bytemuck = { version = "1.24.0", features = ["derive"] }
 crevice = { version = "0.18.0", features = ["glam"] }
+generational-arena = "0.2.9"
 glam = { version = "0.30.10", features = ["bytemuck"] }
 image = { version = "0.25.9", default-features = false, features = ["png"] }
 slang = { path = "../slang" }

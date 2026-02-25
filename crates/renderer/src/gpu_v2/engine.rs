@@ -5,12 +5,16 @@ use std::ffi::{CStr, CString, c_void};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use vulkanalia::Version;
+use vulkanalia::vk;
 use vulkanalia::vk::KhrSurfaceExtensionInstanceCommands;
-use vulkanalia::window::{create_surface, get_required_instance_extensions};
-use vulkanalia::{Version, vk};
+use vulkanalia::window::get_required_instance_extensions;
 use winit::window::Window;
 
-use crate::gpu_v2::{DeviceBuilder, QueueFamily, QueueFamilyId, QueueRoleFlags, ValidationLayers};
+use crate::gpu_v2::{
+    DeviceBuilder, OwnedInstance, OwnedSurface, QueueFamily, QueueFamilyId, QueueRoleFlags,
+    ResourceArena, ValidationLayers, VulkanHandle,
+};
 
 const MIN_API_VERSION: Version = Version::V1_3_0;
 
@@ -77,17 +81,20 @@ pub struct DeviceInfo {
 
 pub struct Engine {
     entry: vulkanalia::Entry,
-    instance: vulkanalia::Instance,
-    surface: Option<vk::SurfaceKHR>,
+    arena: ResourceArena,
+    instance: VulkanHandle<Arc<vulkanalia::Instance>>,
+    surface: Option<VulkanHandle<vk::SurfaceKHR>>,
     physical_devices: OnceCell<Vec<vk::PhysicalDevice>>,
 }
 
 impl Engine {
     pub fn new(params: EngineParams) -> Result<Arc<Self>> {
         let entry = load_library()?;
-        let (instance, surface) = build_instance(&entry, &params)?;
+        let mut arena = ResourceArena::new("engine");
+        let (instance, surface) = build_instance(&entry, &params, &mut arena)?;
         let engine = Self {
             entry,
+            arena,
             instance,
             surface,
             physical_devices: OnceCell::new(),
@@ -98,7 +105,7 @@ impl Engine {
     fn get_physical_devices_mut(&self) -> Result<&Vec<vk::PhysicalDevice>> {
         use vulkanalia::prelude::v1_0::*;
         self.physical_devices.get_or_try_init(|| {
-            let physical_devices = unsafe { self.instance.enumerate_physical_devices()? };
+            let physical_devices = unsafe { self.instance.raw().enumerate_physical_devices()? };
             Ok(physical_devices)
         })
     }
@@ -112,6 +119,7 @@ impl Engine {
         for (i, physical_device) in physical_devices.iter().enumerate() {
             let device_properties = unsafe {
                 self.instance
+                    .raw()
                     .get_physical_device_properties(*physical_device)
             };
 
@@ -119,19 +127,22 @@ impl Engine {
 
             let raw_family_properties = unsafe {
                 self.instance
+                    .raw()
                     .get_physical_device_queue_family_properties(*physical_device)
             };
 
             let mut family_properties = Vec::with_capacity(raw_family_properties.len());
 
             for (i, properties) in raw_family_properties.into_iter().enumerate() {
-                let supports_surface = if let Some(surface) = self.surface {
+                let supports_surface = if let Some(surface) = &self.surface {
                     let supports = unsafe {
-                        self.instance.get_physical_device_surface_support_khr(
-                            *physical_device,
-                            i as u32,
-                            surface,
-                        )?
+                        self.instance
+                            .raw()
+                            .get_physical_device_surface_support_khr(
+                                *physical_device,
+                                i as u32,
+                                *surface.raw(),
+                            )?
                     };
                     Some(supports)
                 } else {
@@ -177,7 +188,11 @@ impl Engine {
         DeviceBuilder::new(self.clone(), info)
     }
 
-    pub(crate) fn vk_instance(&self) -> &vulkanalia::Instance {
+    pub(crate) fn arena(&self) -> &ResourceArena {
+        &self.arena
+    }
+
+    pub(crate) fn instance(&self) -> &VulkanHandle<Arc<vulkanalia::Instance>> {
         &self.instance
     }
 
@@ -185,20 +200,8 @@ impl Engine {
         self.surface.is_some()
     }
 
-    pub(crate) fn surface(&self) -> Option<vk::SurfaceKHR> {
-        self.surface
-    }
-}
-
-impl Drop for Engine {
-    fn drop(&mut self) {
-        use vulkanalia::prelude::v1_0::*;
-        unsafe {
-            if let Some(surface) = self.surface.take() {
-                self.instance.destroy_surface_khr(surface, None);
-            }
-            self.instance.destroy_instance(None);
-        }
+    pub(crate) fn surface(&self) -> Option<&VulkanHandle<vk::SurfaceKHR>> {
+        self.surface.as_ref()
     }
 }
 
@@ -228,7 +231,11 @@ fn load_library() -> Result<vulkanalia::Entry> {
 fn build_instance(
     entry: &vulkanalia::Entry,
     params: &EngineParams,
-) -> Result<(vulkanalia::Instance, Option<vk::SurfaceKHR>)> {
+    arena: &ResourceArena,
+) -> Result<(
+    VulkanHandle<Arc<vulkanalia::Instance>>,
+    Option<VulkanHandle<vk::SurfaceKHR>>,
+)> {
     use vulkanalia::prelude::v1_0::*;
 
     let mut validation_layers = ValidationLayers::new(entry);
@@ -324,10 +331,12 @@ fn build_instance(
         instance_info = instance_info.push_next(&mut debug_info);
     }
 
-    let instance = unsafe { entry.create_instance(&instance_info, None)? };
+    let instance = OwnedInstance::new(entry, &instance_info)?;
+    let instance = arena.add(instance)?;
 
     let surface = if let Some(window) = &params.window {
-        let surface = unsafe { create_surface(&instance, window, window)? };
+        let surface = OwnedSurface::new(instance.clone(), window)?;
+        let surface = arena.add(surface)?;
         Some(surface)
     } else {
         None

@@ -4,21 +4,28 @@ use std::sync::Arc;
 use anyhow::Result;
 use vulkanalia::vk;
 
-use crate::gpu_v2::VulkanDevice;
+use crate::gpu_v2::{VulkanHandle, VulkanResource};
 
 pub struct OwnedSwapchain {
-    device: Arc<VulkanDevice>,
+    device: VulkanHandle<Arc<vulkanalia::Device>>,
     handle: vk::SwapchainKHR,
 }
 
 impl OwnedSwapchain {
     pub fn new(
-        device: Arc<VulkanDevice>,
+        device: VulkanHandle<Arc<vulkanalia::Device>>,
         info: &vk::SwapchainCreateInfoKHRBuilder,
     ) -> Result<Self> {
         use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
-        let handle = unsafe { device.create_swapchain_khr(info, None)? };
+        let handle = unsafe { device.raw().create_swapchain_khr(info, None)? };
         Ok(Self { device, handle })
+    }
+}
+
+impl VulkanResource for OwnedSwapchain {
+    type Raw = vk::SwapchainKHR;
+    unsafe fn raw(&self) -> &Self::Raw {
+        &self.handle
     }
 }
 
@@ -33,7 +40,7 @@ impl Drop for OwnedSwapchain {
     fn drop(&mut self) {
         use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
         unsafe {
-            self.device.destroy_swapchain_khr(self.handle, None);
+            self.device.raw().destroy_swapchain_khr(self.handle, None);
         }
     }
 }

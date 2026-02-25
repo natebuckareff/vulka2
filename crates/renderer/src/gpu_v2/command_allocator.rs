@@ -5,13 +5,14 @@ use anyhow::{Context, Result, anyhow};
 use smallvec::SmallVec;
 
 use crate::gpu_v2::{
-    CommandBatch, CommandPool, Device, GpuFutureState, LaneVec, LaneVecBuilder, LivenessToken,
-    MAX_STATIC_LANES, QueueGroupId, QueueGroupInfo, QueueGroupTable, SubmitSignal,
+    CommandBatch, CommandPool, Device, GpuFutureState, LaneVecBuilder, LivenessToken,
+    MAX_STATIC_LANES, QueueGroupId, QueueGroupInfo, QueueGroupTable, ResourceArena, SubmitSignal,
 };
 
 pub struct CommandAllocator {
     id: usize,
     device: Arc<Device>,
+    arena: ResourceArena,
     queue_group_table: QueueGroupTable, // TODO: inner vs outer Arc design?
     queue_info: QueueGroupInfo,
     capacity: usize,
@@ -33,6 +34,7 @@ impl CommandAllocator {
         if capacity == 0 {
             return Err(anyhow!("capacity must be greater than 0"));
         }
+        let arena = ResourceArena::new("command_allocator");
         // TODO: really don't like the inner-Arc design. It's hard to reason about
         let queue_group_table = device.queue_group_table().clone();
         let queue_info = queue_group_table
@@ -42,6 +44,7 @@ impl CommandAllocator {
         let allocator = Self {
             id,
             device,
+            arena,
             queue_group_table,
             queue_info,
             capacity,
@@ -137,6 +140,7 @@ impl CommandAllocator {
         let pool = CommandPool::new(
             self.device.clone(),
             self.id,
+            &self.arena,
             self.queue_info.clone(),
             self.liveness.guard(),
         )?;
@@ -182,10 +186,14 @@ impl CommandAllocator {
 
         loop {
             // will poll the current timeline value for each lane's semaphore
-            let device = self.device.vk_device();
+            let device = self.device.handle();
             let mut current_values = LaneVecBuilder::with_lanes(&self.queue_info.bindings);
             for binding in self.queue_info.bindings.iter() {
-                let value = unsafe { device.get_semaphore_counter_value(binding.semaphore) }?;
+                let value = unsafe {
+                    device
+                        .raw()
+                        .get_semaphore_counter_value(unsafe { *binding.semaphore.raw() })
+                }?;
                 current_values.push(value);
             }
             let current_values = current_values.build();
@@ -233,7 +241,7 @@ impl CommandAllocator {
             let mut wait_list = LaneVecBuilder::with_lanes(&self.queue_info.bindings);
             for binding in self.queue_info.bindings.iter() {
                 // use u64::MAX as a placeholder for now
-                wait_list.push((binding.semaphore, u64::MAX));
+                wait_list.push((unsafe { *binding.semaphore.raw() }, u64::MAX));
             }
             let mut wait_list = wait_list.build();
 
@@ -296,7 +304,7 @@ impl CommandAllocator {
             // TODO: timeout
 
             // wait for any semaphore to signal
-            unsafe { device.wait_semaphores(&info, u64::MAX) }?;
+            unsafe { device.raw().wait_semaphores(&info, u64::MAX) }?;
 
             // loop and repeat, but with fresh semaphore timeline values for
             // each lane, and therefore the lanes that caused a wait this

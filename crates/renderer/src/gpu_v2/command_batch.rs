@@ -7,7 +7,7 @@ use crate::gpu_v2::{
 
 pub(crate) struct QueuePacket {
     pub(crate) index: LaneIndex,
-    pub(crate) cmdbuf: vk::CommandBuffer,
+    pub(crate) cmdbuf: vk::CommandBuffer, // TODO: VulkanHandle
 }
 
 pub struct CommandBatch {

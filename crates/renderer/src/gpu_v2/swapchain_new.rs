@@ -3,40 +3,73 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{Device, OwnedImageView, OwnedSwapchain, ResourceArena, VulkanHandle};
+use crate::gpu_v2::{
+    Device, GpuFuture, OwnedImageView, OwnedSemaphore, OwnedSwapchain, QueueGroupId,
+};
+
+struct SwapchainSlot {
+    image_index: u32,
+    image_available: OwnedSemaphore,
+    render_finished: OwnedSemaphore,
+}
 
 pub struct Swapchain {
     device: Arc<Device>,
-    arena: ResourceArena,
-    surface: VulkanHandle<vk::SurfaceKHR>,
+    queue_group_id: QueueGroupId,
+    surface: vk::SurfaceKHR,
     resources: SwapchainResources,
+    slots: Vec<SwapchainSlot>,
 }
 
 impl Swapchain {
-    fn new(device: Arc<Device>, extent: vk::Extent2D) -> Result<Self> {
+    fn new(
+        device: Arc<Device>,
+        queue_group_id: QueueGroupId,
+        extent: vk::Extent2D,
+    ) -> Result<Self> {
         let Some(surface) = device.engine().surface() else {
             return Err(anyhow!("surface not found"));
         };
-        let arena = ResourceArena::new("swapchain");
-        let surface = surface.clone();
-        let resources = SwapchainResources::new(&device, &surface, &arena, extent, None)?;
+        let resources = SwapchainResources::new(&device, surface, extent, None)?;
+        let slots = Vec::with_capacity(resources.images.len());
         Ok(Self {
             device,
-            arena,
+            queue_group_id,
             surface,
             resources,
+            slots,
         })
     }
 
     pub fn recreate(&mut self, extent: vk::Extent2D) -> Result<()> {
         let old = Some(&self.resources);
-        let arena = ResourceArena::new("swapchain");
-        self.resources = SwapchainResources::new(&self.device, &self.surface, &arena, extent, old)?;
-        self.arena = arena;
+        self.resources = SwapchainResources::new(&self.device, self.surface, extent, old)?;
         Ok(())
     }
 
-    pub fn acquire(&self) -> Result<SwapchainImage> {
+    pub fn acquire(&self) -> Result<SwapchainToken> {
+        use vulkanalia::prelude::v1_0::*;
+        use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
+        let device = self.device.owned();
+        let never = u64::MAX;
+        let semaphore = vk::Semaphore::null();
+        let result = unsafe {
+            device.acquire_next_image_khr(
+                *self.resources.swapchain,
+                never,
+                semaphore,
+                vk::Fence::null(),
+            )
+        };
+        match result {
+            Ok((index, code)) => {
+                todo!();
+            }
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => {
+                todo!();
+            }
+            Err(err) => return Err(anyhow!(err)),
+        };
         todo!()
     }
 
@@ -45,8 +78,13 @@ impl Swapchain {
     }
 }
 
-struct SwapchainImage {
-    // TODO
+struct SwapchainToken {
+    slot: usize,
+    image: u32,
+    view: vk::ImageView,
+    semaphore: vk::Semaphore,
+    image_available: vk::Semaphore,
+    render_finished: vk::Semaphore,
 }
 
 struct SurfaceSupport {
@@ -56,28 +94,21 @@ struct SurfaceSupport {
 }
 
 impl SurfaceSupport {
-    fn new(device: &Device, surface: &VulkanHandle<vk::SurfaceKHR>) -> Result<Self> {
+    fn new(device: &Device, surface: vk::SurfaceKHR) -> Result<Self> {
         use vulkanalia::vk::KhrSurfaceExtensionInstanceCommands;
 
         let instance = device.engine().instance();
         let physical_device = device.info().physical_device;
 
         let capabilities = unsafe {
-            instance
-                .raw()
-                .get_physical_device_surface_capabilities_khr(physical_device, *surface.raw())?
+            instance.get_physical_device_surface_capabilities_khr(physical_device, surface)?
         };
 
-        let formats = unsafe {
-            instance
-                .raw()
-                .get_physical_device_surface_formats_khr(physical_device, *surface.raw())?
-        };
+        let formats =
+            unsafe { instance.get_physical_device_surface_formats_khr(physical_device, surface)? };
 
         let present_modes = unsafe {
-            instance
-                .raw()
-                .get_physical_device_surface_present_modes_khr(physical_device, *surface.raw())?
+            instance.get_physical_device_surface_present_modes_khr(physical_device, surface)?
         };
 
         if formats.is_empty() {
@@ -180,15 +211,15 @@ impl SurfaceSupport {
 
 struct SwapchainResources {
     format: vk::SurfaceFormatKHR,
-    swapchain: VulkanHandle<vk::SwapchainKHR>,
-    views: Vec<VulkanHandle<vk::ImageView>>,
+    images: Vec<vk::Image>,
+    views: Vec<OwnedImageView>, // drop before swapchain
+    swapchain: OwnedSwapchain,
 }
 
 impl SwapchainResources {
     fn new(
         device: &Device,
-        surface: &VulkanHandle<vk::SurfaceKHR>,
-        arena: &ResourceArena,
+        surface: vk::SurfaceKHR,
         extent: vk::Extent2D,
         old: Option<&SwapchainResources>,
     ) -> Result<Self> {
@@ -207,7 +238,7 @@ impl SwapchainResources {
         let present_mode = support.get_present_mode()?;
 
         let mut info = vk::SwapchainCreateInfoKHR::builder()
-            .surface(unsafe { *surface.raw() })
+            .surface(surface)
             .min_image_count(min_image_count)
             .image_format(image_format)
             .image_color_space(image_color_space)
@@ -221,14 +252,13 @@ impl SwapchainResources {
             .clipped(true);
 
         if let Some(old) = &old {
-            info = info.old_swapchain(unsafe { *old.swapchain.raw() });
+            info = info.old_swapchain(*old.swapchain);
         }
 
-        let device = device.handle();
+        let device = device.owned().clone();
         let swapchain = OwnedSwapchain::new(device.clone(), &info)?;
-        let swapchain = arena.add(swapchain)?;
 
-        let images = unsafe { device.raw().get_swapchain_images_khr(*swapchain.raw())? };
+        let images = unsafe { device.get_swapchain_images_khr(*swapchain)? };
         let mut views = Vec::with_capacity(images.len());
 
         let components = vk::ComponentMapping::builder()
@@ -245,23 +275,21 @@ impl SwapchainResources {
             layer_count: 1,
         };
 
-        for image in images {
+        for image in &images {
             let info = vk::ImageViewCreateInfo::builder()
-                .image(image)
+                .image(*image)
                 .view_type(vk::ImageViewType::_2D)
                 .format(image_format)
                 .components(components)
                 .subresource_range(range);
 
-            let view = OwnedImageView::new(device.clone(), &info)?;
-            let view = arena.add(view)?;
-
-            views.push(view);
+            views.push(OwnedImageView::new(device.clone(), &info)?);
         }
 
         Ok(Self {
             format,
             swapchain,
+            images,
             views,
         })
     }
