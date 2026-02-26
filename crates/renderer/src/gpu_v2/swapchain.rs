@@ -15,6 +15,7 @@ struct Slot {
 }
 
 pub struct AcquiredImage {
+    generation: u64,
     index: u32,
     // XXX: this is a raw handle because it is managed internall by the
     // vk::Swapchain; should think about how to make this safer
@@ -27,8 +28,9 @@ pub struct AcquiredImage {
     in_flight: Fence,
 }
 
-// TODO
-struct PresentToken {
+// TODO: wip
+pub struct PresentToken {
+    generation: u64,
     index: u32,
     render_finished: VulkanHandle<vk::Semaphore>,
 }
@@ -50,6 +52,7 @@ pub struct Swapchain {
     lane_index: LaneIndex,
     arena: ResourceArena,
     surface: VulkanHandle<vk::SurfaceKHR>,
+    generation: u64,
     resources: SwapchainResources,
     slots: Vec<Slot>,
     slot_index: usize,
@@ -92,6 +95,7 @@ impl Swapchain {
             lane_index,
             arena,
             surface,
+            generation: 0,
             slots,
             slot_index: 0,
             resources,
@@ -151,6 +155,7 @@ impl Swapchain {
         let resources = SwapchainResources::new(&self.device, &self.surface, &arena, extent, old)?;
 
         // replace old resources with new
+        self.generation += 1;
         self.slots = slots;
         self.resources = resources;
         self.arena = arena;
@@ -197,6 +202,7 @@ impl Swapchain {
 
                 if code == vk::SuccessCode::SUCCESS {
                     Ok(AcquiredImage {
+                        generation: self.generation,
                         index,
                         image: self.resources.images[index as usize],
                         view: self.resources.views[index as usize].clone(),
@@ -223,7 +229,12 @@ impl Swapchain {
         }
     }
 
-    pub fn present(&self) {
+    // TODO: wip
+    pub fn present(&self, token: PresentToken) -> Result<()> {
+        if token.generation != self.generation {
+            return Err(anyhow!("generation mismatch"));
+        }
+
         todo!()
     }
 }
