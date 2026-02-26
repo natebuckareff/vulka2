@@ -3,50 +3,229 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{Device, OwnedImageView, OwnedSwapchain, ResourceArena, VulkanHandle};
+use crate::gpu_v2::{
+    Device, Fence, LaneIndex, OwnedImageView, OwnedSemaphore, OwnedSwapchain, QueueGroup,
+    QueueGroupId, QueueRoleFlags, ResourceArena, VulkanHandle,
+};
+
+struct Slot {
+    image_available: VulkanHandle<vk::Semaphore>,
+    render_finished: VulkanHandle<vk::Semaphore>,
+    in_flight: Fence,
+}
+
+pub struct AcquiredImage {
+    index: u32,
+    // XXX: this is a raw handle because it is managed internall by the
+    // vk::Swapchain; should think about how to make this safer
+    image: vk::Image,
+    view: VulkanHandle<vk::ImageView>,
+    extent: vk::Extent2D,
+    format: vk::Format,
+    image_available: VulkanHandle<vk::Semaphore>,
+    render_finished: VulkanHandle<vk::Semaphore>,
+    in_flight: Fence,
+}
+
+// TODO
+struct PresentToken {
+    index: u32,
+    render_finished: VulkanHandle<vk::Semaphore>,
+}
+
+pub enum AcquireError {
+    Timeout,
+    NotReady,
+    RecreateSwapchain,
+    RecreateSurface,
+    RegainFullScreen,
+    UnknownSuccessCode(vk::SuccessCode),
+    Code(vk::ErrorCode),
+    Other(anyhow::Error),
+}
 
 pub struct Swapchain {
     device: Arc<Device>,
+    queue_group_id: QueueGroupId,
+    lane_index: LaneIndex,
     arena: ResourceArena,
     surface: VulkanHandle<vk::SurfaceKHR>,
     resources: SwapchainResources,
+    slots: Vec<Slot>,
+    slot_index: usize,
+    should_recreate: bool,
 }
 
 impl Swapchain {
-    fn new(device: Arc<Device>, extent: vk::Extent2D) -> Result<Self> {
+    fn new(
+        device: Arc<Device>,
+        queue_group: &QueueGroup,
+        extent: vk::Extent2D,
+        frames_in_flight: usize,
+    ) -> Result<Self> {
+        let mut lane_index = None;
+        for (index, queue) in queue_group.queues().iter_entries() {
+            if queue.roles().contains(QueueRoleFlags::PRESENT) {
+                lane_index = Some(index);
+                break;
+            }
+        }
+        if extent.width == 0 || extent.height == 0 {
+            return Err(anyhow!("extent is zero"));
+        }
+        if frames_in_flight == 0 {
+            return Err(anyhow!("frames in flight must be at least 1"));
+        }
+        let Some(lane_index) = lane_index else {
+            return Err(anyhow!("no presentable queue found"));
+        };
         let Some(surface) = device.engine().surface() else {
             return Err(anyhow!("surface not found"));
         };
         let arena = ResourceArena::new("swapchain");
         let surface = surface.clone();
+        let slots = Self::create_slots(device.handle().clone(), &arena, frames_in_flight)?;
         let resources = SwapchainResources::new(&device, &surface, &arena, extent, None)?;
         Ok(Self {
             device,
+            queue_group_id: queue_group.id(),
+            lane_index,
             arena,
             surface,
+            slots,
+            slot_index: 0,
             resources,
+            should_recreate: false,
         })
     }
 
-    pub fn recreate(&mut self, extent: vk::Extent2D) -> Result<()> {
-        let old = Some(&self.resources);
+    fn create_slots(
+        device: VulkanHandle<Arc<vulkanalia::Device>>,
+        arena: &ResourceArena,
+        frames_in_flight: usize,
+    ) -> Result<Vec<Slot>> {
+        use vulkanalia::prelude::v1_0::*;
+        let info = vk::SemaphoreCreateInfo::builder();
+        let mut slots = Vec::with_capacity(frames_in_flight);
+        for _ in 0..frames_in_flight {
+            let image_available = OwnedSemaphore::new(device.clone(), &info)?;
+            let image_available = arena.add(image_available)?;
+            let render_finished = OwnedSemaphore::new(device.clone(), &info)?;
+            let render_finished = arena.add(render_finished)?;
+            let in_flight = Fence::new(device.clone(), arena)?;
+            let slot = Slot {
+                image_available,
+                render_finished,
+                in_flight,
+            };
+            slots.push(slot);
+        }
+        Ok(slots)
+    }
+
+    pub fn should_recreate(&self) -> bool {
+        self.should_recreate
+    }
+
+    pub fn recreate(&mut self, queue_group: &QueueGroup, extent: vk::Extent2D) -> Result<()> {
+        if self.queue_group_id != queue_group.id() {
+            return Err(anyhow!("queue group mismatch"));
+        }
+
+        if extent.width == 0 || extent.height == 0 {
+            return Err(anyhow!("extent is zero"));
+        }
+
+        for slot in &mut self.slots {
+            slot.in_flight.wait()?;
+        }
+
+        let queue = queue_group.queues().get(self.lane_index);
+        queue.wait_idle()?;
+
+        let device = self.device.handle().clone();
         let arena = ResourceArena::new("swapchain");
-        self.resources = SwapchainResources::new(&self.device, &self.surface, &arena, extent, old)?;
+        let old = Some(&self.resources);
+
+        let slots = Self::create_slots(device, &arena, self.slots.len())?;
+        let resources = SwapchainResources::new(&self.device, &self.surface, &arena, extent, old)?;
+
+        // replace old resources with new
+        self.slots = slots;
+        self.resources = resources;
         self.arena = arena;
+        self.should_recreate = false;
         Ok(())
     }
 
-    pub fn acquire(&self) -> Result<SwapchainImage> {
-        todo!()
+    pub fn acquire(&mut self) -> Result<AcquiredImage, AcquireError> {
+        match self.acquire_inner() {
+            Ok(image) => {
+                self.slot_index = (self.slot_index + 1) % self.slots.len();
+                Ok(image)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn acquire_inner(&mut self) -> Result<AcquiredImage, AcquireError> {
+        use vulkanalia::prelude::v1_0::*;
+        use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
+
+        let slot = &mut self.slots[self.slot_index];
+
+        // TODO: should probably use timeouts
+
+        slot.in_flight.wait().map_err(AcquireError::Other)?;
+
+        // TODO: remaining timeout
+
+        let result = unsafe {
+            self.device.handle().raw().acquire_next_image_khr(
+                *self.resources.swapchain.raw(),
+                u64::MAX,
+                *slot.image_available.raw(),
+                vk::Fence::null(),
+            )
+        };
+
+        match result {
+            Ok((index, code)) => {
+                if code == vk::SuccessCode::SUBOPTIMAL_KHR {
+                    self.should_recreate = true;
+                }
+
+                if code == vk::SuccessCode::SUCCESS {
+                    Ok(AcquiredImage {
+                        index,
+                        image: self.resources.images[index as usize],
+                        view: self.resources.views[index as usize].clone(),
+                        extent: self.resources.extent,
+                        format: self.resources.format,
+                        image_available: slot.image_available.clone(),
+                        render_finished: slot.render_finished.clone(),
+                        in_flight: slot.in_flight.clone(),
+                    })
+                } else if code == vk::SuccessCode::TIMEOUT {
+                    Err(AcquireError::Timeout)
+                } else if code == vk::SuccessCode::NOT_READY {
+                    Err(AcquireError::NotReady)
+                } else {
+                    Err(AcquireError::UnknownSuccessCode(code))
+                }
+            }
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => Err(AcquireError::RecreateSwapchain),
+            Err(vk::ErrorCode::SURFACE_LOST_KHR) => Err(AcquireError::RecreateSurface),
+            Err(vk::ErrorCode::FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) => {
+                Err(AcquireError::RegainFullScreen)
+            }
+            Err(e) => Err(AcquireError::Code(e)),
+        }
     }
 
     pub fn present(&self) {
         todo!()
     }
-}
-
-struct SwapchainImage {
-    // TODO
 }
 
 struct SurfaceSupport {
@@ -179,8 +358,10 @@ impl SurfaceSupport {
 }
 
 struct SwapchainResources {
-    format: vk::SurfaceFormatKHR,
+    format: vk::Format,
+    extent: vk::Extent2D,
     swapchain: VulkanHandle<vk::SwapchainKHR>,
+    images: Vec<vk::Image>,
     views: Vec<VulkanHandle<vk::ImageView>>,
 }
 
@@ -245,9 +426,9 @@ impl SwapchainResources {
             layer_count: 1,
         };
 
-        for image in images {
+        for image in &images {
             let info = vk::ImageViewCreateInfo::builder()
-                .image(image)
+                .image(*image)
                 .view_type(vk::ImageViewType::_2D)
                 .format(image_format)
                 .components(components)
@@ -260,8 +441,10 @@ impl SwapchainResources {
         }
 
         Ok(Self {
-            format,
+            format: image_format,
+            extent,
             swapchain,
+            images,
             views,
         })
     }

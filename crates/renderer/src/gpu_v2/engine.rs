@@ -203,6 +203,10 @@ impl Engine {
     pub(crate) fn surface(&self) -> Option<&VulkanHandle<vk::SurfaceKHR>> {
         self.surface.as_ref()
     }
+
+    pub(crate) fn recreate_surface(&self) -> Result<()> {
+        todo!()
+    }
 }
 
 fn load_library() -> Result<vulkanalia::Entry> {

@@ -57,6 +57,12 @@ impl Queue {
         &self.semaphore
     }
 
+    pub fn wait_idle(&self) -> Result<()> {
+        use vulkanalia::prelude::v1_0::*;
+        unsafe { self.device.raw().queue_wait_idle(self.queue) }?;
+        Ok(())
+    }
+
     pub fn submit(&mut self, future: GpuFutureWriter, packets: &[QueuePacket]) -> Result<()> {
         let submission_id = self.submit_packets(packets)?;
         future.set(submission_id)?;

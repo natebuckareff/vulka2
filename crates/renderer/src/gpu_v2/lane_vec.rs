@@ -150,6 +150,13 @@ impl<T> LaneVec<T> {
         })
     }
 
+    pub fn find<P>(&mut self, mut predicate: P) -> Option<&T>
+    where
+        P: FnMut(&T) -> bool,
+    {
+        self.vec.iter().find(|value| predicate(value))
+    }
+
     pub fn retain_into(mut self, mut f: impl FnMut(&T) -> bool) -> SmallVec<[T; MAX_STATIC_LANES]> {
         self.vec.retain(|value| f(value));
         self.vec
