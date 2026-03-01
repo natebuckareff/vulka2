@@ -4,10 +4,30 @@ use crate::gpu_v2::QueueGroupId;
 
 pub const MAX_STATIC_LANES: usize = 4;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LaneIndex {
-    queue_group_id: QueueGroupId,
-    index: usize,
+    pub(crate) queue_group_id: QueueGroupId,
+    pub(crate) index: usize, // OPTIMIZE: this can be a u32 to pack
+}
+
+impl LaneIndex {
+    pub fn queue_group_id(&self) -> QueueGroupId {
+        self.queue_group_id
+    }
+
+    pub fn index(&self) -> usize {
+        self.index
+    }
+}
+
+// TODO: this is going to break at some point
+impl Default for LaneIndex {
+    fn default() -> Self {
+        Self {
+            queue_group_id: QueueGroupId::from(u32::MAX),
+            index: usize::MAX,
+        }
+    }
 }
 
 impl Into<usize> for LaneIndex {
