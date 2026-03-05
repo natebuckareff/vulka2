@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::gpu_v2::{Device, Epoch, LaneKey, ProgressTracker, QueueGroupVec, SubmissionEpochRef};
+use crate::gpu_v2::{Device, EpochRef, EpochValue, LaneKey, ProgressTracker, QueueGroupVec};
 
 struct RetireState<T: Copy> {
     // TODO: implicit max 64 total lanes; update Device/QueueGroupTable to
@@ -33,8 +33,12 @@ impl<T: Copy> RetireToken<T> {
         }
     }
 
+    pub fn handle(&self) -> T {
+        self.state.handle
+    }
+
     // called when a RetireToken is used in a CommandBuffer
-    pub fn touch(&self, epoch: Epoch, key: LaneKey) {
+    pub fn touch(&self, epoch: EpochValue, key: LaneKey) {
         debug_assert!(
             !self.state.retired.load(Ordering::Relaxed),
             "token already retired"
@@ -54,7 +58,7 @@ impl<T: Copy> RetireToken<T> {
 pub struct RetireQueue<T: Copy + Eq + Hash> {
     progress: ProgressTracker,
     counts: HashMap<T, i32>,
-    retired: QueueGroupVec<Vec<(Epoch, T)>>,
+    retired: QueueGroupVec<Vec<(EpochValue, T)>>,
     ready: VecDeque<T>,
 }
 
@@ -70,7 +74,7 @@ impl<T: Copy + Eq + Hash> RetireQueue<T> {
         })
     }
 
-    pub fn retire(&mut self, epoch: SubmissionEpochRef, token: RetireToken<T>) -> Result<()> {
+    pub fn retire(&mut self, epoch: EpochRef, token: RetireToken<T>) -> Result<()> {
         // NOTE: While allocators that use RetireQueue internally will generally
         // always be called from the same thread, RetireToken does not
         // inherently care which RetireQueue retires it. Any RetireQueue will do

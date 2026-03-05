@@ -5,19 +5,19 @@ use anyhow::{Result, anyhow};
 
 use crate::gpu_v2::{LaneKey, QueueGroupTable, QueueGroupVec};
 
-pub type Epoch = u64;
+pub type EpochValue = u64;
 
 struct SubmissionEpochState {
-    number: Epoch,
+    number: EpochValue,
     consumed: Mutex<bool>, // TODO: can probably replace with an atomic?
 }
 
-pub struct SubmissionEpoch {
+pub struct Epoch {
     state: Arc<SubmissionEpochState>,
     submissions: Arc<QueueGroupVec<AtomicU64>>,
 }
 
-impl SubmissionEpoch {
+impl Epoch {
     pub(crate) fn new(queue_groups: &QueueGroupTable) -> Self {
         let state = SubmissionEpochState {
             number: 0,
@@ -30,7 +30,7 @@ impl SubmissionEpoch {
         }
     }
 
-    pub fn next(self, queue_groups: &QueueGroupTable) -> Result<SubmissionEpoch> {
+    pub fn next(self, queue_groups: &QueueGroupTable) -> Result<Epoch> {
         let mut guard = self.state.consumed.lock().unwrap();
         if *guard {
             return Err(anyhow!("submission epoch already consumed"));
@@ -48,7 +48,7 @@ impl SubmissionEpoch {
         })
     }
 
-    pub fn number(&self) -> Epoch {
+    pub fn number(&self) -> EpochValue {
         self.state.number
     }
 
@@ -57,8 +57,8 @@ impl SubmissionEpoch {
         counter.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn reference(&self) -> SubmissionEpochRef {
-        SubmissionEpochRef {
+    pub fn reference(&self) -> EpochRef {
+        EpochRef {
             parent: Arc::downgrade(&self.state),
             number: self.state.number,
             submissions: self.submissions.clone(),
@@ -66,14 +66,14 @@ impl SubmissionEpoch {
     }
 }
 
-pub struct SubmissionEpochRef {
+pub struct EpochRef {
     parent: Weak<SubmissionEpochState>,
-    number: Epoch,
+    number: EpochValue,
     submissions: Arc<QueueGroupVec<AtomicU64>>,
 }
 
-impl SubmissionEpochRef {
-    pub fn number(&self) -> Epoch {
+impl EpochRef {
+    pub fn number(&self) -> EpochValue {
         self.number
     }
 

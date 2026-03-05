@@ -6,9 +6,9 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    CommandAllocator, DeviceInfo, Engine, LaneVecBuilder, OwnedDevice, OwnedSemaphore, Queue,
-    QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId,
-    QueueGroupTable, QueueId, QueueRoleFlags, ResourceArena, SubmissionEpoch, VulkanHandle,
+    CommandAllocator, DeviceInfo, Engine, Epoch, LaneVecBuilder, OwnedDevice, OwnedSemaphore,
+    Queue, QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup, QueueGroupBuilder,
+    QueueGroupId, QueueGroupTable, QueueId, QueueRoleFlags, ResourceArena, VulkanHandle,
     get_available_families, select_best_families,
 };
 
@@ -199,11 +199,11 @@ impl Device {
         Ok(queue_groups.remove(&id))
     }
 
-    pub fn submission_epoch(&self) -> Result<SubmissionEpoch> {
+    pub fn submission_epoch(&self) -> Result<Epoch> {
         if self.is_epoch_created.swap(true, Ordering::Relaxed) {
             return Err(anyhow!("submission epoch already created"));
         }
-        Ok(SubmissionEpoch::new(&self.queue_group_table))
+        Ok(Epoch::new(&self.queue_group_table))
     }
 
     // TODO XXX: factory API is really all over the place right now
