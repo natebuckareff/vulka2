@@ -1,40 +1,8 @@
 use smallvec::SmallVec;
 
-use crate::gpu_v2::QueueGroupId;
+use crate::gpu_v2::{LaneKey, QueueGroupId};
 
 pub const MAX_STATIC_LANES: usize = 4;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LaneIndex {
-    pub(crate) queue_group_id: QueueGroupId,
-    pub(crate) index: usize, // OPTIMIZE: this can be a u32 to pack
-}
-
-impl LaneIndex {
-    pub fn queue_group_id(&self) -> QueueGroupId {
-        self.queue_group_id
-    }
-
-    pub fn index(&self) -> usize {
-        self.index
-    }
-}
-
-// TODO: this is going to break at some point
-impl Default for LaneIndex {
-    fn default() -> Self {
-        Self {
-            queue_group_id: QueueGroupId::from(u32::MAX),
-            index: usize::MAX,
-        }
-    }
-}
-
-impl Into<usize> for LaneIndex {
-    fn into(self) -> usize {
-        self.index
-    }
-}
 
 pub struct LaneVecBuilder<T> {
     queue_group_id: QueueGroupId,
@@ -93,36 +61,33 @@ impl<T> LaneVec<T> {
         self.vec.len()
     }
 
-    pub fn get(&self, index: LaneIndex) -> &T {
+    pub fn get(&self, key: LaneKey) -> &T {
         debug_assert!(
-            self.queue_group_id == index.queue_group_id,
+            self.queue_group_id == key.queue_group(),
             "mismatched queue groups"
         );
-        &self.vec[index.index]
+        &self.vec[key.index()]
     }
 
-    pub fn get_mut(&mut self, index: LaneIndex) -> &mut T {
+    pub fn get_mut(&mut self, key: LaneKey) -> &mut T {
         debug_assert!(
-            self.queue_group_id == index.queue_group_id,
+            self.queue_group_id == key.queue_group(),
             "mismatched queue groups"
         );
-        &mut self.vec[index.index]
+        &mut self.vec[key.index()]
     }
 
-    pub fn set(&mut self, index: LaneIndex, value: T) {
+    pub fn set(&mut self, key: LaneKey, value: T) {
         debug_assert!(
-            self.queue_group_id == index.queue_group_id,
+            self.queue_group_id == key.queue_group(),
             "mismatched queue groups"
         );
-        self.vec[index.index] = value;
+        self.vec[key.index()] = value;
     }
 
-    pub fn each(&self) -> impl Iterator<Item = LaneIndex> {
+    pub fn each(&self) -> impl Iterator<Item = LaneKey> {
         let queue_group_id = self.queue_group_id;
-        (0..self.len()).map(move |index| LaneIndex {
-            queue_group_id,
-            index,
-        })
+        (0..self.len()).map(move |index| LaneKey::from((queue_group_id, index)))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
@@ -137,36 +102,27 @@ impl<T> LaneVec<T> {
         self.vec.into_iter()
     }
 
-    pub fn iter_entries(&self) -> impl Iterator<Item = (LaneIndex, &T)> {
+    pub fn iter_entries(&self) -> impl Iterator<Item = (LaneKey, &T)> {
         let queue_group_id = self.queue_group_id;
         self.vec.iter().enumerate().map(move |(index, value)| {
-            let index = LaneIndex {
-                queue_group_id,
-                index,
-            };
-            (index, value)
+            let key = LaneKey::from((queue_group_id, index));
+            (key, value)
         })
     }
 
-    pub fn iter_entries_mut(&mut self) -> impl Iterator<Item = (LaneIndex, &mut T)> {
+    pub fn iter_entries_mut(&mut self) -> impl Iterator<Item = (LaneKey, &mut T)> {
         let queue_group_id = self.queue_group_id;
         self.vec.iter_mut().enumerate().map(move |(index, value)| {
-            let index = LaneIndex {
-                queue_group_id,
-                index,
-            };
-            (index, value)
+            let key = LaneKey::from((queue_group_id, index));
+            (key, value)
         })
     }
 
-    pub fn into_entries(self) -> impl Iterator<Item = (LaneIndex, T)> {
+    pub fn into_entries(self) -> impl Iterator<Item = (LaneKey, T)> {
         let queue_group_id = self.queue_group_id;
         self.vec.into_iter().enumerate().map(move |(index, value)| {
-            let index = LaneIndex {
-                queue_group_id,
-                index,
-            };
-            (index, value)
+            let key = LaneKey::from((queue_group_id, index));
+            (key, value)
         })
     }
 

@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
@@ -8,8 +8,8 @@ use vulkanalia::vk;
 use crate::gpu_v2::{
     CommandAllocator, DeviceInfo, Engine, LaneVecBuilder, OwnedDevice, OwnedSemaphore, Queue,
     QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId,
-    QueueGroupTable, QueueId, QueueRoleFlags, ResourceArena, VulkanHandle, get_available_families,
-    select_best_families,
+    QueueGroupTable, QueueId, QueueRoleFlags, ResourceArena, SubmissionEpoch, VulkanHandle,
+    get_available_families, select_best_families,
 };
 
 pub(crate) struct DevicePlan {
@@ -41,13 +41,13 @@ impl DeviceBuilder {
         get_available_families(&self.info.families, &self.reservations)
     }
 
-    fn next_queue_group_id(&mut self) -> QueueGroupId {
-        let id = self.next_queue_group_id.into();
+    fn next_queue_group_id(&mut self) -> Result<QueueGroupId> {
+        let id = self.next_queue_group_id;
         self.next_queue_group_id = self
             .next_queue_group_id
             .checked_add(1)
             .expect("queue group id overflow");
-        id
+        QueueGroupId::try_from(id)
     }
 
     pub(crate) fn allocate_group(
@@ -107,9 +107,9 @@ impl DeviceBuilder {
         })
     }
 
-    pub fn queue_group(&'_ mut self) -> QueueGroupBuilder<'_> {
-        let id = self.next_queue_group_id();
-        QueueGroupBuilder::new(self, id)
+    pub fn queue_group(&'_ mut self) -> Result<QueueGroupBuilder<'_>> {
+        let id = self.next_queue_group_id()?;
+        Ok(QueueGroupBuilder::new(self, id))
     }
 
     pub fn build(self) -> Result<Arc<Device>> {
@@ -138,6 +138,7 @@ pub struct Device {
     queue_groups: Mutex<HashMap<QueueGroupId, QueueGroup>>,
     queue_group_table: QueueGroupTable,
     next_child_id: AtomicUsize,
+    is_epoch_created: AtomicBool,
 }
 
 impl Device {
@@ -169,6 +170,7 @@ impl Device {
             queue_groups: Mutex::new(queue_groups),
             queue_group_table,
             next_child_id: AtomicUsize::new(0),
+            is_epoch_created: AtomicBool::new(false),
         })
     }
 
@@ -195,6 +197,13 @@ impl Device {
             .map_err(|_| anyhow!("queue group state lock poisoned"))?;
 
         Ok(queue_groups.remove(&id))
+    }
+
+    pub fn submission_epoch(&self) -> Result<SubmissionEpoch> {
+        if self.is_epoch_created.swap(true, Ordering::Relaxed) {
+            return Err(anyhow!("submission epoch already created"));
+        }
+        Ok(SubmissionEpoch::new(&self.queue_group_table))
     }
 
     // TODO XXX: factory API is really all over the place right now

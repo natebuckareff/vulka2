@@ -1,45 +1,63 @@
+// TODO: this file needs a refactor in conjunction with lane_index, lane_vec,
+// and queue_group_vec
+
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    LaneIndex, LaneVec, LaneVecBuilder, QueueGroup, QueueGroupId, QueueId, QueueRoleFlags,
-    VulkanHandle,
+    LaneVec, LaneVecBuilder, QueueGroup, QueueGroupId, QueueId, QueueRoleFlags, VulkanHandle,
 };
 
+// TODO: move, to lane_key.rs and harden safety
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct QueueLaneKey {
-    id: QueueGroupId,
-    index: u32, // TODO: also back in LaneIndex!
-    key: u32,
+pub struct LaneKey {
+    offset: u16, // lane offset - max 65535 total lanes
+    group: u8,   // max 255 groups
+    index: u8,   // max 255 lanes per group
 }
 
-impl QueueLaneKey {
-    pub fn id(&self) -> QueueGroupId {
-        self.id
+impl LaneKey {
+    pub fn queue_group(&self) -> QueueGroupId {
+        QueueGroupId::from(self.group)
     }
 
-    // TODO: ok so sometimes we call this lane and sometimes we call it index
-    // **pick something and stick to it**
-    pub fn lane(&self) -> LaneIndex {
-        LaneIndex {
-            queue_group_id: self.id,
-            index: self.index as usize, // XXX
+    pub fn index(&self) -> usize {
+        self.index as usize
+    }
+}
+
+impl From<(QueueGroupId, usize)> for LaneKey {
+    fn from(value: (QueueGroupId, usize)) -> Self {
+        Self {
+            offset: 0,
+            group: value.0.into(),
+            index: value.1 as u8,
         }
     }
+}
 
-    pub fn key(&self) -> u32 {
-        self.key
+impl Into<u32> for LaneKey {
+    fn into(self) -> u32 {
+        (self.offset as u32) + (self.index as u32)
     }
 }
 
-impl Default for QueueLaneKey {
+impl Into<usize> for LaneKey {
+    fn into(self) -> usize {
+        let n: u32 = self.into();
+        n as usize
+    }
+}
+
+impl Default for LaneKey {
     fn default() -> Self {
         Self {
-            id: QueueGroupId::from(u32::MAX),
-            index: u32::MAX,
-            key: u32::MAX,
+            offset: u16::MAX,
+            group: u8::MAX,
+            index: u8::MAX,
         }
     }
 }
@@ -47,19 +65,17 @@ impl Default for QueueLaneKey {
 #[derive(Clone)]
 pub struct QueueGroupInfo {
     pub id: QueueGroupId,
-    pub offset: u32,
+    pub offset: u16,
     pub bindings: LaneVec<QueueBinding>,
 }
 
 impl QueueGroupInfo {
-    pub fn get_queue_group_lane(&self, index: LaneIndex) -> QueueLaneKey {
-        assert!(index.queue_group_id() == self.id);
-        assert!(index.index() < self.bindings.len());
-        let key = self.offset + index.index() as u32;
-        QueueLaneKey {
-            id: self.id,
-            index: index.index() as u32, // XXX
-            key,
+    pub fn get_queue_lane_key(&self, index: usize) -> LaneKey {
+        assert!(index < self.bindings.len());
+        LaneKey {
+            offset: self.offset,
+            group: self.id.into(),
+            index: index as u8,
         }
     }
 }
@@ -67,13 +83,14 @@ impl QueueGroupInfo {
 #[derive(Clone)]
 pub struct QueueBinding {
     pub id: QueueId,
+    pub key: LaneKey,
     pub roles: QueueRoleFlags,
     pub semaphore: VulkanHandle<vk::Semaphore>, // TODO: VulkanHandle
 }
 
 struct Inner {
     infos: Vec<QueueGroupInfo>,
-    total_lanes: u32,
+    total_lanes: u16,
 }
 
 impl Inner {
@@ -84,9 +101,16 @@ impl Inner {
         values.sort_by_key(|qg| qg.id());
         for qg in values {
             let mut bindings = LaneVecBuilder::with_lanes(qg.queues());
-            for queue in qg.queues().iter() {
+            for (i, queue) in qg.queues().iter().enumerate() {
+                // XXX TODO: is this correct? Really need better validation
+                let key = LaneKey {
+                    offset,
+                    group: qg.id().into(),
+                    index: i as u8,
+                };
                 let binding = QueueBinding {
                     id: queue.id(),
+                    key,
                     roles: queue.roles(),
                     semaphore: queue.semaphore().clone(),
                 };
@@ -97,7 +121,8 @@ impl Inner {
                 offset,
                 bindings: bindings.build(),
             };
-            offset += info.bindings.len() as u32;
+            assert!(offset <= u16::MAX);
+            offset += info.bindings.len() as u16;
             infos.push(info);
         }
         infos.sort_by_key(|info| info.id);
@@ -121,7 +146,7 @@ impl QueueGroupTable {
         }
     }
 
-    pub fn total_lanes(&self) -> u32 {
+    pub fn total_lanes(&self) -> u16 {
         self.inner.total_lanes
     }
 
@@ -129,28 +154,33 @@ impl QueueGroupTable {
         self.inner.infos.iter().find(|info| info.id == id)
     }
 
-    pub fn get_binding(&self, lane: LaneIndex) -> Result<&QueueBinding> {
+    pub fn get_nth_binding(&self, n: usize) -> Option<&QueueBinding> {
+        let mut i = 0;
+        for info in self.inner.infos.iter() {
+            for binding in info.bindings.iter() {
+                if i == n {
+                    return Some(binding);
+                }
+                i += 1;
+            }
+        }
+        None
+    }
+
+    pub fn get_binding(&self, key: LaneKey) -> Result<&QueueBinding> {
         self.inner
             .infos
             .iter()
-            .find(|info| info.id == lane.queue_group_id())
-            .map(|info| info.bindings.get(lane))
+            .find(|info| info.id == key.queue_group())
+            .map(|info| info.bindings.get(key))
             .context("lane not found")
     }
 
-    pub fn get_queue_group_lane(&self, lane: LaneIndex) -> Result<QueueLaneKey> {
-        self.inner
-            .infos
-            .iter()
-            .find(|info| info.id == lane.queue_group_id())
-            .map(|info| info.get_queue_group_lane(lane))
-            .context("queue group not found")
-    }
-
-    pub fn iter_bindings(&self) -> impl Iterator<Item = (LaneIndex, &QueueBinding)> {
-        self.inner
-            .infos
-            .iter()
-            .flat_map(|info| info.bindings.iter_entries())
+    pub fn iter_bindings(&self) -> impl Iterator<Item = (LaneKey, &QueueBinding)> {
+        self.inner.infos.iter().flat_map(|info| {
+            info.bindings
+                .iter_entries()
+                .map(|(key, binding)| (key, binding))
+        })
     }
 }

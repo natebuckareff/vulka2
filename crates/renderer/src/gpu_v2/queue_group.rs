@@ -36,17 +36,31 @@ pub struct QueueId {
     pub index: u32,
 }
 
+// TODO: justify u8 probably with lane_index hardening
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct QueueGroupId(u32);
+pub struct QueueGroupId(u8);
 
-impl From<u32> for QueueGroupId {
-    fn from(value: u32) -> Self {
+impl From<u8> for QueueGroupId {
+    fn from(value: u8) -> Self {
         Self(value)
+    }
+}
+
+impl TryFrom<u32> for QueueGroupId {
+    type Error = anyhow::Error;
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Ok(Self(u8::try_from(value)?))
     }
 }
 
 impl Into<u32> for QueueGroupId {
     fn into(self) -> u32 {
+        self.0 as u32
+    }
+}
+
+impl Into<u8> for QueueGroupId {
+    fn into(self) -> u8 {
         self.0
     }
 }
