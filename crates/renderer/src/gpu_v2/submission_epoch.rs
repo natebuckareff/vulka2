@@ -5,8 +5,10 @@ use anyhow::{Result, anyhow};
 
 use crate::gpu_v2::{LaneKey, QueueGroupTable, QueueGroupVec};
 
+pub type Epoch = u64;
+
 struct SubmissionEpochState {
-    number: i32,
+    number: Epoch,
     consumed: Mutex<bool>, // TODO: can probably replace with an atomic?
 }
 
@@ -46,7 +48,7 @@ impl SubmissionEpoch {
         })
     }
 
-    pub fn number(&self) -> i32 {
+    pub fn number(&self) -> Epoch {
         self.state.number
     }
 
@@ -66,12 +68,12 @@ impl SubmissionEpoch {
 
 pub struct SubmissionEpochRef {
     parent: Weak<SubmissionEpochState>,
-    number: i32,
+    number: Epoch,
     submissions: Arc<QueueGroupVec<AtomicU64>>,
 }
 
 impl SubmissionEpochRef {
-    pub fn number(&self) -> i32 {
+    pub fn number(&self) -> Epoch {
         self.number
     }
 

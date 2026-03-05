@@ -1,17 +1,17 @@
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::gpu_v2::{Device, LaneKey, ProgressTracker, QueueGroupVec, SubmissionEpochRef};
+use crate::gpu_v2::{Device, Epoch, LaneKey, ProgressTracker, QueueGroupVec, SubmissionEpochRef};
 
 struct RetireState<T: Copy> {
     // TODO: implicit max 64 total lanes; update Device/QueueGroupTable to
     // enforce this invariant
     dirty: AtomicUsize,
-    last_epoch: AtomicI32,
+    last_epoch: AtomicU64,
     retired: AtomicBool,
     handle: T,
 }
@@ -22,8 +22,19 @@ pub struct RetireToken<T: Copy> {
 }
 
 impl<T: Copy> RetireToken<T> {
+    pub fn new(handle: T) -> Self {
+        Self {
+            state: Arc::new(RetireState {
+                dirty: AtomicUsize::new(0),
+                last_epoch: AtomicU64::new(u64::MAX), // XXX
+                retired: AtomicBool::new(false),
+                handle,
+            }),
+        }
+    }
+
     // called when a RetireToken is used in a CommandBuffer
-    pub fn touch(&self, epoch: i32, key: LaneKey) {
+    pub fn touch(&self, epoch: Epoch, key: LaneKey) {
         debug_assert!(
             !self.state.retired.load(Ordering::Relaxed),
             "token already retired"
@@ -43,7 +54,7 @@ impl<T: Copy> RetireToken<T> {
 pub struct RetireQueue<T: Copy + Eq + Hash> {
     progress: ProgressTracker,
     counts: HashMap<T, i32>,
-    retired: QueueGroupVec<Vec<(i32, T)>>,
+    retired: QueueGroupVec<Vec<(Epoch, T)>>,
     ready: VecDeque<T>,
 }
 

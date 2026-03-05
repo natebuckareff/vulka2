@@ -5,15 +5,17 @@ use std::sync::atomic::Ordering;
 use anyhow::{Context, Result};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{Device, LaneKey, QueueGroupVec, SubmissionEpochRef, VulkanHandle};
+use crate::gpu_v2::{Device, Epoch, LaneKey, QueueGroupVec, SubmissionEpochRef, VulkanHandle};
+
+type Timeline = u64;
 
 pub struct ProgressTracker {
     device: Arc<Device>,
-    blocked: HashMap<i32, SubmissionEpochRef>,
+    blocked: HashMap<Epoch, SubmissionEpochRef>,
     epochs: VecDeque<SubmissionEpochRef>,
     lanes: QueueGroupVec<LaneProgress>,
-    next_epoch: i32,
-    scratch: Vec<u64>,
+    next_epoch: Epoch,
+    scratch: Vec<Timeline>,
 }
 
 impl ProgressTracker {
@@ -40,7 +42,7 @@ impl ProgressTracker {
         })
     }
 
-    fn next_epoch_number(&mut self) -> i32 {
+    fn next_epoch_number(&mut self) -> Epoch {
         if let Some(epoch) = self.epochs.back() {
             self.next_epoch = epoch.number() + 1;
         }
@@ -127,7 +129,7 @@ impl ProgressTracker {
     }
 
     // is some lane complete in the nth epoch
-    pub fn is_complete(&self, key: LaneKey, epoch: i32) -> bool {
+    pub fn is_complete(&self, key: LaneKey, epoch: Epoch) -> bool {
         let (_, progress) = self.lanes.get(key);
         let Some((signaled_epoch, _)) = progress.signaled else {
             // no epochs signaled yet
@@ -139,12 +141,12 @@ impl ProgressTracker {
 
 struct LaneProgress {
     semaphore: VulkanHandle<vk::Semaphore>,
-    signaled: Option<(i32, u64)>, // the last epoch that was signaled and the signal value
-    unsignaled: VecDeque<(i32, u64)>, // the epochs that have been completed and their counts
+    signaled: Option<(Epoch, Timeline)>, // the last epoch that was signaled and the signal value
+    unsignaled: VecDeque<(Epoch, u64)>,  // the epochs that have been completed and their counts
 }
 
 impl LaneProgress {
-    fn push(&mut self, epoch: i32, count: u64, value: u64) {
+    fn push(&mut self, epoch: Epoch, count: u64, value: Timeline) {
         debug_assert!(self.signaled.is_some() || (self.signaled.is_none() && epoch == 0));
         self.unsignaled.push_back((epoch, count));
         self.update(value);

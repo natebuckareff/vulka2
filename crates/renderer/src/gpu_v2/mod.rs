@@ -16,6 +16,7 @@ mod owned_instance;
 mod owned_semaphore;
 mod owned_surface;
 mod owned_swapchain;
+mod progress_tracker;
 mod queue;
 mod queue_group;
 mod queue_group_table;
