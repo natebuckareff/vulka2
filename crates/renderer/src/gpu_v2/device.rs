@@ -1,15 +1,15 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    CommandAllocator, DeviceInfo, Engine, Epoch, LaneVecBuilder, OwnedDevice, OwnedSemaphore,
-    Queue, QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup, QueueGroupBuilder,
-    QueueGroupId, QueueGroupTable, QueueId, QueueRoleFlags, ResourceArena, VulkanHandle,
-    get_available_families, select_best_families,
+    CommandAllocator, DeviceInfo, Engine, FrameAllocator, LaneKey, LaneVecBuilder, OwnedDevice,
+    OwnedSemaphore, Queue, QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup,
+    QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId, QueueRoleFlags, ResourceArena,
+    SettledLanes, SubmissionProgress, VulkanHandle, get_available_families, select_best_families,
 };
 
 pub(crate) struct DevicePlan {
@@ -112,7 +112,7 @@ impl DeviceBuilder {
         Ok(QueueGroupBuilder::new(self, id))
     }
 
-    pub fn build(self) -> Result<Arc<Device>> {
+    pub fn build(self) -> Result<(Arc<Device>, FrameAllocator)> {
         if self.reservations.is_empty() {
             return Err(anyhow!(
                 "at least one queue group must be created before building the device"
@@ -125,7 +125,8 @@ impl DeviceBuilder {
             allocations: self.queue_groups,
         };
 
-        Ok(Arc::new(Device::new(self.engine, plan)?))
+        Device::new(self.engine, plan)
+            .map(|(device, frame_allocator)| (Arc::new(device), frame_allocator))
     }
 }
 
@@ -138,11 +139,11 @@ pub struct Device {
     queue_groups: Mutex<HashMap<QueueGroupId, QueueGroup>>,
     queue_group_table: QueueGroupTable,
     next_child_id: AtomicUsize,
-    is_epoch_created: AtomicBool,
+    settled: Arc<SettledLanes>,
 }
 
 impl Device {
-    pub(crate) fn new(engine: Arc<Engine>, plan: DevicePlan) -> Result<Self> {
+    pub(crate) fn new(engine: Arc<Engine>, plan: DevicePlan) -> Result<(Self, FrameAllocator)> {
         let physical_device = plan.info.physical_device;
         let required_extensions = required_device_extensions(&engine);
 
@@ -161,7 +162,16 @@ impl Device {
         let queue_groups = build_queue_groups(device.clone(), &arena, &queues, &plan.allocations)?;
         let queue_group_table = QueueGroupTable::new(&queue_groups);
 
-        Ok(Self {
+        let settled = Arc::new(SettledLanes::new(&queue_group_table));
+        let progress = {
+            let device_id = plan.info.id;
+            let device = device.clone();
+            let queue_groups = queue_group_table.clone();
+            SubmissionProgress::new(device_id, device, queue_groups)?
+        };
+        let frame_allocator = FrameAllocator::new(settled.clone(), progress);
+
+        let device = Self {
             engine,
             info: plan.info,
             arena,
@@ -170,8 +180,10 @@ impl Device {
             queue_groups: Mutex::new(queue_groups),
             queue_group_table,
             next_child_id: AtomicUsize::new(0),
-            is_epoch_created: AtomicBool::new(false),
-        })
+            settled,
+        };
+
+        Ok((device, frame_allocator))
     }
 
     pub(crate) fn handle(&self) -> &VulkanHandle<Arc<vulkanalia::Device>> {
@@ -190,6 +202,10 @@ impl Device {
         &self.queue_group_table
     }
 
+    pub(crate) fn is_lane_complete(&self, key: LaneKey, frame: u64) -> bool {
+        self.settled.is_complete(key, frame)
+    }
+
     pub fn take_queue_group(&self, id: QueueGroupId) -> Result<Option<QueueGroup>> {
         let mut queue_groups = self
             .queue_groups
@@ -197,13 +213,6 @@ impl Device {
             .map_err(|_| anyhow!("queue group state lock poisoned"))?;
 
         Ok(queue_groups.remove(&id))
-    }
-
-    pub fn submission_epoch(&self) -> Result<Epoch> {
-        if self.is_epoch_created.swap(true, Ordering::Relaxed) {
-            return Err(anyhow!("submission epoch already created"));
-        }
-        Ok(Epoch::new(&self.queue_group_table))
     }
 
     // TODO XXX: factory API is really all over the place right now

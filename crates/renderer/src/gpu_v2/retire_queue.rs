@@ -5,13 +5,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::gpu_v2::{Device, EpochRef, EpochValue, LaneKey, ProgressTracker, QueueGroupVec};
+use crate::gpu_v2::{Device, LaneKey, QueueGroupVec};
 
 struct RetireState<T: Copy> {
     // TODO: implicit max 64 total lanes; update Device/QueueGroupTable to
     // enforce this invariant
     dirty: AtomicUsize,
-    last_epoch: AtomicU64,
+    last_frame: AtomicU64,
     retired: AtomicBool,
     handle: T,
 }
@@ -26,7 +26,7 @@ impl<T: Copy> RetireToken<T> {
         Self {
             state: Arc::new(RetireState {
                 dirty: AtomicUsize::new(0),
-                last_epoch: AtomicU64::new(u64::MAX), // XXX
+                last_frame: AtomicU64::new(u64::MAX), // XXX: Really want a FrameNumber type!!
                 retired: AtomicBool::new(false),
                 handle,
             }),
@@ -38,7 +38,7 @@ impl<T: Copy> RetireToken<T> {
     }
 
     // called when a RetireToken is used in a CommandBuffer
-    pub fn touch(&self, epoch: EpochValue, key: LaneKey) {
+    pub fn touch(&self, key: LaneKey, frame: u64) {
         debug_assert!(
             !self.state.retired.load(Ordering::Relaxed),
             "token already retired"
@@ -46,7 +46,7 @@ impl<T: Copy> RetireToken<T> {
 
         let bit: usize = key.into();
         self.state.dirty.fetch_or(1 << bit, Ordering::Relaxed);
-        self.state.last_epoch.fetch_max(epoch, Ordering::Relaxed);
+        self.state.last_frame.fetch_max(frame, Ordering::Relaxed);
 
         debug_assert!(
             !self.state.retired.load(Ordering::Relaxed),
@@ -56,9 +56,9 @@ impl<T: Copy> RetireToken<T> {
 }
 
 pub struct RetireQueue<T: Copy + Eq + Hash> {
-    progress: ProgressTracker,
+    device: Arc<Device>,
     counts: HashMap<T, i32>,
-    retired: QueueGroupVec<Vec<(EpochValue, T)>>,
+    retired: QueueGroupVec<Vec<(u64, T)>>,
     ready: VecDeque<T>,
 }
 
@@ -67,14 +67,14 @@ impl<T: Copy + Eq + Hash> RetireQueue<T> {
         let queue_groups = device.queue_group_table();
         let retired = QueueGroupVec::new(queue_groups, Default::default);
         Ok(Self {
-            progress: ProgressTracker::new(device)?,
+            device,
             counts: HashMap::new(),
             retired,
             ready: VecDeque::new(),
         })
     }
 
-    pub fn retire(&mut self, epoch: EpochRef, token: RetireToken<T>) -> Result<()> {
+    pub fn retire(&mut self, token: RetireToken<T>) -> Result<()> {
         // NOTE: While allocators that use RetireQueue internally will generally
         // always be called from the same thread, RetireToken does not
         // inherently care which RetireQueue retires it. Any RetireQueue will do
@@ -83,23 +83,20 @@ impl<T: Copy + Eq + Hash> RetireQueue<T> {
         }
 
         let handle = token.state.handle;
-        let last_epoch = token.state.last_epoch.load(Ordering::Relaxed);
+        let last_frame = token.state.last_frame.load(Ordering::Relaxed);
         let mut dirty = token.state.dirty.load(Ordering::Relaxed);
-
-        self.progress.push(epoch)?;
-        self.progress.update()?;
 
         let mut count = 0;
         while dirty != 0 {
             let bit = dirty.trailing_zeros() as usize;
             let key = self.retired.key(bit).context("invalid lane key")?;
             dirty ^= 1 << bit;
-            if self.progress.is_complete(key, last_epoch) {
+            if self.device.is_lane_complete(key, last_frame) {
                 // ready in this lane, skip
                 continue;
             }
             let (_, retired) = self.retired.get_mut(key);
-            retired.push((last_epoch, handle));
+            retired.push((last_frame, handle));
             count += 1;
         }
 
@@ -118,13 +115,12 @@ impl<T: Copy + Eq + Hash> RetireQueue<T> {
             return Ok(Some(handle));
         }
 
-        self.progress.update()?;
-
         for (key, retired) in self.retired.iter_mut() {
             let mut i = 0;
             while i < retired.len() {
-                let (epoch, handle) = &retired[i];
-                if self.progress.is_complete(key, *epoch) {
+                let (frame, handle) = &retired[i];
+
+                if self.device.is_lane_complete(key, *frame) {
                     // SAFETY: if we have a handle in retired, it must have an
                     // element in counts
                     let count = self.counts.get_mut(handle).unwrap();
