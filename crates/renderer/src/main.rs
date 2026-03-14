@@ -1,4 +1,5 @@
 #![feature(once_cell_try)]
+#![feature(once_cell_get_mut)]
 #![feature(associated_type_defaults)]
 
 use anyhow::Result;

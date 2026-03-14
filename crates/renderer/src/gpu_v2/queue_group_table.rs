@@ -1,27 +1,32 @@
 // TODO: this file needs a refactor in conjunction with lane_index, lane_vec,
 // and queue_group_vec
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{
-    LaneVec, LaneVecBuilder, QueueGroup, QueueGroupId, QueueId, QueueRoleFlags, VulkanHandle,
-};
+use crate::gpu_v2::{LaneVec, QueueGroupId, QueueId, QueueRoleFlags, VulkanHandle};
 
 // TODO: move, to lane_key.rs and harden safety
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LaneKey {
-    offset: u16, // lane offset - max 65535 total lanes
-    group: u8,   // max 255 groups
-    index: u8,   // max 255 lanes per group
+    // TODO FIXME: pub(crate) is a big hack right now FIX IT!
+    pub(crate) offset: u16, // lane offset - max 65535 total lanes
+    pub(crate) group: u8,   // max 255 groups
+    pub(crate) index: u8,   // max 255 lanes per group
 }
 
 impl LaneKey {
     pub fn queue_group(&self) -> QueueGroupId {
         QueueGroupId::from(self.group)
+    }
+
+    // TODO: better naming / safer casting to differentiate between group-level
+    // index and device-level index; flat is confusing
+    pub fn flat_index(&self) -> usize {
+        (*self).into()
     }
 
     pub fn index(&self) -> usize {
@@ -94,42 +99,13 @@ struct Inner {
 }
 
 impl Inner {
-    fn new(queue_groups: &HashMap<QueueGroupId, QueueGroup>) -> Self {
-        let mut infos = Vec::with_capacity(queue_groups.len());
-        let mut values = queue_groups.values().collect::<Vec<_>>();
-        let mut offset = 0;
-        values.sort_by_key(|qg| qg.id());
-        for qg in values {
-            let mut bindings = LaneVecBuilder::with_lanes(qg.queues());
-            for (i, queue) in qg.queues().iter().enumerate() {
-                // XXX TODO: is this correct? Really need better validation
-                let key = LaneKey {
-                    offset,
-                    group: qg.id().into(),
-                    index: i as u8,
-                };
-                let binding = QueueBinding {
-                    id: queue.id(),
-                    key,
-                    roles: queue.roles(),
-                    semaphore: queue.semaphore().clone(),
-                };
-                bindings.push(binding);
-            }
-            let info = QueueGroupInfo {
-                id: qg.id(),
-                offset,
-                bindings: bindings.build(),
-            };
-            assert!(offset <= u16::MAX);
-            offset += info.bindings.len() as u16;
-            infos.push(info);
-        }
+    fn new(mut infos: Vec<QueueGroupInfo>) -> Self {
         infos.sort_by_key(|info| info.id);
-        Self {
-            infos,
-            total_lanes: offset,
-        }
+        let total_lanes = infos
+            .last()
+            .map(|info| info.offset + info.bindings.len() as u16)
+            .unwrap_or(0);
+        Self { infos, total_lanes }
     }
 }
 
@@ -139,8 +115,8 @@ pub struct QueueGroupTable {
 }
 
 impl QueueGroupTable {
-    pub(crate) fn new(queue_groups: &HashMap<QueueGroupId, QueueGroup>) -> Self {
-        let inner = Inner::new(queue_groups);
+    pub(crate) fn new(infos: Vec<QueueGroupInfo>) -> Self {
+        let inner = Inner::new(infos);
         Self {
             inner: Arc::new(inner),
         }

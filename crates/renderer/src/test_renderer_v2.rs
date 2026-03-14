@@ -44,7 +44,7 @@ impl Renderer for TestRendererV2 {
         let mut builder = engine.device(info);
 
         let primary_group_id = builder
-            .queue_group()
+            .queue_group()?
             .graphics()
             .present()
             .compute()
@@ -53,19 +53,19 @@ impl Renderer for TestRendererV2 {
             .context("failed to create primary queue group")?;
 
         let async_compute_group_id = builder
-            .queue_group()
+            .queue_group()?
             .compute()
             .transfer()
             .build()
             .context("failed to create async compute queue group")?;
 
         let async_transfer_group_id = builder
-            .queue_group()
+            .queue_group()?
             .transfer()
             .build()
             .context("failed to create async transfer queue group")?;
 
-        let device = builder.build()?;
+        let (device, mut frame_allocator) = builder.build()?;
 
         let primary_group = device
             .take_queue_group(primary_group_id)
@@ -78,6 +78,8 @@ impl Renderer for TestRendererV2 {
         let async_transfer_group = device
             .take_queue_group(async_transfer_group_id)
             .context("failed to take async transfer queue group")?;
+
+        let frame = frame_allocator.next_frame()?;
 
         // dbg!(&primary_group);
         // dbg!(&async_compute_group);

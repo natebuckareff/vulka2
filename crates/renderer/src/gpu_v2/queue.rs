@@ -1,39 +1,50 @@
-use std::sync::Arc;
+use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    GpuFutureWriter, LaneIndex, QueueId, QueuePacket, QueueRoleFlags, VulkanHandle,
+    CommandBufferHandle, FrameToken, LaneKey, QueueId, QueueRoleFlags, SettledLanes, VulkanHandle,
 };
 
 pub struct Queue {
     device: VulkanHandle<Arc<vulkanalia::Device>>,
     id: QueueId,
-    lane: LaneIndex,
+    key: LaneKey,
     roles: QueueRoleFlags,
     queue: vk::Queue,
-    semaphore: VulkanHandle<vk::Semaphore>,
-    submission_counter: u64,
+    settled: Arc<SettledLanes>,
+    current_frame: u64,
+    waiting: BTreeMap<(u64, usize), (FrameToken, Vec<CommandBufferHandle>)>,
+    waiting_next: usize,
+    semaphore: VulkanHandle<vk::Semaphore>, // XXX: why not owned?
+    submissions: u64,
+    scratch: RefCell<Vec<vk::CommandBufferSubmitInfo>>,
 }
 
 impl Queue {
     pub(crate) fn new(
         device: VulkanHandle<Arc<vulkanalia::Device>>,
         id: QueueId,
-        lane: LaneIndex,
+        key: LaneKey,
         roles: QueueRoleFlags,
         queue: vk::Queue,
+        settled: Arc<SettledLanes>,
         semaphore: VulkanHandle<vk::Semaphore>,
     ) -> Result<Self> {
         Ok(Self {
             device,
             id,
-            lane,
+            key,
             roles,
             queue,
+            settled,
+            current_frame: 0,
+            waiting: BTreeMap::new(),
+            waiting_next: 0,
             semaphore,
-            submission_counter: 0,
+            submissions: 0,
+            scratch: RefCell::new(Vec::new()),
         })
     }
 
@@ -41,8 +52,8 @@ impl Queue {
         self.id
     }
 
-    pub(crate) fn lane(&self) -> LaneIndex {
-        self.lane
+    pub(crate) fn key(&self) -> LaneKey {
+        self.key
     }
 
     pub fn roles(&self) -> QueueRoleFlags {
@@ -63,34 +74,74 @@ impl Queue {
         Ok(())
     }
 
-    pub fn submit(&mut self, future: GpuFutureWriter, packets: &[QueuePacket]) -> Result<()> {
-        let submission_id = self.submit_packets(packets)?;
-        future.set(submission_id)?;
+    pub fn submit(&mut self, frame: FrameToken, packet: Vec<CommandBufferHandle>) -> Result<()> {
+        debug_assert!(!packet.is_empty());
+
+        if frame.number() < self.current_frame {
+            return Err(anyhow!("out-of-order frame submission"));
+        }
+
+        if frame.number() == self.current_frame {
+            self.submit_packet(frame, &packet)?;
+        } else {
+            let key = (frame.number(), self.waiting_next);
+            self.waiting.insert(key, (frame, packet));
+            self.waiting_next += 1;
+        }
+
+        self.flush()?;
+
         Ok(())
     }
 
-    fn submit_packets(&mut self, packets: &[QueuePacket]) -> Result<u64> {
+    pub fn flush(&mut self) -> Result<()> {
+        loop {
+            if self.settled.is_host_complete(self.key, self.current_frame) {
+                self.current_frame += 1;
+                while let Some(entry) = self.waiting.first_entry() {
+                    let (frame_number, _) = entry.key();
+                    if *frame_number != self.current_frame {
+                        break;
+                    }
+                    let (frame, packet) = entry.remove();
+                    self.submit_packet(frame, &packet)?;
+                }
+                continue;
+            }
+            break;
+        }
+        Ok(())
+    }
+
+    fn submit_packet(
+        &mut self,
+        frame: FrameToken,
+        packet: &Vec<CommandBufferHandle>,
+    ) -> Result<()> {
         use vulkanalia::prelude::v1_3::*;
 
-        if packets.is_empty() {
-            return Err(anyhow!("no packets to submit"));
+        debug_assert!(!packet.is_empty());
+
+        frame.consume(self.key);
+
+        self.submissions += 1;
+
+        let mut scratch = self.scratch.borrow_mut();
+        scratch.clear();
+
+        for handle in packet {
+            scratch.push(
+                vk::CommandBufferSubmitInfo::builder()
+                    .command_buffer(unsafe { handle.raw() })
+                    .build(),
+            );
         }
 
-        let submission_id = self.submission_counter + 1;
-        self.submission_counter += 1;
-
-        let cmdbuf_infos = packets
-            .iter()
-            .map(|packet| {
-                vk::CommandBufferSubmitInfo::builder()
-                    .command_buffer(packet.cmdbuf)
-                    .build()
-            })
-            .collect::<Vec<_>>();
+        let cmdbuf_infos = scratch.as_slice();
 
         let signal_infos = [vk::SemaphoreSubmitInfo::builder()
             .semaphore(unsafe { *self.semaphore.raw() })
-            .value(submission_id)
+            .value(self.submissions)
             .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
             .build()];
 
@@ -100,11 +151,10 @@ impl Queue {
             .build()];
 
         unsafe {
-            self.device
-                .raw()
-                .queue_submit2(self.queue, &submit_infos, vk::Fence::null())
+            let device = self.device.raw();
+            device.queue_submit2(self.queue, &submit_infos, vk::Fence::null())
         }?;
 
-        Ok(submission_id)
+        Ok(())
     }
 }

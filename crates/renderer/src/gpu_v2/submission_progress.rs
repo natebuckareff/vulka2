@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak, atomic::AtomicU64};
@@ -32,7 +34,7 @@ impl SubmissionProgress {
         device: VulkanHandle<Arc<vulkanalia::Device>>,
         queue_groups: QueueGroupTable,
     ) -> Result<Self> {
-        let token = FrameToken::new(device_id, &queue_groups);
+        let token = FrameToken::new(device_id, 0, &queue_groups);
         let frame = ActiveFrame::new(0, &token);
         let lane_progress = QueueGroupVec::try_new(&queue_groups, |key| {
             let binding = queue_groups.get_binding(key).context("invalid lane key")?;
@@ -78,9 +80,9 @@ impl SubmissionProgress {
     }
 
     pub fn next(&mut self, settled: &SettledLanes) -> Result<FrameToken> {
-        let next_token = FrameToken::new(self.device_id, &self.queue_groups);
         let current = &self.current_frame;
         let next_number = current.frame.number + 1;
+        let next_token = FrameToken::new(self.device_id, next_number, &self.queue_groups);
         let next_frame = ActiveFrame::new(next_number, &next_token);
         let next = CurrentFrame {
             token: next_token.clone(),
@@ -118,6 +120,12 @@ impl SubmissionProgress {
                     value: progress.last_count,
                 };
                 progress.host_complete.push_back(entry);
+
+                // broadcast host completion
+                let (_, settled) = settled.lanes.get(key);
+                settled
+                    .host_complete
+                    .store(pending.number, Ordering::Relaxed);
             }
         }
 
@@ -138,8 +146,13 @@ impl SubmissionProgress {
                 }
 
                 let entry = progress.host_complete.pop_front().unwrap();
+
+                // broadcast device completion
                 let (_, settled) = settled.lanes.get(key);
-                settled.store(entry.frame, Ordering::Relaxed);
+                settled
+                    .device_complete
+                    .store(entry.frame, Ordering::Relaxed);
+
                 progress.device_complete = Some(entry);
             }
         }
@@ -231,22 +244,34 @@ struct CurrentFrame {
     pub frame: ActiveFrame,
 }
 
+struct SettledLane {
+    host_complete: AtomicU64,
+    device_complete: AtomicU64,
+}
+
 pub struct SettledLanes {
-    // mirrors lane_progress[].device_complete
-    lanes: QueueGroupVec<AtomicU64>,
+    lanes: QueueGroupVec<SettledLane>,
 }
 
 impl SettledLanes {
     pub fn new(queue_groups: &QueueGroupTable) -> Self {
         Self {
-            lanes: QueueGroupVec::new(queue_groups, || AtomicU64::new(u64::MAX)),
+            lanes: QueueGroupVec::new(queue_groups, || SettledLane {
+                host_complete: AtomicU64::new(u64::MAX),
+                device_complete: AtomicU64::new(u64::MAX),
+            }),
         }
     }
 
-    // TODO: called by retire()
-    pub fn is_complete(&self, key: LaneKey, frame: FrameNumber) -> bool {
-        let (_, settled) = self.lanes.get(key);
-        let settled = settled.load(Ordering::Relaxed);
+    pub fn is_host_complete(&self, key: LaneKey, frame: FrameNumber) -> bool {
+        let (_, lane) = self.lanes.get(key);
+        let settled = lane.host_complete.load(Ordering::Relaxed);
+        settled != u64::MAX && frame <= settled
+    }
+
+    pub fn is_device_complete(&self, key: LaneKey, frame: FrameNumber) -> bool {
+        let (_, lane) = self.lanes.get(key);
+        let settled = lane.device_complete.load(Ordering::Relaxed);
         settled != u64::MAX && frame <= settled
     }
 }
@@ -292,16 +317,22 @@ struct LaneEntry {
 #[derive(Clone)]
 pub struct FrameToken {
     device_id: DeviceId,
+    number: u64,
     alive: Arc<()>,
     submissions: Arc<QueueGroupVec<AtomicU64>>,
+    #[cfg(debug_assertions)]
+    is_consumed: Cell<bool>,
 }
 
 impl FrameToken {
-    fn new(device_id: DeviceId, queue_groups: &QueueGroupTable) -> Self {
+    fn new(device_id: DeviceId, number: u64, queue_groups: &QueueGroupTable) -> Self {
         Self {
             device_id,
+            number,
             alive: Arc::new(()),
             submissions: Arc::new(QueueGroupVec::new(queue_groups, Default::default)),
+            #[cfg(debug_assertions)]
+            is_consumed: Cell::new(false),
         }
     }
 
@@ -309,8 +340,59 @@ impl FrameToken {
         self.device_id
     }
 
-    pub(crate) fn consume(self, key: LaneKey) {
+    pub fn number(&self) -> u64 {
+        self.number
+    }
+
+    pub(crate) fn consume(self, key: LaneKey) -> u64 {
         let (_, counter) = self.submissions.get(key);
         counter.fetch_add(1, Ordering::Relaxed);
+        #[cfg(debug_assertions)]
+        {
+            self.is_consumed.set(true);
+        }
+        self.number
+    }
+
+    pub(crate) fn downgrade(self) -> FrameRef {
+        FrameRef::new(self)
+    }
+}
+
+impl Drop for FrameToken {
+    fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        {
+            debug_assert!(!self.is_consumed.get());
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct FrameRef {
+    device_id: DeviceId,
+    number: u64,
+    alive: Weak<()>,
+}
+
+impl FrameRef {
+    fn new(token: FrameToken) -> Self {
+        Self {
+            device_id: token.device_id,
+            number: token.number,
+            alive: Arc::downgrade(&token.alive),
+        }
+    }
+
+    pub fn device_id(&self) -> DeviceId {
+        self.device_id
+    }
+
+    pub fn number(&self) -> u64 {
+        self.number
+    }
+
+    pub fn is_alive(&self) -> bool {
+        self.alive.upgrade().is_some()
     }
 }

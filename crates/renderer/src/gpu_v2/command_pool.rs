@@ -1,137 +1,162 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{rc::Rc, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    BufferLane, Device, GpuFuture, LaneVec, LaneVecBuilder, LivenessGuard, LivenessToken,
-    OwnedCommandPool, QueueFamilyId, QueueGroupId, QueueGroupInfo, QueueId, QueueRoleFlags,
-    ResourceArena, VulkanHandle,
+    BufferLane, CommandBuffer, CommandPoolId, Device, FrameToken, LaneVec, LaneVecBuilder,
+    OwnedCommandPool, QueueBinding, QueueFamilyId, QueueGroupInfo, RetireToken, VulkanResource,
 };
 
-#[derive(Clone, Copy)]
-pub(crate) struct QueueLane {
-    pub(crate) id: QueueId,
-    pub(crate) roles: QueueRoleFlags,
-}
-
-pub(crate) struct PoolLane {
-    device: Arc<Device>,
-    queue: QueueLane,
-    future: GpuFuture,
-    pool: VulkanHandle<vk::CommandPool>,
-    waiting: VecDeque<vk::CommandBuffer>,
-    active: Vec<vk::CommandBuffer>,
-}
-
-impl PoolLane {
-    pub(crate) fn queue(&self) -> QueueLane {
-        self.queue
-    }
-
-    pub(crate) fn future(&self) -> &GpuFuture {
-        &self.future
-    }
-}
-
 pub struct CommandPool {
-    device: Arc<Device>,
-    allocator_id: usize,
-    lanes: LaneVec<PoolLane>,
-    liveness: LivenessToken,
-    guard: LivenessGuard,
+    retire: RetireToken<CommandPoolId>,
+    state: CommandPoolState,
 }
 
 impl CommandPool {
-    pub(crate) fn new(
-        device: Arc<Device>,
-        allocator_id: usize,
-        arena: &ResourceArena,
-        queue_info: QueueGroupInfo,
-        guard: LivenessGuard,
-    ) -> Result<Self> {
-        let mut lanes = LaneVecBuilder::with_lanes(&queue_info.bindings);
+    pub(crate) fn new(retire: RetireToken<CommandPoolId>, state: CommandPoolState) -> Self {
+        Self { retire, state }
+    }
 
+    pub(crate) fn retire(&self) -> &RetireToken<CommandPoolId> {
+        &self.retire
+    }
+
+    pub(crate) fn split(self) -> Result<(RetireToken<CommandPoolId>, CommandPoolState)> {
+        if Rc::strong_count(&self.state.children) > 1 {
+            // if a command pool is retired while command buffers allocated from
+            // it have not yet been recored to, then the pool's RetireToken may
+            // not account for all dependencies, and could be prematurely
+            // re-acquired. fix is to make sure all child command buffers are
+            // dropped before retirement
+            return Err(anyhow!("command pool still has live command buffers"));
+        }
+        let retire = self.retire;
+        let state = self.state;
+        Ok((retire, state))
+    }
+
+    pub fn allocate(&mut self, frame: FrameToken) -> Result<CommandBuffer> {
+        let mut cmdbuf_lanes = LaneVecBuilder::with_lanes(&self.state.lanes);
+        for lane in self.state.lanes.iter_mut() {
+            let cmdbuf = lane.allocate(&self.state.device)?;
+            let cmdbuf_lane = BufferLane::new(cmdbuf);
+            cmdbuf_lanes.push(cmdbuf_lane);
+        }
+        let retire = self.retire.clone();
+        let alive = self.state.children.clone();
+        let cmdbuf = CommandBuffer::new(frame, retire, cmdbuf_lanes.build(), alive);
+        Ok(cmdbuf)
+    }
+}
+
+pub(crate) struct CommandPoolState {
+    device: Arc<Device>,
+    lanes: LaneVec<PoolLane>,
+    children: Rc<()>,
+}
+
+impl CommandPoolState {
+    pub(crate) fn new(device: Arc<Device>, queue_info: &QueueGroupInfo) -> Result<Self> {
+        let mut lanes = LaneVecBuilder::with_lanes(&queue_info.bindings);
         for binding in queue_info.bindings.iter() {
-            let queue = QueueLane {
-                id: binding.id,
-                roles: binding.roles,
-            };
-            let lane = PoolLane {
-                device: device.clone(),
-                queue,
-                future: GpuFuture::new(),
-                pool: create_command_pool(&device, &arena, binding.id.family)?,
-                waiting: VecDeque::new(),
-                active: Vec::new(),
-            };
+            let lane = PoolLane::new(&device, binding)?;
             lanes.push(lane);
         }
-
-        Ok(Self {
+        Ok(CommandPoolState {
             device,
-            allocator_id,
             lanes: lanes.build(),
-            liveness: LivenessToken::new(),
-            guard,
+            children: Rc::new(()),
         })
     }
 
-    pub(crate) fn allocator_id(&self) -> usize {
-        self.allocator_id
-    }
-
-    pub fn queue_group_id(&self) -> QueueGroupId {
-        self.lanes.queue_group_id()
-    }
-
-    pub(crate) fn lanes(&self) -> &LaneVec<PoolLane> {
-        &self.lanes
-    }
-
-    pub(crate) fn lanes_mut(&mut self) -> &mut LaneVec<PoolLane> {
-        &mut self.lanes
-    }
-
-    pub(crate) fn liveness(&self) -> &LivenessToken {
-        &self.liveness
-    }
-
-    pub(crate) fn allocate(&mut self) -> Result<LaneVec<BufferLane>> {
-        let mut buffer_lanes = LaneVecBuilder::with_lanes(&self.lanes);
-        for lane in self.lanes.iter_mut() {
-            let cmdbuf = match lane.waiting.pop_front() {
-                Some(buffer) => buffer,
-                None => allocate_command_buffer(&self.device, &lane.pool)?,
-            };
-            lane.active.push(cmdbuf);
-            let buffer_lane = BufferLane::new(lane.queue, cmdbuf);
-            buffer_lanes.push(buffer_lane);
-        }
-        Ok(buffer_lanes.build())
-    }
-
-    pub(crate) fn reset(&mut self) -> Result<()> {
-        use vulkanalia::prelude::v1_0::*;
+    // SAFETY: unsafe to call if the pool is still in use
+    pub(crate) unsafe fn reset(&mut self) -> Result<()> {
         for lane in self.lanes.iter_mut() {
             unsafe {
-                self.device
-                    .handle()
-                    .raw()
-                    .reset_command_pool(*lane.pool.raw(), vk::CommandPoolResetFlags::empty())
-            }?;
-            lane.future.reset()?;
-            lane.waiting.extend(lane.active.drain(..));
+                lane.reset(&self.device)?;
+            }
         }
         Ok(())
     }
 }
 
-fn create_command_pool(
-    device: &Device,
-    arena: &ResourceArena,
-    family: QueueFamilyId,
-) -> Result<VulkanHandle<vk::CommandPool>> {
+struct PoolLane {
+    pool: Arc<OwnedCommandPool>,
+    cmdbufs: Vec<vk::CommandBuffer>,
+    next_cmdbuf: usize,
+    is_reset: bool,
+}
+
+impl PoolLane {
+    fn new(device: &Device, binding: &QueueBinding) -> Result<Self> {
+        let pool = create_command_pool(&device, binding.id.family)?;
+        Ok(Self {
+            pool: Arc::new(pool),
+            cmdbufs: vec![],
+            next_cmdbuf: 0,
+            is_reset: true,
+        })
+    }
+
+    // SAFETY: unsafe to call if the pool is still in use
+    unsafe fn reset(&mut self, device: &Device) -> Result<()> {
+        if self.is_reset {
+            return Ok(());
+        }
+        reset_command_pool(device, &self.pool)?;
+        self.next_cmdbuf = 0;
+        self.is_reset = true;
+        Ok(())
+    }
+
+    fn allocate(&mut self, device: &Device) -> Result<CommandBufferHandle> {
+        let cmdbuf = if self.next_cmdbuf < self.cmdbufs.len() {
+            let cmdbuf = self.cmdbufs[self.next_cmdbuf];
+            cmdbuf
+        } else {
+            let cmdbuf = allocate_command_buffer(device, &self.pool)?;
+            self.cmdbufs.push(cmdbuf);
+            cmdbuf
+        };
+        self.next_cmdbuf += 1;
+        self.is_reset = false;
+        Ok(CommandBufferHandle {
+            pool: self.pool.clone(),
+            cmdbuf,
+        })
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct CommandBufferHandle {
+    pool: Arc<OwnedCommandPool>,
+    cmdbuf: vk::CommandBuffer,
+}
+
+impl CommandBufferHandle {
+    pub(crate) unsafe fn raw(&self) -> vk::CommandBuffer {
+        self.cmdbuf
+    }
+}
+
+fn allocate_command_buffer(device: &Device, pool: &OwnedCommandPool) -> Result<vk::CommandBuffer> {
+    use vulkanalia::prelude::v1_0::*;
+
+    let info = vk::CommandBufferAllocateInfo::builder()
+        .command_pool(unsafe { *pool.raw() })
+        .level(vk::CommandBufferLevel::PRIMARY)
+        .command_buffer_count(1);
+
+    let cmdbufs = unsafe {
+        let device = device.handle().raw();
+        device.allocate_command_buffers(&info)
+    }?;
+
+    Ok(cmdbufs[0])
+}
+
+fn create_command_pool(device: &Device, family: QueueFamilyId) -> Result<OwnedCommandPool> {
     use vulkanalia::prelude::v1_0::*;
 
     let create_info = vk::CommandPoolCreateInfo::builder()
@@ -140,22 +165,14 @@ fn create_command_pool(
 
     let device = device.handle().clone();
     let pool = OwnedCommandPool::new(device, &create_info)?;
-    let pool = arena.add(pool)?;
     Ok(pool)
 }
 
-fn allocate_command_buffer(
-    device: &Device,
-    pool: &VulkanHandle<vk::CommandPool>,
-) -> Result<vk::CommandBuffer> {
+fn reset_command_pool(device: &Device, pool: &OwnedCommandPool) -> Result<()> {
     use vulkanalia::prelude::v1_0::*;
-
-    let alloc_info = vk::CommandBufferAllocateInfo::builder()
-        .command_pool(unsafe { *pool.raw() })
-        .level(vk::CommandBufferLevel::PRIMARY)
-        .command_buffer_count(1);
-
-    let cmdbufs = unsafe { device.handle().raw().allocate_command_buffers(&alloc_info) }?;
-
-    Ok(cmdbufs[0])
+    unsafe {
+        let device = device.handle().raw();
+        device.reset_command_pool(*pool.raw(), vk::CommandPoolResetFlags::empty())?;
+    }
+    Ok(())
 }

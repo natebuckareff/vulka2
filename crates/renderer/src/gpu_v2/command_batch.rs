@@ -1,100 +1,71 @@
+use std::cell::OnceCell;
+
 use anyhow::{Result, anyhow};
-use vulkanalia::vk;
 
-use crate::gpu_v2::{
-    CommandBuffer, CommandPool, GpuFutureWriter, LaneIndex, LaneVec, SubmitSignal, UsageToken,
-};
-
-pub(crate) struct QueuePacket {
-    pub(crate) index: LaneIndex,
-    pub(crate) cmdbuf: vk::CommandBuffer, // TODO: VulkanHandle
-}
+use crate::gpu_v2::{CommandBuffer, CommandBufferHandle, FrameToken, LaneVec};
 
 pub struct CommandBatch {
-    signal: SubmitSignal,
-    pool: CommandPool,
-    buffers: Vec<CommandBuffer>,
-    usage: UsageToken,
+    frame: Option<FrameToken>,
+    lanes: OnceCell<LaneVec<Vec<CommandBufferHandle>>>,
 }
 
 impl CommandBatch {
-    pub(crate) fn new(signal: SubmitSignal, pool: CommandPool) -> Self {
+    pub fn new() -> Self {
         Self {
-            signal,
-            pool,
-            buffers: Vec::new(),
-            usage: UsageToken::new(),
+            frame: None,
+            lanes: OnceCell::new(),
         }
     }
 
-    pub fn allocate(&mut self) -> Result<CommandBuffer> {
-        CommandBuffer::new(self.pool.allocate()?, self.pool.liveness().guard())
+    fn lanes(&mut self, cmdbuf: &CommandBuffer) -> &mut LaneVec<Vec<CommandBufferHandle>> {
+        self.lanes.get_mut_or_init(|| {
+            let lanes = cmdbuf.lanes();
+            LaneVec::filled(lanes, || vec![])
+        })
     }
 
-    pub fn add(&mut self, mut buffer: CommandBuffer) -> Result<()> {
-        if self.pool.queue_group_id() != buffer.queue_group_id() {
-            buffer.disarm();
-            return Err(anyhow!("mismatched queue groups"));
-        }
-        self.buffers.push(buffer);
-        Ok(())
+    pub fn is_empty(&self) -> bool {
+        self.frame.is_none()
     }
 
-    pub fn finish(mut self) -> Result<(Submission, CommandPool)> {
-        self.usage.disarm();
-        for buffer in self.buffers.iter_mut() {
-            buffer.disarm();
-        }
-
-        let pool_lanes = self.pool.lanes();
-        let mut sub_lanes = LaneVec::filled(pool_lanes, || SubmissionLane::default());
-        let mut packets = vec![];
-
-        for buffer in self.buffers.into_iter() {
-            for (index, buf_lane) in buffer.lanes().iter_entries() {
-                if buf_lane.dirty {
-                    let sub_lane = sub_lanes.get_mut(index);
-                    if sub_lane.future.is_none() {
-                        // TODO: there is a lifecycle hole here if there is an
-                        // error on send, owned pool is dropped
-                        let value = pool_lanes.get(index).future().send()?;
-                        sub_lane.future = Some(value);
-                    }
-                    let cmdbuf = buf_lane.cmdbuf;
-                    packets.push(QueuePacket { index, cmdbuf });
-                }
+    pub fn add(&mut self, cmdbuf: CommandBuffer) {
+        match &self.frame {
+            Some(frame) => {
+                debug_assert!(frame.device_id() == cmdbuf.frame().device_id());
+                debug_assert!(frame.number() == cmdbuf.frame().number());
             }
+            None => {
+                // OPTIMIZE: slightly unnessesary clone; seems worth trade-off
+                self.frame = Some(cmdbuf.frame().clone());
+            }
+        };
+        let batch_lanes = self.lanes(&cmdbuf);
+        let cmdbuf_lanes = cmdbuf.take_lanes();
+        debug_assert!(batch_lanes.queue_group_id() == cmdbuf_lanes.queue_group_id());
+        for (key, cmdbuf_lane) in cmdbuf_lanes.into_entries() {
+            if !cmdbuf_lane.is_dirty() {
+                continue;
+            }
+            let handle = cmdbuf_lane.take_handle();
+            let batch_lane = batch_lanes.get_mut(key);
+            batch_lane.push(handle);
         }
-
-        let pool = self.pool;
-        let submission = Submission::new(sub_lanes, self.signal, packets);
-        Ok((submission, pool))
     }
-}
 
-#[derive(Default)]
-pub(crate) struct SubmissionLane {
-    pub(crate) future: Option<GpuFutureWriter>,
+    pub fn finish(mut self) -> Result<Submission> {
+        // TODO: need to decide on error handling in general; there are a lot of
+        // checks that should probably be asserts instead of results
+        let Some(frame) = self.frame else {
+            return Err(anyhow!("command batch has no frame"));
+        };
+        let Some(lanes) = self.lanes.take() else {
+            return Err(anyhow!("command batch is empty"));
+        };
+        Ok(Submission { frame, lanes })
+    }
 }
 
 pub struct Submission {
-    pub(crate) lanes: LaneVec<SubmissionLane>,
-    pub(crate) signal: SubmitSignal,
-    pub(crate) packets: Vec<QueuePacket>,
-    pub(crate) usage: UsageToken,
-}
-
-impl Submission {
-    fn new(
-        lanes: LaneVec<SubmissionLane>,
-        signal: SubmitSignal,
-        packets: Vec<QueuePacket>,
-    ) -> Self {
-        Self {
-            lanes,
-            signal,
-            packets,
-            usage: UsageToken::new(),
-        }
-    }
+    pub(crate) frame: FrameToken,
+    pub(crate) lanes: LaneVec<Vec<CommandBufferHandle>>,
 }

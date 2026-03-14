@@ -54,7 +54,7 @@ pub enum DeviceKind {
     Discrete,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DeviceId(usize);
 
 impl Into<usize> for DeviceId {

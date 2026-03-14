@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::gpu_v2::{Device, LaneKey, QueueGroupVec};
+use crate::gpu_v2::{Device, FrameToken, LaneKey, QueueGroupVec};
 
 struct RetireState<T: Copy> {
     // TODO: implicit max 64 total lanes; update Device/QueueGroupTable to
@@ -38,7 +38,7 @@ impl<T: Copy> RetireToken<T> {
     }
 
     // called when a RetireToken is used in a CommandBuffer
-    pub fn touch(&self, key: LaneKey, frame: u64) {
+    pub fn touch(&self, key: LaneKey, frame: &FrameToken) {
         debug_assert!(
             !self.state.retired.load(Ordering::Relaxed),
             "token already retired"
@@ -46,7 +46,9 @@ impl<T: Copy> RetireToken<T> {
 
         let bit: usize = key.into();
         self.state.dirty.fetch_or(1 << bit, Ordering::Relaxed);
-        self.state.last_frame.fetch_max(frame, Ordering::Relaxed);
+        self.state
+            .last_frame
+            .fetch_max(frame.number(), Ordering::Relaxed);
 
         debug_assert!(
             !self.state.retired.load(Ordering::Relaxed),
@@ -91,7 +93,7 @@ impl<T: Copy + Eq + Hash> RetireQueue<T> {
             let bit = dirty.trailing_zeros() as usize;
             let key = self.retired.key(bit).context("invalid lane key")?;
             dirty ^= 1 << bit;
-            if self.device.is_lane_complete(key, last_frame) {
+            if self.device.is_lane_device_complete(key, last_frame) {
                 // ready in this lane, skip
                 continue;
             }
@@ -120,7 +122,7 @@ impl<T: Copy + Eq + Hash> RetireQueue<T> {
             while i < retired.len() {
                 let (frame, handle) = &retired[i];
 
-                if self.device.is_lane_complete(key, *frame) {
+                if self.device.is_lane_device_complete(key, *frame) {
                     // SAFETY: if we have a handle in retired, it must have an
                     // element in counts
                     let count = self.counts.get_mut(handle).unwrap();

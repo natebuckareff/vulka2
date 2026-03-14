@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use bitflags::bitflags;
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    DeviceBuilder, LaneVec, LaneVecBuilder, Queue, QueuePacket, Submission, SubmissionLane,
+    Device, DeviceBuilder, DeviceId, FrameRef, LaneVec, LaneVecBuilder, Queue, Submission,
     VulkanHandle,
 };
 
@@ -149,29 +149,26 @@ pub struct QueueAllocation {
 
 pub struct QueueGroup {
     device: VulkanHandle<Arc<vulkanalia::Device>>,
+    device_id: DeviceId,
     id: QueueGroupId,
     roles: QueueRoleFlags,
     queues: LaneVec<Queue>,
-    scratch: LaneVec<Vec<QueuePacket>>,
 }
 
 impl QueueGroup {
     pub(crate) fn new(
         device: VulkanHandle<Arc<vulkanalia::Device>>,
+        device_id: DeviceId,
         id: QueueGroupId,
         queues: LaneVec<Queue>,
     ) -> Self {
         let roles = queues.iter().map(|q| q.roles()).collect();
-        let mut scratch = LaneVecBuilder::with_lanes(&queues);
-        for _ in 0..queues.len() {
-            scratch.push(Vec::new());
-        }
         Self {
             device,
+            device_id,
             id,
             roles,
             queues,
-            scratch: scratch.build(),
         }
     }
 
@@ -188,72 +185,30 @@ impl QueueGroup {
     }
 
     pub fn submit(&mut self, submission: Submission) -> Result<()> {
-        let Submission {
-            lanes,
-            signal,
-            packets,
-            mut usage,
-        } = submission;
-
-        usage.disarm();
-
-        let result = self.submit_packets(lanes, packets);
-
-        // notify the command allocator that all GpuFutures were set, making
-        // sure to *always* signal, even if submit_packets() failed
-        if let Err(e) = signal.notify() {
-            if let Err(e2) = result {
-                return Err(e2.context(e));
-            } else {
-                return Err(e);
-            }
+        if submission.lanes.queue_group_id() != self.id {
+            return Err(anyhow!("mismatched queue group id"));
+        }
+        if submission.frame.device_id() != self.device_id {
+            return Err(anyhow!("mismatched device id"));
         }
 
-        result
+        let Submission { frame, lanes } = submission;
+
+        for (key, packet) in lanes.into_entries() {
+            if packet.is_empty() {
+                continue;
+            }
+            let queue = self.queues.get_mut(key);
+            queue.submit(frame.clone(), packet)?;
+        }
+
+        Ok(())
     }
 
-    fn submit_packets(
-        &mut self,
-        lanes: LaneVec<SubmissionLane>,
-        packets: Vec<QueuePacket>,
-    ) -> Result<()> {
-        if self.id != lanes.queue_group_id() {
-            return Err(anyhow!("mismatched queue groups"));
+    pub fn flush(&mut self) -> Result<()> {
+        for queue in self.queues.iter_mut() {
+            queue.flush()?;
         }
-
-        if cfg!(debug_assertions) {
-            debug_assert!(
-                self.scratch.iter().all(|buf| buf.is_empty()),
-                "scratch buffers always reset after use"
-            );
-        }
-
-        for buf in self.scratch.iter_mut() {
-            buf.clear();
-        }
-
-        // split packets by queue lane
-        for packet in packets.into_iter() {
-            let buf = &mut self.scratch.get_mut(packet.index);
-            buf.push(packet);
-        }
-
-        // submit the packets
-        for (index, lane) in lanes.into_entries() {
-            let Some(future) = lane.future else {
-                continue;
-            };
-
-            let buf = &mut self.scratch.get_mut(index);
-
-            // TODO: this guarantee feels a bit sketchy, can we harden it with
-            // better types?
-            debug_assert!(!buf.is_empty());
-
-            let queue = &mut self.queues.get_mut(index);
-            queue.submit(future, buf)?;
-        }
-
         Ok(())
     }
 }

@@ -1,76 +1,148 @@
+use std::rc::Rc;
+
 use anyhow::Result;
-use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    LaneVec, LivenessGuard, QueueGroupId, QueueId, QueueLane, QueueRoleFlags, UsageToken,
+    CommandBufferHandle, CommandPoolId, FrameToken, LaneKey, LaneVec, QueueGroupId, RetireToken,
 };
 
-pub(crate) struct BufferLane {
-    pub(crate) queue: QueueLane,
-    pub(crate) dirty: bool,
-    pub(crate) cmdbuf: vk::CommandBuffer,
-}
-
-impl BufferLane {
-    pub(crate) fn new(queue: QueueLane, cmdbuf: vk::CommandBuffer) -> Self {
-        Self {
-            queue,
-            dirty: false,
-            cmdbuf,
-        }
-    }
-}
-
 pub struct CommandBuffer {
+    frame: FrameToken,
+    retire: RetireToken<CommandPoolId>,
     lanes: LaneVec<BufferLane>,
-    guard: LivenessGuard,
-    usage: Option<UsageToken>,
+    alive: Rc<()>,
 }
 
 impl CommandBuffer {
-    pub(crate) fn new(lanes: LaneVec<BufferLane>, guard: LivenessGuard) -> Result<Self> {
-        Ok(Self {
+    pub(crate) fn new(
+        frame: FrameToken,
+        retire: RetireToken<CommandPoolId>,
+        lanes: LaneVec<BufferLane>,
+        alive: Rc<()>,
+    ) -> Self {
+        Self {
+            frame,
+            retire,
             lanes,
-            guard,
-            usage: None,
-        })
+            alive,
+        }
     }
 
-    pub fn queue_group_id(&self) -> QueueGroupId {
-        self.lanes.queue_group_id()
+    pub(crate) fn frame(&self) -> &FrameToken {
+        &self.frame
     }
 
     pub(crate) fn lanes(&self) -> &LaneVec<BufferLane> {
         &self.lanes
     }
 
-    // called by command recoding methods
-    fn touch_by_id(&mut self, id: QueueId) {
-        for lane in self.lanes.iter_mut() {
-            if lane.queue.id == id {
-                lane.dirty = true;
-                if self.usage.is_none() {
-                    self.usage = Some(UsageToken::new());
-                }
-            }
-        }
+    pub(crate) fn take_lanes(self) -> LaneVec<BufferLane> {
+        self.lanes
     }
 
-    // called by command recoding methods
-    fn touch_by_roles(&mut self, roles: QueueRoleFlags) {
-        for lane in self.lanes.iter_mut() {
-            if lane.queue.roles.contains(roles) {
-                lane.dirty = true;
-                if self.usage.is_none() {
-                    self.usage = Some(UsageToken::new());
-                }
-            }
-        }
+    fn touch(&mut self, key: LaneKey) {
+        let lane = self.lanes.get_mut(key);
+        lane.is_dirty = true;
+        self.retire.touch(key, &self.frame);
     }
 
-    pub(crate) fn disarm(&mut self) {
-        if let Some(mut usage) = self.usage.take() {
-            usage.disarm();
-        }
+    pub fn graphics(&mut self) -> Result<GraphicsScope<'_>> {
+        // TODO: check for graphics support
+        Ok(GraphicsScope::new(self))
+    }
+
+    pub fn compute(&mut self) -> Result<ComputeScope<'_>> {
+        // TODO: check for support
+        Ok(ComputeScope::new(self))
+    }
+
+    pub fn transfer(&mut self) -> Result<TransferScope<'_>> {
+        // TODO: check for support
+        Ok(TransferScope::new(self))
     }
 }
+
+pub(crate) struct BufferLane {
+    cmdbuf: CommandBufferHandle,
+    is_dirty: bool,
+}
+
+impl BufferLane {
+    pub(crate) fn new(cmdbuf: CommandBufferHandle) -> Self {
+        Self {
+            cmdbuf,
+            is_dirty: false,
+        }
+    }
+
+    pub(crate) fn handle(&self) -> &CommandBufferHandle {
+        &self.cmdbuf
+    }
+
+    pub(crate) fn is_dirty(&self) -> bool {
+        self.is_dirty
+    }
+
+    pub(crate) fn take_handle(self) -> CommandBufferHandle {
+        self.cmdbuf
+    }
+}
+
+// TODO
+struct GraphicsScope<'cb> {
+    buffer: &'cb mut CommandBuffer,
+}
+
+// TODO
+impl<'cb> GraphicsScope<'cb> {
+    fn new(buffer: &'cb mut CommandBuffer) -> Self {
+        Self { buffer }
+    }
+
+    pub fn render(&mut self) -> RenderingScope<'_> {
+        RenderingScope::new(self.buffer)
+    }
+}
+
+// TODO
+struct RenderingScope<'cb> {
+    buffer: &'cb mut CommandBuffer,
+}
+
+// TODO
+impl<'cb> RenderingScope<'cb> {
+    fn new(buffer: &'cb mut CommandBuffer) -> Self {
+        Self { buffer }
+    }
+}
+
+// TODO
+struct ComputeScope<'cb> {
+    buffer: &'cb mut CommandBuffer,
+}
+
+// TODO
+impl<'cb> ComputeScope<'cb> {
+    fn new(buffer: &'cb mut CommandBuffer) -> Self {
+        Self { buffer }
+    }
+}
+
+// TODO
+struct TransferScope<'cb> {
+    buffer: &'cb mut CommandBuffer,
+}
+
+// TODO
+impl<'cb> TransferScope<'cb> {
+    fn new(buffer: &'cb mut CommandBuffer) -> Self {
+        Self { buffer }
+    }
+}
+
+// fn test(cmdbuf: &mut CommandBuffer) -> Result<()> {
+//     let mut gfx = cmdbuf.graphics()?;
+//     let pass1 = gfx.render();
+//     let pass2 = gfx.render();
+//     Ok(())
+// }

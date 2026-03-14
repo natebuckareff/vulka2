@@ -6,10 +6,11 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    CommandAllocator, DeviceInfo, Engine, FrameAllocator, LaneKey, LaneVecBuilder, OwnedDevice,
-    OwnedSemaphore, Queue, QueueAllocation, QueueFamily, QueueFamilyId, QueueGroup,
-    QueueGroupBuilder, QueueGroupId, QueueGroupTable, QueueId, QueueRoleFlags, ResourceArena,
-    SettledLanes, SubmissionProgress, VulkanHandle, get_available_families, select_best_families,
+    CommandAllocator, DeviceId, DeviceInfo, Engine, FrameAllocator, LaneKey, LaneVec,
+    LaneVecBuilder, OwnedDevice, OwnedSemaphore, Queue, QueueAllocation, QueueBinding, QueueFamily,
+    QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId, QueueGroupInfo, QueueGroupTable,
+    QueueId, QueueRoleFlags, ResourceArena, SettledLanes, SubmissionProgress, VulkanHandle,
+    get_available_families, select_best_families,
 };
 
 pub(crate) struct DevicePlan {
@@ -142,6 +143,13 @@ pub struct Device {
     settled: Arc<SettledLanes>,
 }
 
+struct BuiltQueueLane {
+    allocation: QueueAllocation,
+    key: LaneKey,
+    queue: vk::Queue,
+    semaphore: VulkanHandle<vk::Semaphore>,
+}
+
 impl Device {
     pub(crate) fn new(engine: Arc<Engine>, plan: DevicePlan) -> Result<(Self, FrameAllocator)> {
         let physical_device = plan.info.physical_device;
@@ -159,10 +167,13 @@ impl Device {
         )?;
 
         let queues = load_queues(&device, &plan.reservations)?;
-        let queue_groups = build_queue_groups(device.clone(), &arena, &queues, &plan.allocations)?;
-        let queue_group_table = QueueGroupTable::new(&queue_groups);
+        let (built_groups, queue_group_table) =
+            build_queue_group_layout(device.clone(), &arena, &queues, &plan.allocations)?;
 
         let settled = Arc::new(SettledLanes::new(&queue_group_table));
+        let queue_groups =
+            build_queue_groups(device.clone(), plan.info.id, built_groups, settled.clone())?;
+
         let progress = {
             let device_id = plan.info.id;
             let device = device.clone();
@@ -202,8 +213,8 @@ impl Device {
         &self.queue_group_table
     }
 
-    pub(crate) fn is_lane_complete(&self, key: LaneKey, frame: u64) -> bool {
-        self.settled.is_complete(key, frame)
+    pub(crate) fn is_lane_device_complete(&self, key: LaneKey, frame: u64) -> bool {
+        self.settled.is_device_complete(key, frame)
     }
 
     pub fn take_queue_group(&self, id: QueueGroupId) -> Result<Option<QueueGroup>> {
@@ -227,16 +238,21 @@ impl Device {
     }
 }
 
-fn build_queue_groups(
+fn build_queue_group_layout(
     device: VulkanHandle<Arc<vulkanalia::Device>>,
     arena: &ResourceArena,
     queues: &HashMap<QueueId, vk::Queue>,
     queue_group_allocations: &BTreeMap<QueueGroupId, Vec<QueueAllocation>>,
-) -> Result<HashMap<QueueGroupId, QueueGroup>> {
+) -> Result<(
+    BTreeMap<QueueGroupId, LaneVec<BuiltQueueLane>>,
+    QueueGroupTable,
+)> {
     use vulkanalia::prelude::v1_0::*;
 
     let mut claimed_queue_ids = HashSet::new();
-    let mut queue_groups = HashMap::new();
+    let mut built_groups = BTreeMap::new();
+    let mut infos = Vec::with_capacity(queue_group_allocations.len());
+    let mut offset = 0u16;
 
     for (queue_group_id, allocations) in queue_group_allocations {
         if allocations.is_empty() {
@@ -262,19 +278,13 @@ fn build_queue_groups(
             }
         }
 
-        // assumes that allocates are sorted by queue family
-        let mut allocation_lanes = LaneVecBuilder::new(*queue_group_id, allocations.len());
+        let mut lanes = LaneVecBuilder::new(*queue_group_id, allocations.len());
+        let mut bindings = LaneVecBuilder::new(*queue_group_id, allocations.len());
+        let mut lane_index = 0usize;
         for allocation in allocations {
-            let handle = *queues
+            let queue = *queues
                 .get(&allocation.queue_id)
                 .expect("validated in previous loop");
-            allocation_lanes.push((allocation, handle));
-        }
-
-        // bit repetitive looking, but this buys us really nice queue lane
-        // semantics everywhere else
-        let mut group_queues = LaneVecBuilder::new(*queue_group_id, allocations.len());
-        for (lane, (allocation, queue)) in allocation_lanes.build().into_entries() {
             let mut type_info = vk::SemaphoreTypeCreateInfo::builder()
                 .semaphore_type(vk::SemaphoreType::TIMELINE)
                 .initial_value(0);
@@ -283,20 +293,73 @@ fn build_queue_groups(
 
             let semaphore = OwnedSemaphore::new(device.clone(), &create_info)?;
             let semaphore = arena.add(semaphore)?;
+            let key = LaneKey {
+                offset,
+                group: (*queue_group_id).into(),
+                index: lane_index as u8,
+            };
 
-            group_queues.push(Queue::new(
-                device.clone(),
-                allocation.queue_id,
-                lane,
-                allocation.roles,
+            bindings.push(QueueBinding {
+                id: allocation.queue_id,
+                key,
+                roles: allocation.roles,
+                semaphore: semaphore.clone(),
+            });
+
+            lanes.push(BuiltQueueLane {
+                allocation: *allocation,
+                key,
                 queue,
                 semaphore,
+            });
+            lane_index += 1;
+        }
+
+        let lane_count = lane_index as u16;
+        let bindings = bindings.build();
+        infos.push(QueueGroupInfo {
+            id: *queue_group_id,
+            offset,
+            bindings,
+        });
+        offset += lane_count;
+        built_groups.insert(*queue_group_id, lanes.build());
+    }
+
+    let table = QueueGroupTable::new(infos);
+    Ok((built_groups, table))
+}
+
+fn build_queue_groups(
+    device: VulkanHandle<Arc<vulkanalia::Device>>,
+    device_id: DeviceId,
+    built_groups: BTreeMap<QueueGroupId, LaneVec<BuiltQueueLane>>,
+    settled: Arc<SettledLanes>,
+) -> Result<HashMap<QueueGroupId, QueueGroup>> {
+    let mut queue_groups = HashMap::with_capacity(built_groups.len());
+
+    for (queue_group_id, lanes) in built_groups {
+        let mut group_queues = LaneVecBuilder::with_lanes(&lanes);
+        for (key, lane) in lanes.into_entries() {
+            group_queues.push(Queue::new(
+                device.clone(),
+                lane.allocation.queue_id,
+                key,
+                lane.allocation.roles,
+                lane.queue,
+                settled.clone(),
+                lane.semaphore,
             )?);
         }
 
         queue_groups.insert(
-            *queue_group_id,
-            QueueGroup::new(device.clone(), *queue_group_id, group_queues.build()),
+            queue_group_id,
+            QueueGroup::new(
+                device.clone(),
+                device_id,
+                queue_group_id,
+                group_queues.build(),
+            ),
         );
     }
 

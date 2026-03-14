@@ -1,27 +1,27 @@
-use std::collections::VecDeque;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
-use smallvec::SmallVec;
+use generational_arena::{Arena, Index};
 
 use crate::gpu_v2::{
-    CommandBatch, CommandPool, Device, GpuFutureState, LaneVecBuilder, LivenessToken,
-    MAX_STATIC_LANES, QueueGroupId, QueueGroupInfo, QueueGroupTable, ResourceArena, SubmitSignal,
+    CommandPool, CommandPoolState, Device, QueueGroupId, QueueGroupInfo, QueueGroupTable,
+    RetireQueue, RetireToken,
 };
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct CommandPoolId {
+    allocator_id: usize,
+    index: Index,
+}
 
 pub struct CommandAllocator {
     id: usize,
     device: Arc<Device>,
-    arena: ResourceArena,
-    queue_group_table: QueueGroupTable, // TODO: inner vs outer Arc design?
+    queue_group_table: QueueGroupTable,
     queue_info: QueueGroupInfo,
     capacity: usize,
-    signal: SubmitSignal,
-    waiting: Vec<CommandPool>,
-    pending: Vec<CommandPool>,
-    ready: VecDeque<CommandPool>,
-    acquired: usize,
-    liveness: LivenessToken,
+    pools: Arena<Option<CommandPoolState>>,
+    retirement: RetireQueue<CommandPoolId>,
 }
 
 impl CommandAllocator {
@@ -34,293 +34,83 @@ impl CommandAllocator {
         if capacity == 0 {
             return Err(anyhow!("capacity must be greater than 0"));
         }
-        let arena = ResourceArena::new("command_allocator");
-        // TODO: really don't like the inner-Arc design. It's hard to reason about
         let queue_group_table = device.queue_group_table().clone();
         let queue_info = queue_group_table
             .get_info(queue_group_id)
             .context("queue group not found")?
             .clone();
+        let retirement = RetireQueue::new(device.clone())?;
         let allocator = Self {
             id,
             device,
-            arena,
             queue_group_table,
             queue_info,
             capacity,
-            signal: SubmitSignal::new(),
-            waiting: Vec::new(),
-            pending: Vec::new(),
-            ready: VecDeque::new(),
-            acquired: 0,
-            liveness: LivenessToken::new(),
+            pools: Arena::new(),
+            retirement,
         };
         Ok(allocator)
     }
 
-    pub fn len(&self) -> usize {
-        self.waiting.len() + self.pending.len() + self.ready.len() + self.acquired
-    }
-
-    pub fn acquire(&mut self) -> Result<Option<CommandBatch>> {
-        let Some(pool) = self.acquire_pool()? else {
-            return Ok(None);
-        };
-        let batch = CommandBatch::new(self.signal.clone(), pool);
-        Ok(Some(batch))
-    }
-
-    fn acquire_pool(&mut self) -> Result<Option<CommandPool>> {
-        loop {
-            // attempt to acquire on the fast path:
-            // 1. first from ready
-            // 2. then creating a new pool if under capacity
-            // 3. otherwise moving from waiting to pending and attempting to reclaim
-            if let Some(pool) = self.acquire_ready_or_pending()? {
-                return Ok(Some(pool));
+    pub fn acquire(&mut self) -> Result<Option<CommandPool>> {
+        if let Some(id) = self.retirement.acquire()? {
+            let slot = self
+                .pools
+                .get_mut(id.index)
+                .context("command pool not found")?;
+            let mut state = std::mem::take(slot).context("command pool already acquired")?;
+            unsafe {
+                state.reset()?;
             }
-
-            // it nothing *and* no pools are waiting, there is really nothing
-            if self.waiting.is_empty() {
-                return Ok(None);
-            }
-
-            // read the current condition value
-            let seen = {
-                let guard = self.signal.lock();
-                *guard
-            };
-
-            // attempt to acquire again in case some waiting pools can now move
-            // to pending
-            if let Some(pool) = self.acquire_ready_or_pending()? {
-                return Ok(Some(pool));
-            }
-
-            // nothing to acquire
-            if self.waiting.is_empty() {
-                return Ok(None);
-            }
-
-            // read current condition again
-            let mut guard = self.signal.lock();
-
-            // loop and wait until until the condition changes
-            while *guard == seen {
-                guard = self.signal.wait(guard);
-            }
-        }
-    }
-
-    fn acquire_ready_or_pending(&mut self) -> Result<Option<CommandPool>> {
-        // check if self.ready has something
-        if let Some(pool) = self.ready.pop_front() {
-            self.acquired += 1;
+            let token = RetireToken::new(id);
+            let pool = CommandPool::new(token, state);
             return Ok(Some(pool));
         }
 
-        let pool = if self.len() < self.capacity {
-            // under capacity and can just create a new pool
-            Some(self.create_pool()?)
-        } else {
-            // attempt to reclaim a pending pool
-            self.reclaim()?
-        };
-
-        if pool.is_some() {
-            self.acquired += 1;
+        if self.pools.len() < self.capacity {
+            let index = self.pools.insert(None);
+            let id = CommandPoolId {
+                allocator_id: self.id,
+                index,
+            };
+            let token = RetireToken::new(id);
+            let device = self.device.clone();
+            let state = CommandPoolState::new(device, &self.queue_info)?;
+            let pool = CommandPool::new(token, state);
+            return Ok(Some(pool));
         }
 
-        debug_assert!(self.len() <= self.capacity);
-
-        Ok(pool)
-    }
-
-    fn create_pool(&mut self) -> Result<CommandPool> {
-        let pool = CommandPool::new(
-            self.device.clone(),
-            self.id,
-            &self.arena,
-            self.queue_info.clone(),
-            self.liveness.guard(),
-        )?;
-        Ok(pool)
-    }
-
-    fn reclaim(&mut self) -> Result<Option<CommandPool>> {
-        use vulkanalia::prelude::v1_3::*;
-
-        // first, attempt to move waiting pools into pending if their waiting
-        // futures are all set
-        let mut i = 0;
-        'pools: while i < self.waiting.len() {
-            let pool = &self.waiting[i];
-
-            // TODO: move to PoolLane::is_ready() or something
-            for lane in pool.lanes().iter() {
-                match lane.future().get()? {
-                    GpuFutureState::Unset => {
-                        // skip lanes that were never submitted
-                        continue;
-                    }
-                    GpuFutureState::Waiting => {
-                        // if the lane is still waiting on a submission, then
-                        // this pool must remain in waiting
-                        i += 1;
-                        continue 'pools;
-                    }
-                    GpuFutureState::Set(_) => {
-                        // future for this lane was set, fallthrough to
-                        // potentially move this pool from waiting to pending
-                    }
-                }
-            }
-            let pool = self.waiting.swap_remove(i);
-            self.pending.push(pool);
-        }
-
-        if self.pending.is_empty() {
-            // nothing to reclaim
-            return Ok(None);
-        }
-
-        loop {
-            // will poll the current timeline value for each lane's semaphore
-            let device = self.device.handle();
-            let mut current_values = LaneVecBuilder::with_lanes(&self.queue_info.bindings);
-            for binding in self.queue_info.bindings.iter() {
-                let value = unsafe {
-                    device
-                        .raw()
-                        .get_semaphore_counter_value(unsafe { *binding.semaphore.raw() })
-                }?;
-                current_values.push(value);
-            }
-            let current_values = current_values.build();
-
-            // loop through each pool and check if all lanes for that pool are
-            // either unsubmitted or are no longer in use by the gpu
-            'pools: for i in 0..self.pending.len() {
-                let pool = &self.pending[i];
-                let pool_lanes = pool.lanes();
-
-                debug_assert_eq!(pool_lanes.len(), current_values.len());
-
-                for (index, lane) in pool_lanes.iter_entries() {
-                    match lane.future().get()? {
-                        GpuFutureState::Unset => {
-                            // skip lanes that were never submitted
-                            continue;
-                        }
-                        GpuFutureState::Waiting => {
-                            unreachable!("waiting future should never be in pending");
-                        }
-                        GpuFutureState::Set(value) => {
-                            // the last polled value is still less than the
-                            // expected value, therefore the pool is not ready
-                            // to be reclaimed
-                            if *current_values.get(index) < value.into() {
-                                continue 'pools;
-                            }
-                        }
-                    }
-                }
-
-                // if we get here after looping over each lane, then all lanes
-                // for the pool were either never submitted or >= their timeline
-                // values, and therefore the pool is reclaimable
-                let mut pool = self.pending.swap_remove(i);
-                pool.reset()?;
-                return Ok(Some(pool));
-            }
-
-            // all pools in self.pending are still pending for at least one lane
-
-            // will build a list of semaphores, and will wait until at least one
-            // signals a timeline value >= the corresponding value
-            let mut wait_list = LaneVecBuilder::with_lanes(&self.queue_info.bindings);
-            for binding in self.queue_info.bindings.iter() {
-                // use u64::MAX as a placeholder for now
-                wait_list.push((unsafe { *binding.semaphore.raw() }, u64::MAX));
-            }
-            let mut wait_list = wait_list.build();
-
-            for pool in self.pending.iter() {
-                let pool_lanes = pool.lanes();
-                debug_assert_eq!(pool_lanes.len(), wait_list.len());
-
-                for (index, lane) in pool_lanes.iter_entries() {
-                    let value = match lane.future().get()? {
-                        GpuFutureState::Unset => {
-                            // skip lanes that were never submitted
-                            continue;
-                        }
-                        GpuFutureState::Waiting => {
-                            unreachable!("waiting future should never be in pending");
-                        }
-                        GpuFutureState::Set(value) => value.into(),
-                    };
-
-                    // only include this pool's lane value in the wait list if
-                    // the last-polled value is less that the value it is
-                    // waiting for still. this is necessary otherwise
-                    // device.wait_semaphores will immediate return since this
-                    // value is already signalled
-
-                    if *current_values.get(index) < value {
-                        let wait_value = wait_list.get(index).1;
-                        if wait_value == u64::MAX {
-                            wait_list.get_mut(index).1 = value;
-                        } else {
-                            // take the min so device.wait_semaphores wakes as soon
-                            // as possible
-                            wait_list.get_mut(index).1 = wait_value.min(value);
-                        }
-                    }
-                }
-            }
-
-            // filter out any lanes that were not pending for all pending pools
-            let wait_list = wait_list.retain_into(|(_, value)| *value < u64::MAX);
-
-            // INVARIANT: in order for wait_list to be empty, all lanes for all
-            // pools must be unset, but that would've caused an early return in
-            // the pool poll loop, therefore it's not possible at this point
-            assert!(
-                !wait_list.is_empty(),
-                "wait list is empty but pending pools exist"
-            );
-
-            let (wait_semaphores, wait_values): (
-                SmallVec<[vk::Semaphore; MAX_STATIC_LANES]>,
-                SmallVec<[u64; MAX_STATIC_LANES]>,
-            ) = wait_list.into_iter().unzip();
-
-            let info = vk::SemaphoreWaitInfo::builder()
-                .flags(vk::SemaphoreWaitFlags::ANY)
-                .semaphores(&wait_semaphores)
-                .values(&wait_values);
-
-            // TODO: timeout
-
-            // wait for any semaphore to signal
-            unsafe { device.raw().wait_semaphores(&info, u64::MAX) }?;
-
-            // loop and repeat, but with fresh semaphore timeline values for
-            // each lane, and therefore the lanes that caused a wait this
-            // iteration will not cause a wait next iteration
-        }
+        Ok(None)
     }
 
     pub fn release(&mut self, pool: CommandPool) -> Result<()> {
-        if self.id != pool.allocator_id() {
-            return Err(anyhow!("allocator id mismatch"));
+        if pool.retire().handle().allocator_id != self.id {
+            return Err(anyhow!("command allocator mismatch"));
         }
-        self.acquired = self.acquired.checked_sub(1).context("acquired underflow")?;
-        self.waiting.push(pool);
 
-        debug_assert!(self.len() <= self.capacity);
+        let id = pool.retire().handle();
+        let slot = self
+            .pools
+            .get_mut(id.index)
+            .context("command pool not found")?;
+
+        if slot.is_some() {
+            return Err(anyhow!("inconsistent command allocator state"));
+        }
+
+        let (token, state) = pool.split()?;
+
+        *slot = Some(state);
+        self.retirement.retire(token)?;
 
         Ok(())
+    }
+}
+
+impl Drop for CommandAllocator {
+    fn drop(&mut self) {
+        for (_, slot) in self.pools.drain() {
+            debug_assert!(slot.is_none(), "unreleased command pools");
+        }
     }
 }
