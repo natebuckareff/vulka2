@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::gpu_v2::{Device, FrameToken, LaneKey, QueueGroupVec};
+use crate::gpu::{Device, FrameToken, LaneKey, QueueGroupVec};
 
 struct RetireState<T: Copy> {
     // TODO: implicit max 64 total lanes; update Device/QueueGroupTable to

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{LaneVec, QueueGroupId, QueueId, QueueRoleFlags, VulkanHandle};
+use crate::gpu::{LaneVec, QueueGroupId, QueueId, QueueRoleFlags, VulkanHandle};
 
 // TODO: move, to lane_key.rs and harden safety
 

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 
-use crate::gpu_v2::{FrameToken, SettledLanes, SubmissionProgress};
+use crate::gpu::{FrameToken, SettledLanes, SubmissionProgress};
 
 pub struct FrameAllocator {
     settled: Arc<SettledLanes>,

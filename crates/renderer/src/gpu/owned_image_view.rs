@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use vulkanalia::vk;
 
-use crate::gpu_v2::{VulkanHandle, VulkanResource};
+use crate::gpu::{VulkanHandle, VulkanResource};
 
 pub struct OwnedImageView {
     device: VulkanHandle<Arc<vulkanalia::Device>>,

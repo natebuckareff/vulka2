@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use generational_arena::{Arena, Index};
 
-use crate::gpu_v2::{
+use crate::gpu::{
     CommandPool, CommandPoolState, Device, QueueGroupId, QueueGroupInfo, QueueGroupTable,
     RetireQueue, RetireToken,
 };

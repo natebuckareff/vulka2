@@ -2,7 +2,7 @@ use std::cell::OnceCell;
 
 use anyhow::{Result, anyhow};
 
-use crate::gpu_v2::{CommandBuffer, CommandBufferHandle, FrameToken, LaneVec};
+use crate::gpu::{CommandBuffer, CommandBufferHandle, FrameToken, LaneVec};
 
 pub struct CommandBatch {
     frame: Option<FrameToken>,

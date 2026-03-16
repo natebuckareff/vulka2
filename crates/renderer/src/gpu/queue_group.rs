@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use bitflags::bitflags;
 use vulkanalia::vk;
 
-use crate::gpu_v2::{
+use crate::gpu::{
     Device, DeviceBuilder, DeviceId, FrameRef, LaneVec, LaneVecBuilder, Queue, Submission,
     VulkanHandle,
 };

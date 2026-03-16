@@ -11,7 +11,7 @@ use vulkanalia::vk::KhrSurfaceExtensionInstanceCommands;
 use vulkanalia::window::get_required_instance_extensions;
 use winit::window::Window;
 
-use crate::gpu_v2::{
+use crate::gpu::{
     DeviceBuilder, OwnedInstance, OwnedSurface, QueueFamily, QueueFamilyId, QueueRoleFlags,
     ResourceArena, ValidationLayers, VulkanHandle,
 };

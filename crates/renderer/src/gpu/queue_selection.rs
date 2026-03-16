@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result, anyhow};
 
-use crate::gpu_v2::{QueueFamily, QueueFamilyId, QueueRoleFlags};
+use crate::gpu::{QueueFamily, QueueFamilyId, QueueRoleFlags};
 
 pub fn get_available_families(
     families: &BTreeMap<QueueFamilyId, QueueFamily>,
@@ -118,7 +118,7 @@ mod tests {
     use super::*;
     use std::collections::{BTreeMap, HashMap};
 
-    use crate::gpu_v2::{QueueFamily, QueueFamilyId, QueueRoleFlags};
+    use crate::gpu::{QueueFamily, QueueFamilyId, QueueRoleFlags};
 
     fn allocate_group(
         families: &mut Vec<QueueFamily>,

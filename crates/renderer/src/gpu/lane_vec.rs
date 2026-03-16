@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::gpu_v2::{LaneKey, QueueGroupId};
+use crate::gpu::{LaneKey, QueueGroupId};
 
 pub const MAX_STATIC_LANES: usize = 4;
 

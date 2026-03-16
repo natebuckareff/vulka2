@@ -3,9 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use winit::{dpi::PhysicalSize, window::Window};
 
-use crate::gpu_v2::{
-    Device, DeviceProfile, Engine, EngineParams, QueueRoleFlags, ValidationFeatures,
-};
+use crate::gpu::{Device, DeviceProfile, Engine, EngineParams, QueueRoleFlags, ValidationFeatures};
 use crate::renderer::Renderer;
 
 pub struct TestRendererV2 {

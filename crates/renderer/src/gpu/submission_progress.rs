@@ -7,7 +7,7 @@ use std::sync::{Arc, Weak, atomic::AtomicU64};
 use anyhow::{Context, Result};
 use vulkanalia::vk::{self, DeviceV1_2, HasBuilder};
 
-use crate::gpu_v2::{DeviceId, LaneKey, QueueGroupTable, QueueGroupVec, VulkanHandle};
+use crate::gpu::{DeviceId, LaneKey, QueueGroupTable, QueueGroupVec, VulkanHandle};
 
 type FrameNumber = u64;
 type TimelineValue = u64;

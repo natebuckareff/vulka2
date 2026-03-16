@@ -92,3 +92,72 @@ enum ResourceBinding {
     Sampler(/* TODO */),
     CombinedImageSampler(/* TODO */),
 }
+
+/*
+TODO delete
+
+struct DescriptorSetWriter {
+    is_finalized: bool,
+    fake_state: i32,
+}
+
+impl ShaderObject for DescriptorSetWriter {
+    fn is_finalized(&self) -> bool {
+        self.is_finalized
+    }
+}
+
+impl ByteWritable for DescriptorSetWriter {
+    fn write_pod<P: Pod>(&mut self, layout: &LayoutCursor, pod: &P) -> Result<()> {
+        todo!()
+    }
+
+    fn write_bytes(&mut self, layout: &LayoutCursor, bytes: &[u8]) -> Result<()> {
+        self.fake_state += 1;
+        Ok(())
+    }
+}
+
+impl ResourceBindable for DescriptorSetWriter {
+    fn bind(&mut self, layout: &LayoutCursor, resource: &ResourceBinding) -> Result<()> {
+        self.fake_state += 1;
+        Ok(())
+    }
+}
+
+struct MockDescriptorSet {
+    layout: LayoutCursor,
+    writer: Rc<RefCell<DescriptorSetWriter>>,
+}
+
+impl MockDescriptorSet {
+    fn cursor(&mut self) -> ShaderCursor<DescriptorSetWriter> {
+        ShaderCursor::new(self.layout.clone(), self.writer.clone())
+    }
+
+    fn finish(self) -> MockDescriptorSetToken {
+        let writer = self.writer;
+        writer.borrow_mut().is_finalized = true;
+        MockDescriptorSetToken { writer }
+    }
+}
+
+struct MockDescriptorSetToken {
+    writer: Rc<RefCell<DescriptorSetWriter>>, // TODO
+}
+
+fn test(mut set: MockDescriptorSet, texture: (), params: ()) -> Result<()> {
+    let mut cursor_x = set.cursor().field("x")?;
+    let mut cursor_y = set.cursor().field("y")?;
+
+    for _ in 0..10 {
+        cursor_x.write_pod(&())?;
+        cursor_y.write_pod(&())?;
+    }
+
+    set.finish();
+
+    todo!()
+    //
+}
+*/

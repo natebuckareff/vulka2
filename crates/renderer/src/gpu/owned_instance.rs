@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use vulkanalia::vk;
 
-use crate::gpu_v2::VulkanResource;
+use crate::gpu::VulkanResource;
 
 pub struct OwnedInstance {
     instance: Arc<vulkanalia::Instance>,

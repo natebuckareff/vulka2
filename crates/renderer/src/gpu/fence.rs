@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use vulkanalia::vk;
 
-use crate::gpu_v2::{OwnedFence, ResourceArena, VulkanHandle};
+use crate::gpu::{OwnedFence, ResourceArena, VulkanHandle};
 
 #[derive(Clone)]
 pub struct Fence {

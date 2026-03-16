@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::gpu_v2::{LaneKey, QueueGroupTable};
+use crate::gpu::{LaneKey, QueueGroupTable};
 
 pub struct QueueGroupVec<T> {
     vec: Vec<(LaneKey, T)>,

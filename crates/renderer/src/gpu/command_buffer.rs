@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use anyhow::Result;
 
-use crate::gpu_v2::{
+use crate::gpu::{
     CommandBufferHandle, CommandPoolId, FrameToken, LaneKey, LaneVec, QueueGroupId, RetireToken,
 };
 

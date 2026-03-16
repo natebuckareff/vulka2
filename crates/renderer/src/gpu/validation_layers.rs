@@ -3,7 +3,7 @@ use std::{cell::OnceCell, collections::HashSet};
 use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu_v2::ValidationFeatures;
+use crate::gpu::ValidationFeatures;
 
 const VALIDATION_LAYER: vk::ExtensionName =
     vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");

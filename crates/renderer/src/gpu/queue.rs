@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{
+use crate::gpu::{
     CommandBufferHandle, FrameToken, LaneKey, QueueId, QueueRoleFlags, SettledLanes, VulkanHandle,
 };
 

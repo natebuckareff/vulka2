@@ -3,7 +3,7 @@ use std::{rc::Rc, sync::Arc};
 use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{
+use crate::gpu::{
     BufferLane, CommandBuffer, CommandPoolId, Device, FrameToken, LaneVec, LaneVecBuilder,
     OwnedCommandPool, QueueBinding, QueueFamilyId, QueueGroupInfo, RetireToken, VulkanResource,
 };

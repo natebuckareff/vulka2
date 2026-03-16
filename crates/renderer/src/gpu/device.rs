@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu_v2::{
+use crate::gpu::{
     CommandAllocator, DeviceId, DeviceInfo, Engine, FrameAllocator, LaneKey, LaneVec,
     LaneVecBuilder, OwnedDevice, OwnedSemaphore, Queue, QueueAllocation, QueueBinding, QueueFamily,
     QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId, QueueGroupInfo, QueueGroupTable,

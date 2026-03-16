@@ -4,7 +4,7 @@ use anyhow::Result;
 use vulkanalia::vk;
 use winit::window::Window;
 
-use crate::gpu_v2::{VulkanHandle, VulkanResource};
+use crate::gpu::{VulkanHandle, VulkanResource};
 
 pub struct OwnedSurface {
     instance: VulkanHandle<Arc<vulkanalia::Instance>>,
