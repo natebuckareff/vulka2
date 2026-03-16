@@ -1419,6 +1419,7 @@ dependencies = [
  "image",
  "slang",
  "slang_struct",
+ "smallbitvec",
  "smallvec",
  "vulkanalia",
  "vulkanalia-vma",
@@ -1604,6 +1605,12 @@ dependencies = [
  "regex",
  "syn",
 ]
+
+[[package]]
+name = "smallbitvec"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d31d263dd118560e1a492922182ab6ca6dc1d03a3bf54e7699993f31a4150e3f"
 
 [[package]]
 name = "smallvec"
