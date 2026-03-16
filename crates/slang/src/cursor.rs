@@ -1,48 +1,43 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use compact_str::CompactString;
 use std::sync::Arc;
 
-use crate::{
-    DescriptorSet, ElementCount, ShaderLayout, SlangShaderStage, Type, VarLayout,
-};
+use crate::{DescriptorSet, ElementCount, ShaderLayout, SlangShaderStage, Type, VarLayout};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub struct NodeId(pub usize);
+struct NodeId(usize);
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct ShaderOffset {
-    pub bytes: usize,
-    pub set: usize,
-    pub binding_range: i64,
-    pub array_index: usize,
-    pub varying_input: usize,
+struct ShaderOffset {
+    set: usize,
+    binding_range: i64,
+    array_index: usize,
+    varying_input: usize,
+    bytes: usize,
 }
 
 #[derive(Debug)]
-pub struct Root {
-    pub node: NodeId,
-    pub base: ShaderOffset,
+struct SubTree {
+    node: NodeId,
+    base: ShaderOffset,
 }
 
 #[derive(Debug)]
-pub struct EntrypointRoot {
-    pub name: CompactString,
-    pub stage: SlangShaderStage,
-    pub root: Root,
+struct EntrypointRoot {
+    name: CompactString,
+    stage: SlangShaderStage,
+    subtree: SubTree,
 }
 
 #[derive(Debug)]
-pub struct FieldEdge {
-    pub name: CompactString,
-    pub offset_bytes: usize,
-    pub offset_set: usize,
-    pub offset_binding_range: i64,
-    pub offset_varying_input: usize,
-    pub child: NodeId,
+struct FieldEdge {
+    name: CompactString,
+    offset: ShaderOffset,
+    child: NodeId,
 }
 
 #[derive(Debug)]
-pub enum NodeKind {
+enum Node {
     Struct {
         fields: Vec<FieldEdge>,
     },
@@ -68,50 +63,47 @@ pub enum NodeKind {
 }
 
 #[derive(Debug)]
-pub struct Node {
-    pub kind: NodeKind,
+pub struct ShaderTree {
+    nodes: Vec<Node>,
+    global: Option<SubTree>,
+    entrypoints: Vec<EntrypointRoot>,
 }
 
-#[derive(Debug)]
-pub struct CursorLayout {
-    pub nodes: Vec<Node>,
-    pub global: Option<Root>,
-    pub entrypoints: Vec<EntrypointRoot>,
-}
-
-impl CursorLayout {
-    pub fn build(layout: ShaderLayout) -> Result<CursorLayout> {
+impl ShaderTree {
+    pub fn new(layout: ShaderLayout) -> Result<ShaderTree> {
         LayoutIndexer::build(layout)
     }
 
-    pub fn global_view(self: &Arc<Self>) -> Option<CursorLayoutView> {
+    pub fn globals(self: &Arc<Self>) -> Result<LayoutCursor> {
         self.global
             .as_ref()
-            .map(|root| CursorLayoutView::from_root(Arc::clone(self), root))
+            .map(|root| LayoutCursor::from_subtree(Arc::clone(self), root))
+            .context("no globals found")
     }
 
-    pub fn entrypoint_view(
+    pub fn entrypoint(
         self: &Arc<Self>,
         stage: SlangShaderStage,
         name: &str,
-    ) -> Option<CursorLayoutView> {
+    ) -> Result<LayoutCursor> {
         self.entrypoints
             .iter()
             .find(|entrypoint| entrypoint.stage == stage && entrypoint.name == name)
-            .map(|entrypoint| CursorLayoutView::from_root(Arc::clone(self), &entrypoint.root))
+            .map(|entrypoint| LayoutCursor::from_subtree(Arc::clone(self), &entrypoint.subtree))
+            .context("entrypoint not found")
     }
 
-    pub fn node(&self, node: NodeId) -> Option<&Node> {
+    fn node(&self, node: NodeId) -> Option<&Node> {
         self.nodes.get(node.0)
     }
 }
 
-pub struct LayoutIndexer {
+struct LayoutIndexer {
     nodes: Vec<Node>,
 }
 
 impl LayoutIndexer {
-    fn build(layout: ShaderLayout) -> Result<CursorLayout> {
+    fn build(layout: ShaderLayout) -> Result<ShaderTree> {
         let mut b = Self { nodes: Vec::new() };
 
         let global = layout
@@ -125,20 +117,20 @@ impl LayoutIndexer {
                 entrypoints.push(EntrypointRoot {
                     name: ep.name,
                     stage: ep.stage,
-                    root: b.root_from_var(*params)?,
+                    subtree: b.root_from_var(*params)?,
                 });
             }
         }
 
-        Ok(CursorLayout {
+        Ok(ShaderTree {
             nodes: b.nodes,
             global,
             entrypoints,
         })
     }
 
-    fn root_from_var(&mut self, var: VarLayout) -> Result<Root> {
-        Ok(Root {
+    fn root_from_var(&mut self, var: VarLayout) -> Result<SubTree> {
+        Ok(SubTree {
             node: self.intern_type(var.value)?,
             base: ShaderOffset {
                 bytes: var.offset_bytes,
@@ -154,25 +146,28 @@ impl LayoutIndexer {
     }
 
     fn intern_type(&mut self, ty: crate::TypeLayout) -> Result<NodeId> {
-        let kind = match ty.ty {
+        let node = match ty.ty {
             Type::Struct(s) => {
                 let mut fields = Vec::with_capacity(s.fields.len());
                 for f in s.fields {
                     fields.push(FieldEdge {
                         name: f.name.unwrap_or_default(),
-                        offset_bytes: f.offset_bytes,
-                        offset_set: f.offset_set,
-                        offset_binding_range: f.offset_binding_range,
-                        offset_varying_input: f
-                            .varying
-                            .as_ref()
-                            .map_or(0, |varying| varying.offset_input),
+                        offset: ShaderOffset {
+                            set: f.offset_set,
+                            binding_range: f.offset_binding_range,
+                            array_index: 0, // XXX
+                            varying_input: f
+                                .varying
+                                .as_ref()
+                                .map_or(0, |varying| varying.offset_input),
+                            bytes: f.offset_bytes,
+                        },
                         child: self.intern_type(f.value)?,
                     });
                 }
-                NodeKind::Struct { fields }
+                Node::Struct { fields }
             }
-            Type::Array(a) => NodeKind::Array {
+            Type::Array(a) => Node::Array {
                 count: a.count.clone(),
                 stride_bytes: ty.stride.bytes,
                 stride_binding_range: ty.stride.binding_range,
@@ -184,95 +179,92 @@ impl LayoutIndexer {
                     .unwrap_or(0),
                 element: self.intern_type(*a.element)?,
             },
-            Type::ParameterBlock(pb) => NodeKind::ParameterBlock {
+            Type::ParameterBlock(pb) => Node::ParameterBlock {
                 descriptor_set: pb.descriptor_set,
                 element: self.intern_type(*pb.element)?,
             },
-            Type::ConstantBuffer(inner) => NodeKind::ConstantBuffer {
+            Type::ConstantBuffer(inner) => Node::ConstantBuffer {
                 element: self.intern_type(*inner)?,
             },
-            Type::Resource(r) => NodeKind::Resource {
-                element: r
-                    .element
-                    .map(|e| self.intern_type(*e))
-                    .transpose()?,
+            Type::Resource(r) => Node::Resource {
+                element: r.element.map(|e| self.intern_type(*e)).transpose()?,
             },
-            Type::SamplerState(_) | Type::SamplerComparisonState(_) => NodeKind::Sampler,
+            Type::SamplerState(_) | Type::SamplerComparisonState(_) => Node::Sampler,
             Type::Unknown(k, n) => return Err(anyhow!("unknown type: {k} {n}")),
-            _ => NodeKind::ScalarLike,
+            _ => Node::ScalarLike,
         };
 
         let id = NodeId(self.nodes.len());
-        self.nodes.push(Node { kind });
+        self.nodes.push(node);
         Ok(id)
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct CursorLayoutView {
-    pub layout: Arc<CursorLayout>,
-    pub node: NodeId,
-    pub base: ShaderOffset,
+pub struct LayoutCursor {
+    tree: Arc<ShaderTree>,
+    node: NodeId,
+    base: ShaderOffset,
 }
 
-impl CursorLayoutView {
-    fn from_root(layout: Arc<CursorLayout>, root: &Root) -> Self {
+impl LayoutCursor {
+    fn from_subtree(tree: Arc<ShaderTree>, subtree: &SubTree) -> Self {
         Self {
-            layout,
-            node: root.node,
-            base: root.base,
+            tree,
+            node: subtree.node,
+            base: subtree.base,
         }
     }
 
     fn apply_field(&self, edge: &FieldEdge) -> Self {
         Self {
-            layout: Arc::clone(&self.layout),
+            tree: Arc::clone(&self.tree),
             node: edge.child,
             base: ShaderOffset {
-                bytes: self.base.bytes + edge.offset_bytes,
-                set: self.base.set + edge.offset_set,
-                binding_range: self.base.binding_range + edge.offset_binding_range,
+                bytes: self.base.bytes + edge.offset.bytes,
+                set: self.base.set + edge.offset.set,
+                binding_range: self.base.binding_range + edge.offset.binding_range,
                 array_index: self.base.array_index,
-                varying_input: self.base.varying_input + edge.offset_varying_input,
+                varying_input: self.base.varying_input + edge.offset.varying_input,
             },
         }
     }
 
-    pub fn field(self, name: &str) -> Option<Self> {
-        let node = self.layout.node(self.node)?;
-        let NodeKind::Struct { fields } = &node.kind else {
-            return None;
+    pub fn field(&self, name: &str) -> Result<Self> {
+        let node = self.tree.node(self.node).context("node not found")?;
+        let Node::Struct { fields } = &node else {
+            return Err(anyhow!("not a struct layout"));
         };
-
-        let edge = fields.iter().find(|field| field.name == name)?;
-        Some(self.apply_field(edge))
+        let edge = fields
+            .iter()
+            .find(|field| field.name == name)
+            .context("field not found")?;
+        Ok(self.apply_field(edge))
     }
 
-    pub fn element(self, index: usize) -> Option<Self> {
-        let node = self.layout.node(self.node)?;
-        let NodeKind::Array {
+    pub fn element(&self, index: usize) -> Result<Self> {
+        let node = self.tree.node(self.node).context("node not found")?;
+        let Node::Array {
             count,
             stride_bytes,
             stride_binding_range,
             stride_varying_input,
             element,
-        } = &node.kind
+        } = &node
         else {
-            return None;
+            return Err(anyhow!("not an array layout"));
         };
-
         let array_index = match count {
             ElementCount::Bounded(count) => {
                 if index >= *count {
-                    return None;
+                    return Err(anyhow!("array layout index out-of-bounds"));
                 }
                 self.base.array_index * count + index
             }
             ElementCount::Runtime => self.base.array_index + index,
         };
-
-        Some(Self {
-            layout: Arc::clone(&self.layout),
+        Ok(Self {
+            tree: Arc::clone(&self.tree),
             node: *element,
             base: ShaderOffset {
                 bytes: self.base.bytes + (index * stride_bytes),

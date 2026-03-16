@@ -22,6 +22,7 @@ mod queue_group_vec;
 mod queue_selection;
 mod resource_arena;
 mod retire_queue;
+mod shader_object;
 mod submission_progress;
 mod swapchain;
 mod validation_layers;
@@ -35,6 +36,7 @@ pub use engine::*;
 pub use frame_allocator::*;
 pub use queue_group::*;
 pub use resource_arena::*;
+pub use shader_object::*;
 pub use swapchain::*;
 
 pub(crate) use fence::*;
