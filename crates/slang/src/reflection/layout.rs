@@ -127,7 +127,7 @@ pub struct ArrayType {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ResourceType {
     pub ty: CompactString,
-    pub binding: Option<ResourceBinding>,
+    pub binding: Option<BindingType>,
     #[serde(with = "serde_resource_shape")]
     pub shape: slang::ResourceShape,
     pub access: Option<ResourceAccess>,
@@ -136,7 +136,7 @@ pub struct ResourceType {
 
 // XXX
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ResourceBinding(#[serde(with = "serde_binding_type")] pub slang::BindingType);
+pub struct BindingType(#[serde(with = "serde_binding_type")] pub slang::BindingType);
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct ResourceShape(#[serde(with = "serde_resource_shape")] pub slang::ResourceShape);
