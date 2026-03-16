@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu_v2::{
-    Device, Fence, LaneIndex, OwnedImageView, OwnedSemaphore, OwnedSwapchain, QueueGroup,
+    Device, Fence, LaneKey, OwnedImageView, OwnedSemaphore, OwnedSwapchain, QueueGroup,
     QueueGroupId, QueueRoleFlags, ResourceArena, VulkanHandle,
 };
 
@@ -49,7 +49,7 @@ pub enum AcquireError {
 pub struct Swapchain {
     device: Arc<Device>,
     queue_group_id: QueueGroupId,
-    lane_index: LaneIndex,
+    lane_key: LaneKey,
     arena: ResourceArena,
     surface: VulkanHandle<vk::SurfaceKHR>,
     generation: u64,
@@ -66,10 +66,10 @@ impl Swapchain {
         extent: vk::Extent2D,
         frames_in_flight: usize,
     ) -> Result<Self> {
-        let mut lane_index = None;
+        let mut lane_key = None;
         for (index, queue) in queue_group.queues().iter_entries() {
             if queue.roles().contains(QueueRoleFlags::PRESENT) {
-                lane_index = Some(index);
+                lane_key = Some(index);
                 break;
             }
         }
@@ -79,7 +79,7 @@ impl Swapchain {
         if frames_in_flight == 0 {
             return Err(anyhow!("frames in flight must be at least 1"));
         }
-        let Some(lane_index) = lane_index else {
+        let Some(lane_key) = lane_key else {
             return Err(anyhow!("no presentable queue found"));
         };
         let Some(surface) = device.engine().surface() else {
@@ -92,7 +92,7 @@ impl Swapchain {
         Ok(Self {
             device,
             queue_group_id: queue_group.id(),
-            lane_index,
+            lane_key,
             arena,
             surface,
             generation: 0,
@@ -144,7 +144,7 @@ impl Swapchain {
             slot.in_flight.wait()?;
         }
 
-        let queue = queue_group.queues().get(self.lane_index);
+        let queue = queue_group.queues().get(self.lane_key);
         queue.wait_idle()?;
 
         let device = self.device.handle().clone();

@@ -8,10 +8,10 @@ use winit::event_loop::EventLoop;
 use crate::test_renderer_v2::TestRendererV2;
 
 mod app;
-mod gpu;
+// mod gpu;
 mod gpu_v2;
 mod renderer;
-mod test_renderer;
+// mod test_renderer;
 mod test_renderer_v2;
 
 fn main() -> Result<()> {

@@ -239,7 +239,7 @@ impl SubmissionProgress {
     }
 }
 
-struct CurrentFrame {
+pub struct CurrentFrame {
     pub token: FrameToken,
     pub frame: ActiveFrame,
 }
@@ -276,7 +276,7 @@ impl SettledLanes {
     }
 }
 
-struct ActiveFrame {
+pub struct ActiveFrame {
     // frame number; increments for each new frame
     pub number: FrameNumber,
 
