@@ -15,7 +15,7 @@ enum BuilderLocation {
 
 struct DescriptorMeta {
     shape: slang::ResourceShape,
-    access: Option<ResourceAccess>,
+    access: Option<SlangResourceAccess>,
 }
 
 pub struct LayoutBuilder {
@@ -279,11 +279,13 @@ impl LayoutBuilder {
                     .context("resource type name not found")?
                     .to_compact_string();
 
-                let shape = slang_type_layout
-                    .resource_shape()
-                    .context("resource shape not found")?;
+                let shape = SlangResourceShape(
+                    slang_type_layout
+                        .resource_shape()
+                        .context("resource shape not found")?,
+                );
 
-                let access = slang_type_layout.resource_access().map(ResourceAccess);
+                let access = slang_type_layout.resource_access().map(SlangResourceAccess);
 
                 // TODO: add context
                 // let (set, binding) = self.get_current_vulkan_binding(slang_type_layout);
@@ -377,8 +379,8 @@ impl LayoutBuilder {
     fn get_binding_ranges(
         &self,
         type_layout: &slang::reflection::TypeLayout,
-    ) -> Result<DescriptorSet> {
-        let mut set = DescriptorSet {
+    ) -> Result<DescriptorSetLayout> {
+        let mut set = DescriptorSetLayout {
             set: None,
             implicit_ubo: None,
             binding_ranges: vec![],
@@ -403,10 +405,10 @@ impl LayoutBuilder {
                 assert_eq!(set.set, Some(vk_set));
             }
 
-            set.implicit_ubo = Some(DescriptorBinding {
+            set.implicit_ubo = Some(DescriptorBindingLayout {
                 binding: 0,
                 stages,
-                binding_type: slang::BindingType::ConstantBuffer,
+                binding_type: SlangBindingType(slang::BindingType::ConstantBuffer),
                 descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
                 shape: None,  // TODO: what to use here?
                 access: None, // TODO: ditto
@@ -452,15 +454,15 @@ impl LayoutBuilder {
 
                 let descriptor_meta = self.descriptors.get(&(vk_set, vk_binding));
 
-                let shape = descriptor_meta.map(|meta| ResourceShape(meta.shape));
+                let shape = descriptor_meta.map(|meta| SlangResourceShape(meta.shape));
                 let access = descriptor_meta.map(|meta| meta.access).flatten();
 
-                let binding_range = BindingRange {
+                let binding_range = BindingRangeLayout {
                     range_index: binding_range,
-                    descriptor: DescriptorBinding {
+                    descriptor: DescriptorBindingLayout {
                         binding: vk_binding,
                         stages,
-                        binding_type: binding_type,
+                        binding_type: SlangBindingType(binding_type),
                         descriptor_type: vk_binding_type,
                         shape,
                         access,
@@ -475,9 +477,9 @@ impl LayoutBuilder {
         Ok(set)
     }
 
-    fn build_size(slang_type_layout: &slang::reflection::TypeLayout) -> Option<LayoutUnit> {
+    fn build_size(slang_type_layout: &slang::reflection::TypeLayout) -> Option<LayoutSize> {
         let categories = slang_type_layout.categories();
-        let mut size = LayoutUnit {
+        let mut size = LayoutSize {
             push_constants: None,
             bytes: None,
             bindings: None,

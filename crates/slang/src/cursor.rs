@@ -2,18 +2,18 @@ use anyhow::{Context, Result, anyhow};
 use compact_str::CompactString;
 use std::sync::Arc;
 
-use crate::{DescriptorSet, ElementCount, ShaderLayout, SlangShaderStage, Type, VarLayout};
+use crate::{DescriptorSetLayout, ElementCount, ShaderLayout, SlangShaderStage, Type, VarLayout};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 struct NodeId(usize);
 
 #[derive(Clone, Copy, Debug, Default)]
-struct ShaderOffset {
-    set: usize,
-    binding_range: i64,
-    array_index: usize,
-    varying_input: usize,
-    bytes: usize,
+pub struct ShaderOffset {
+    pub set: usize,
+    pub binding_range: i64,
+    pub array_index: usize,
+    pub varying_input: usize,
+    pub bytes: usize,
 }
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ enum Node {
         element: NodeId,
     },
     ParameterBlock {
-        descriptor_set: DescriptorSet,
+        descriptor_set: DescriptorSetLayout,
         element: NodeId,
     },
     Resource {
@@ -70,8 +70,8 @@ pub struct ShaderTree {
 }
 
 impl ShaderTree {
-    pub fn new(layout: ShaderLayout) -> Result<ShaderTree> {
-        LayoutIndexer::build(layout)
+    pub fn new(layout: ShaderLayout) -> Result<Arc<ShaderTree>> {
+        Ok(Arc::new(LayoutIndexer::build(layout)?))
     }
 
     pub fn globals(self: &Arc<Self>) -> Result<LayoutCursor> {
@@ -155,7 +155,7 @@ impl LayoutIndexer {
                         offset: ShaderOffset {
                             set: f.offset_set,
                             binding_range: f.offset_binding_range,
-                            array_index: 0, // XXX
+                            array_index: 0,
                             varying_input: f
                                 .varying
                                 .as_ref()
@@ -200,6 +200,17 @@ impl LayoutIndexer {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LayoutKind {
+    Struct,
+    Array,
+    ParameterBlock,
+    Resource,
+    Sampler,
+    ConstantBuffer,
+    ScalarLike, // XXX
+}
+
 #[derive(Clone, Debug)]
 pub struct LayoutCursor {
     tree: Arc<ShaderTree>,
@@ -230,6 +241,49 @@ impl LayoutCursor {
         }
     }
 
+    pub fn kind(&self) -> LayoutKind {
+        match &self.tree.nodes[self.node.0] {
+            Node::Struct { .. } => LayoutKind::Struct,
+            Node::Array { .. } => LayoutKind::Array,
+            Node::ParameterBlock { .. } => LayoutKind::ParameterBlock,
+            Node::Resource { .. } => LayoutKind::Resource,
+            Node::Sampler => LayoutKind::Sampler,
+            Node::ConstantBuffer { .. } => LayoutKind::ConstantBuffer,
+            Node::ScalarLike => LayoutKind::ScalarLike,
+        }
+    }
+
+    pub fn offset(&self) -> ShaderOffset {
+        self.base
+    }
+
+    pub fn element_layout(&self) -> Result<LayoutCursor> {
+        let element = match &self.tree.nodes[self.node.0] {
+            Node::Struct { .. } => None,
+            Node::Array { element, .. } => Some(*element),
+            Node::ParameterBlock { element, .. } => Some(*element),
+            Node::Resource { element, .. } => *element,
+            Node::Sampler => None,
+            Node::ConstantBuffer { element } => Some(*element),
+            Node::ScalarLike => None,
+        };
+        let Some(element) = element else {
+            return Err(anyhow!("node does not have an element layout"));
+        };
+        Ok(Self {
+            tree: self.tree.clone(),
+            node: element,
+            base: self.base,
+        })
+    }
+
+    pub fn descriptor_set_layout(&self) -> Result<&DescriptorSetLayout> {
+        match &self.tree.nodes[self.node.0] {
+            Node::ParameterBlock { descriptor_set, .. } => Ok(descriptor_set),
+            _ => Err(anyhow!("node is not a parameter block")),
+        }
+    }
+
     pub fn field(&self, name: &str) -> Result<Self> {
         let node = self.tree.node(self.node).context("node not found")?;
         let Node::Struct { fields } = &node else {
@@ -242,7 +296,7 @@ impl LayoutCursor {
         Ok(self.apply_field(edge))
     }
 
-    pub fn element(&self, index: usize) -> Result<Self> {
+    pub fn index(&self, index: usize) -> Result<Self> {
         let node = self.tree.node(self.node).context("node not found")?;
         let Node::Array {
             count,

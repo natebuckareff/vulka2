@@ -12,7 +12,7 @@ use crate::reflection::serde_vk::serde_descriptor_type;
 use crate::reflection::serde_vk::serde_shader_stage_flags;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
-pub struct LayoutUnit {
+pub struct LayoutSize {
     pub push_constants: Option<usize>,
     pub bytes: Option<usize>,
     pub bindings: Option<usize>,
@@ -58,7 +58,7 @@ pub struct VaryingLayout {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TypeLayout {
-    pub size: Option<LayoutUnit>,
+    pub size: Option<LayoutSize>,
     pub alignment: i32,
     pub stride: Stride,
     pub ty: Type,
@@ -127,23 +127,22 @@ pub struct ArrayType {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ResourceType {
     pub ty: CompactString,
-    pub binding: Option<BindingType>,
-    #[serde(with = "serde_resource_shape")]
-    pub shape: slang::ResourceShape,
-    pub access: Option<ResourceAccess>,
+    pub binding: Option<SlangBindingType>,
+    pub shape: SlangResourceShape,
+    pub access: Option<SlangResourceAccess>,
     pub element: Option<Box<TypeLayout>>,
 }
 
 // XXX
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct BindingType(#[serde(with = "serde_binding_type")] pub slang::BindingType);
+pub struct SlangBindingType(#[serde(with = "serde_binding_type")] pub slang::BindingType);
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct ResourceShape(#[serde(with = "serde_resource_shape")] pub slang::ResourceShape);
+pub struct SlangResourceShape(#[serde(with = "serde_resource_shape")] pub slang::ResourceShape);
 
 // XXX
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct ResourceAccess(#[serde(with = "serde_resource_access")] pub slang::ResourceAccess);
+pub struct SlangResourceAccess(#[serde(with = "serde_resource_access")] pub slang::ResourceAccess);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SamplerStateType {
@@ -155,23 +154,21 @@ pub struct SamplerComparisonStateType {
     // TODO
 }
 
-// ~
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ParameterBlockType {
-    pub descriptor_set: DescriptorSet,
+    pub descriptor_set: DescriptorSetLayout,
     pub element: Box<TypeLayout>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct DescriptorSet {
+pub struct DescriptorSetLayout {
     pub set: Option<i64>,
-    pub implicit_ubo: Option<DescriptorBinding>,
-    pub binding_ranges: Vec<BindingRange>,
+    pub implicit_ubo: Option<DescriptorBindingLayout>,
+    pub binding_ranges: Vec<BindingRangeLayout>,
 }
 
-impl DescriptorSet {
-    pub fn find_binding_range(&self, range_index: i64) -> Option<&BindingRange> {
+impl DescriptorSetLayout {
+    pub fn find_binding_range(&self, range_index: i64) -> Option<&BindingRangeLayout> {
         self.binding_ranges
             .iter()
             .find(|br| br.range_index == range_index)
@@ -179,21 +176,20 @@ impl DescriptorSet {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct BindingRange {
+pub struct BindingRangeLayout {
     pub range_index: i64,
-    pub descriptor: DescriptorBinding,
+    pub descriptor: DescriptorBindingLayout,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct DescriptorBinding {
+pub struct DescriptorBindingLayout {
     pub binding: i64,
     #[serde(with = "serde_shader_stage_flags")]
     pub stages: vk::ShaderStageFlags,
-    #[serde(with = "serde_binding_type")]
-    pub binding_type: slang::BindingType,
+    pub binding_type: SlangBindingType,
     #[serde(with = "serde_descriptor_type")]
     pub descriptor_type: vk::DescriptorType,
-    pub shape: Option<ResourceShape>,
-    pub access: Option<ResourceAccess>,
+    pub shape: Option<SlangResourceShape>,
+    pub access: Option<SlangResourceAccess>,
     pub count: ElementCount,
 }
