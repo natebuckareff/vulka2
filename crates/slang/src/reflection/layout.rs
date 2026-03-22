@@ -19,7 +19,7 @@ pub struct LayoutSize {
     pub varying_input: Option<usize>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub enum ElementCount {
     Bounded(usize),
     Runtime,
@@ -134,14 +134,14 @@ pub struct ResourceType {
 }
 
 // XXX
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct SlangBindingType(#[serde(with = "serde_binding_type")] pub slang::BindingType);
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct SlangResourceShape(#[serde(with = "serde_resource_shape")] pub slang::ResourceShape);
 
 // XXX
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct SlangResourceAccess(#[serde(with = "serde_resource_access")] pub slang::ResourceAccess);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -156,18 +156,18 @@ pub struct SamplerComparisonStateType {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ParameterBlockType {
-    pub descriptor_set: DescriptorSetLayout,
+    pub layout: ParameterBlockLayout,
     pub element: Box<TypeLayout>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct DescriptorSetLayout {
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub struct ParameterBlockLayout {
     pub set: Option<i64>,
     pub implicit_ubo: Option<DescriptorBindingLayout>,
     pub binding_ranges: Vec<BindingRangeLayout>,
 }
 
-impl DescriptorSetLayout {
+impl ParameterBlockLayout {
     pub fn find_binding_range(&self, range_index: i64) -> Option<&BindingRangeLayout> {
         self.binding_ranges
             .iter()
@@ -175,13 +175,13 @@ impl DescriptorSetLayout {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct BindingRangeLayout {
     pub range_index: i64,
     pub descriptor: DescriptorBindingLayout,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct DescriptorBindingLayout {
     pub binding: i64,
     #[serde(with = "serde_shader_stage_flags")]

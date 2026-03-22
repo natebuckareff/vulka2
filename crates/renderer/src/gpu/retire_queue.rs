@@ -66,6 +66,11 @@ pub struct RetireQueue<T: Copy + Eq + Hash> {
 
 impl<T: Copy + Eq + Hash> RetireQueue<T> {
     pub fn new(device: Arc<Device>) -> Result<Self> {
+        // TODO NOTE: there are a lot of cleanup notes related to
+        // QueueGroupTable, and I think one of the big things to refactor around
+        // is: instead of cloning QueueGroupTable, pass around Arc<Device>
+        // instead and always access it through that. That seems like a much
+        // cleaner pattern
         let queue_groups = device.queue_group_table();
         let retired = QueueGroupVec::new(queue_groups, Default::default);
         Ok(Self {

@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use compact_str::CompactString;
 use std::sync::Arc;
 
-use crate::{DescriptorSetLayout, ElementCount, ShaderLayout, SlangShaderStage, Type, VarLayout};
+use crate::{ElementCount, ParameterBlockLayout, ShaderLayout, SlangShaderStage, Type, VarLayout};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 struct NodeId(usize);
@@ -49,7 +49,7 @@ enum Node {
         element: NodeId,
     },
     ParameterBlock {
-        descriptor_set: DescriptorSetLayout,
+        layout: ParameterBlockLayout,
         element: NodeId,
     },
     Resource {
@@ -180,7 +180,7 @@ impl LayoutIndexer {
                 element: self.intern_type(*a.element)?,
             },
             Type::ParameterBlock(pb) => Node::ParameterBlock {
-                descriptor_set: pb.descriptor_set,
+                layout: pb.layout,
                 element: self.intern_type(*pb.element)?,
             },
             Type::ConstantBuffer(inner) => Node::ConstantBuffer {
@@ -277,9 +277,9 @@ impl LayoutCursor {
         })
     }
 
-    pub fn descriptor_set_layout(&self) -> Result<&DescriptorSetLayout> {
+    pub fn parameter_block_layout(&self) -> Result<&ParameterBlockLayout> {
         match &self.tree.nodes[self.node.0] {
-            Node::ParameterBlock { descriptor_set, .. } => Ok(descriptor_set),
+            Node::ParameterBlock { layout, .. } => Ok(layout),
             _ => Err(anyhow!("node is not a parameter block")),
         }
     }

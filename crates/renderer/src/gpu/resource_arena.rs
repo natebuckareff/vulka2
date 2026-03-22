@@ -1,3 +1,6 @@
+// TODO: this is not really being used in a coherent way currently; need to
+// re-evaluate this
+
 use std::any::Any;
 use std::cell::{RefCell, UnsafeCell};
 use std::sync::Arc;

@@ -335,13 +335,13 @@ impl LayoutBuilder {
                     return Err(anyhow::anyhow!("element not found"));
                 };
 
-                let descriptor_set = self.get_binding_ranges(slang_element_type)?;
+                let layout = self.get_binding_ranges(slang_element_type)?;
 
                 self.base_bytes = old_base_bytes;
                 self.base_binding_range = old_base_binding_range;
 
                 let parameter_block_type = ParameterBlockType {
-                    descriptor_set,
+                    layout,
                     element: Box::new(element),
                 };
                 Type::ParameterBlock(parameter_block_type)
@@ -379,8 +379,8 @@ impl LayoutBuilder {
     fn get_binding_ranges(
         &self,
         type_layout: &slang::reflection::TypeLayout,
-    ) -> Result<DescriptorSetLayout> {
-        let mut set = DescriptorSetLayout {
+    ) -> Result<ParameterBlockLayout> {
+        let mut set = ParameterBlockLayout {
             set: None,
             implicit_ubo: None,
             binding_ranges: vec![],

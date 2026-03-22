@@ -138,6 +138,8 @@ pub struct Device {
     device: VulkanHandle<Arc<vulkanalia::Device>>,
     queues: HashMap<QueueId, vk::Queue>,
     queue_groups: Mutex<HashMap<QueueGroupId, QueueGroup>>,
+    // TODO: if we always access this through a Arc<Device> anyway, then does it
+    // really need an internal Arc?
     queue_group_table: QueueGroupTable,
     next_child_id: AtomicUsize,
     settled: Arc<SettledLanes>,
