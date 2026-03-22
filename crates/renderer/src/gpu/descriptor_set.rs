@@ -4,8 +4,8 @@ use anyhow::Result;
 use vulkanalia::vk;
 
 use crate::gpu::{
-    DescriptorPool, DescriptorPoolId, DescriptorSetLayout, Device, OwnedDescriptorPool,
-    OwnedDescriptorSetLayout, RetireToken, VulkanResource,
+    BufferRef, DescriptorPool, DescriptorPoolId, DescriptorSetLayout, Device, OwnedDescriptorPool,
+    OwnedDescriptorSetLayout, ParameterBlock, RetireToken, VulkanResource,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,7 +67,11 @@ impl DescriptorSet {
         })
     }
 
-    fn finish(self) -> FinishedDescriptorSet {
+    pub fn parameter_block(self, ubo: Option<BufferRef>) -> ParameterBlock {
+        ParameterBlock::new(self, ubo)
+    }
+
+    pub fn finish(self) -> FinishedDescriptorSet {
         FinishedDescriptorSet::new(self)
     }
 }

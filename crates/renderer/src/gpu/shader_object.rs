@@ -1,32 +1,39 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, marker::PhantomData, rc::Rc};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use bytemuck::Pod;
 use slang::LayoutCursor;
 
-pub struct ShaderCursor<T> {
+pub struct ShaderCursor<'a, T> {
     layout: LayoutCursor,
     object: Rc<RefCell<T>>,
+    marker: PhantomData<&'a T>,
 }
 
-impl<T> Clone for ShaderCursor<T> {
+impl<'a, T> Clone for ShaderCursor<'a, T> {
     fn clone(&self) -> Self {
         Self {
             layout: self.layout.clone(),
             object: self.object.clone(),
+            marker: PhantomData,
         }
     }
 }
 
-impl<T> ShaderCursor<T> {
+impl<'a, T> ShaderCursor<'a, T> {
     pub fn new(layout: LayoutCursor, object: Rc<RefCell<T>>) -> Self {
-        Self { layout, object }
+        Self {
+            layout,
+            object,
+            marker: PhantomData,
+        }
     }
 
     pub fn field(&self, name: &str) -> Result<Self> {
         self.layout.field(name).map(|layout| Self {
             layout,
             object: self.object.clone(),
+            marker: PhantomData,
         })
     }
 
@@ -34,40 +41,25 @@ impl<T> ShaderCursor<T> {
         self.layout.index(index).map(|layout| Self {
             layout,
             object: self.object.clone(),
+            marker: PhantomData,
         })
     }
 }
 
-impl<T: ShaderObject + ByteWritable> ShaderCursor<T> {
+impl<'a, T: ByteWritable> ShaderCursor<'a, T> {
     pub fn write_pod<P: Pod>(&self, pod: &P) -> Result<()> {
-        let mut object = self.object.borrow_mut();
-        if object.is_finished() {
-            return Err(anyhow!("cannot write to finalized object"));
-        }
-        object.write_pod(&self.layout, pod)
+        self.object.borrow_mut().write_pod(&self.layout, pod)
     }
 
     pub fn write_bytes(&self, bytes: &[u8]) -> Result<()> {
-        let mut object = self.object.borrow_mut();
-        if object.is_finished() {
-            return Err(anyhow!("cannot write to finalized object"));
-        }
-        object.write_bytes(&self.layout, bytes)
+        self.object.borrow_mut().write_bytes(&self.layout, bytes)
     }
 }
 
-impl<T: ShaderObject + ResourceBindable> ShaderCursor<T> {
+impl<'a, T: ResourceBindable> ShaderCursor<'a, T> {
     pub fn bind(&self, resource: &ResourceBinding) -> Result<()> {
-        let mut object = self.object.borrow_mut();
-        if object.is_finished() {
-            return Err(anyhow!("cannot write to finalized object"));
-        }
-        object.bind(&self.layout, resource)
+        self.object.borrow_mut().bind(&self.layout, resource)
     }
-}
-
-pub trait ShaderObject {
-    fn is_finished(&self) -> bool;
 }
 
 pub trait ByteWritable {
