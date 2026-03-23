@@ -1,3 +1,6 @@
+mod buffer;
+mod buffer_span;
+mod bump_allocator;
 mod command_allocator;
 mod command_batch;
 mod command_buffer;
@@ -9,6 +12,7 @@ mod device;
 mod engine;
 mod fence;
 mod frame_allocator;
+mod gpu_allocator;
 mod lane_vec;
 mod owned_command_pool;
 mod owned_descriptor_pool;
@@ -33,6 +37,8 @@ mod submission_progress;
 mod swapchain;
 mod validation_layers;
 
+pub use buffer_span::*;
+pub use bump_allocator::*;
 pub use command_allocator::*;
 pub use command_batch::*;
 pub use command_buffer::*;
@@ -43,12 +49,14 @@ pub use descriptor_set_layout::*;
 pub use device::*;
 pub use engine::*;
 pub use frame_allocator::*;
+pub use gpu_allocator::*;
 pub use parameter_block::*;
 pub use queue_group::*;
 pub use resource_arena::*;
 pub use shader_object::*;
 pub use swapchain::*;
 
+pub(crate) use buffer::*;
 pub(crate) use fence::*;
 pub(crate) use lane_vec::*;
 pub(crate) use owned_command_pool::*;
