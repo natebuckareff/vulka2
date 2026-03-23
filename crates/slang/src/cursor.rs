@@ -253,8 +253,8 @@ impl LayoutCursor {
         }
     }
 
-    pub fn offset(&self) -> ShaderOffset {
-        self.base
+    pub fn offset(&self) -> &ShaderOffset {
+        &self.base
     }
 
     pub fn element_layout(&self) -> Result<LayoutCursor> {

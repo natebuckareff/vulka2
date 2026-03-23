@@ -1,13 +1,12 @@
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
-use shader_slang as slang;
 use vulkanalia::vk;
 
 use crate::BindlessLayout;
+use crate::SlangBindingType;
+use crate::SlangResourceAccess;
+use crate::SlangResourceShape;
 use crate::SlangShaderStage;
-use crate::reflection::serde_slang::serde_binding_type;
-use crate::reflection::serde_slang::serde_resource_access;
-use crate::reflection::serde_slang::serde_resource_shape;
 use crate::reflection::serde_vk::serde_descriptor_type;
 use crate::reflection::serde_vk::serde_shader_stage_flags;
 
@@ -132,17 +131,6 @@ pub struct ResourceType {
     pub access: Option<SlangResourceAccess>,
     pub element: Option<Box<TypeLayout>>,
 }
-
-// XXX
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
-pub struct SlangBindingType(#[serde(with = "serde_binding_type")] pub slang::BindingType);
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
-pub struct SlangResourceShape(#[serde(with = "serde_resource_shape")] pub slang::ResourceShape);
-
-// XXX
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
-pub struct SlangResourceAccess(#[serde(with = "serde_resource_access")] pub slang::ResourceAccess);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SamplerStateType {

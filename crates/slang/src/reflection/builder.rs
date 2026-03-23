@@ -5,7 +5,10 @@ use compact_str::ToCompactString;
 use shader_slang as slang;
 use vulkanalia::vk;
 
-use crate::{BindlessConfig, BindlessLayout, SlangShaderStage, reflection::layout::*};
+use crate::{
+    BindlessConfig, BindlessLayout, SlangResourceAccess, SlangResourceShape, SlangShaderStage,
+    reflection::layout::*,
+};
 
 #[derive(Debug)]
 enum BuilderLocation {
@@ -279,13 +282,14 @@ impl LayoutBuilder {
                     .context("resource type name not found")?
                     .to_compact_string();
 
-                let shape = SlangResourceShape(
-                    slang_type_layout
-                        .resource_shape()
-                        .context("resource shape not found")?,
-                );
+                let shape: SlangResourceShape = slang_type_layout
+                    .resource_shape()
+                    .context("resource shape not found")?
+                    .into();
 
-                let access = slang_type_layout.resource_access().map(SlangResourceAccess);
+                let access = slang_type_layout.resource_access().map(Into::into);
+
+                // TODO: finish wiring shape/access
 
                 // TODO: add context
                 // let (set, binding) = self.get_current_vulkan_binding(slang_type_layout);
@@ -408,7 +412,7 @@ impl LayoutBuilder {
             set.implicit_ubo = Some(DescriptorBindingLayout {
                 binding: 0,
                 stages,
-                binding_type: SlangBindingType(slang::BindingType::ConstantBuffer),
+                binding_type: slang::BindingType::ConstantBuffer.try_into()?,
                 descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
                 shape: None,  // TODO: what to use here?
                 access: None, // TODO: ditto
@@ -454,7 +458,7 @@ impl LayoutBuilder {
 
                 let descriptor_meta = self.descriptors.get(&(vk_set, vk_binding));
 
-                let shape = descriptor_meta.map(|meta| SlangResourceShape(meta.shape));
+                let shape = descriptor_meta.map(|meta| meta.shape.into());
                 let access = descriptor_meta.map(|meta| meta.access).flatten();
 
                 let binding_range = BindingRangeLayout {
@@ -462,7 +466,7 @@ impl LayoutBuilder {
                     descriptor: DescriptorBindingLayout {
                         binding: vk_binding,
                         stages,
-                        binding_type: SlangBindingType(binding_type),
+                        binding_type: binding_type.try_into()?,
                         descriptor_type: vk_binding_type,
                         shape,
                         access,

@@ -1,10 +1,8 @@
 use serde::{Deserialize, Serialize};
-use shader_slang as slang;
 use vulkanalia::vk;
 
-use crate::reflection::serde_slang::serde_binding_type;
 use crate::reflection::serde_vk::serde_descriptor_type;
-use crate::{BindlessPolicy, SlangResourceAccess};
+use crate::{BindlessPolicy, SlangBindingType, SlangResourceAccess};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BindlessLayout {
@@ -23,8 +21,7 @@ impl BindlessLayout {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct BindlessDescriptor {
-    #[serde(with = "serde_binding_type")]
-    pub slang: slang::BindingType,
+    pub slang: SlangBindingType,
     #[serde(with = "serde_descriptor_type")]
     pub vk: vk::DescriptorType,
     pub access: Option<SlangResourceAccess>,
@@ -33,51 +30,51 @@ pub struct BindlessDescriptor {
 
 pub const BINDLESS_MUTABLE_TABLE: &[BindlessDescriptor] = &[
     BindlessDescriptor {
-        slang: slang::BindingType::Sampler,
+        slang: SlangBindingType::Sampler,
         vk: vk::DescriptorType::SAMPLER,
         access: None,
         binding: 0,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::CombinedTextureSampler,
+        slang: SlangBindingType::CombinedTextureSampler,
         vk: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
         access: None,
         binding: 1,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::Texture,
+        slang: SlangBindingType::Texture,
         vk: vk::DescriptorType::SAMPLED_IMAGE,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::Read)),
+        access: Some(SlangResourceAccess::Read),
         binding: 2,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::MutableTeture,
+        slang: SlangBindingType::MutableTexture,
         vk: vk::DescriptorType::STORAGE_IMAGE,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::ReadWrite)),
+        access: Some(SlangResourceAccess::ReadWrite),
         binding: 2,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::TypedBuffer,
+        slang: SlangBindingType::TypedBuffer,
         vk: vk::DescriptorType::UNIFORM_TEXEL_BUFFER,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::Read)),
+        access: Some(SlangResourceAccess::Read),
         binding: 2,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::MutableTypedBuffer,
+        slang: SlangBindingType::MutableTypedBuffer,
         vk: vk::DescriptorType::STORAGE_TEXEL_BUFFER,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::ReadWrite)),
+        access: Some(SlangResourceAccess::ReadWrite),
         binding: 2,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::RawBuffer,
+        slang: SlangBindingType::RawBuffer,
         vk: vk::DescriptorType::UNIFORM_BUFFER,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::Read)),
+        access: Some(SlangResourceAccess::Read),
         binding: 2,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::MutableRawBuffer,
+        slang: SlangBindingType::MutableRawBuffer,
         vk: vk::DescriptorType::STORAGE_BUFFER,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::ReadWrite)),
+        access: Some(SlangResourceAccess::ReadWrite),
         binding: 2,
     },
     // NOTE: binding 3 is for "unknown" descriptor types
@@ -85,51 +82,51 @@ pub const BINDLESS_MUTABLE_TABLE: &[BindlessDescriptor] = &[
 
 pub const BINDLESS_INDEXABLE_TABLE: &[BindlessDescriptor] = &[
     BindlessDescriptor {
-        slang: slang::BindingType::Sampler,
+        slang: SlangBindingType::Sampler,
         vk: vk::DescriptorType::SAMPLER,
         access: None,
         binding: 0,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::CombinedTextureSampler,
+        slang: SlangBindingType::CombinedTextureSampler,
         vk: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
         access: None,
         binding: 1,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::Texture,
+        slang: SlangBindingType::Texture,
         vk: vk::DescriptorType::SAMPLED_IMAGE,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::Read)),
+        access: Some(SlangResourceAccess::Read),
         binding: 2,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::MutableTeture,
+        slang: SlangBindingType::MutableTexture,
         vk: vk::DescriptorType::STORAGE_IMAGE,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::ReadWrite)),
+        access: Some(SlangResourceAccess::ReadWrite),
         binding: 3,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::TypedBuffer,
+        slang: SlangBindingType::TypedBuffer,
         vk: vk::DescriptorType::UNIFORM_TEXEL_BUFFER,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::Read)),
+        access: Some(SlangResourceAccess::Read),
         binding: 4,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::MutableTypedBuffer,
+        slang: SlangBindingType::MutableTypedBuffer,
         vk: vk::DescriptorType::STORAGE_TEXEL_BUFFER,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::ReadWrite)),
+        access: Some(SlangResourceAccess::ReadWrite),
         binding: 5,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::RawBuffer,
+        slang: SlangBindingType::RawBuffer,
         vk: vk::DescriptorType::UNIFORM_BUFFER,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::Read)),
+        access: Some(SlangResourceAccess::Read),
         binding: 6,
     },
     BindlessDescriptor {
-        slang: slang::BindingType::MutableRawBuffer,
+        slang: SlangBindingType::MutableRawBuffer,
         vk: vk::DescriptorType::STORAGE_BUFFER,
-        access: Some(SlangResourceAccess(slang::ResourceAccess::ReadWrite)),
+        access: Some(SlangResourceAccess::ReadWrite),
         binding: 7,
     },
     // NOTE: binding 8 is for "unknown" descriptor types
