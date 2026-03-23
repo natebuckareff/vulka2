@@ -6,12 +6,12 @@ use vulkanalia_vma as vma;
 
 use crate::gpu::{Buffer, BufferSpan, GpuAllocator};
 
-struct BumpAllocator {
+struct BumpBuffer {
     buffer: Arc<Buffer>,
     offset: u64,
 }
 
-impl BumpAllocator {
+impl BumpBuffer {
     pub fn new(
         allocator: Arc<GpuAllocator>,
         capacity: u64,
@@ -35,7 +35,7 @@ impl BumpAllocator {
         self.buffer.size()
     }
 
-    pub fn allocate(&mut self, size: u64, align: Option<u64>) -> Result<BufferSpan<()>> {
+    pub fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<BufferSpan<()>> {
         let align = align.unwrap_or(1);
         let offset = align_up(self.offset, align);
         let buffer = self.buffer.clone();

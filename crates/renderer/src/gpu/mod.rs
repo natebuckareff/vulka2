@@ -1,6 +1,6 @@
 mod buffer;
 mod buffer_span;
-mod bump_allocator;
+mod bump_buffer;
 mod command_allocator;
 mod command_batch;
 mod command_buffer;
@@ -38,7 +38,7 @@ mod swapchain;
 mod validation_layers;
 
 pub use buffer_span::*;
-pub use bump_allocator::*;
+pub use bump_buffer::*;
 pub use command_allocator::*;
 pub use command_batch::*;
 pub use command_buffer::*;
