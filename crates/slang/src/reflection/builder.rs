@@ -172,12 +172,19 @@ impl LayoutBuilder {
 
         let ty = match slang_type_layout.kind() {
             slang::TypeKind::Pointer => {
-                // NOTE: it doesn't seem useful at this point to reflect on the
-                // pointee type, but we could in the future. One challenge is
-                // figuring out how to avoid duplicating the struct type in the
-                // layout tree. The slang reflection API does not give us a
-                // stable type-node identifier
-                Type::Pointer(PointerType)
+                let slang_element_type = slang_type_layout
+                    .element_type_layout()
+                    .context("array element type not found")?;
+
+                let element = self
+                    .build_type_layout(slang_element_type)?
+                    .context("array element type not found")?;
+
+                let pointer_type = PointerType {
+                    element: Box::new(element),
+                };
+
+                Type::Pointer(pointer_type)
             }
             slang::TypeKind::Scalar => {
                 let ty = slang_type_layout

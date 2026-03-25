@@ -38,6 +38,10 @@ struct FieldEdge {
 
 #[derive(Debug)]
 enum Node {
+    Pointer {
+        stride_bytes: usize,
+        element: NodeId,
+    },
     Struct {
         fields: Vec<FieldEdge>,
     },
@@ -147,6 +151,10 @@ impl LayoutIndexer {
 
     fn intern_type(&mut self, ty: crate::TypeLayout) -> Result<NodeId> {
         let node = match ty.ty {
+            Type::Pointer(a) => Node::Pointer {
+                stride_bytes: ty.stride.bytes,
+                element: self.intern_type(*a.element)?,
+            },
             Type::Struct(s) => {
                 let mut fields = Vec::with_capacity(s.fields.len());
                 for f in s.fields {
@@ -202,6 +210,7 @@ impl LayoutIndexer {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayoutKind {
+    Pointer,
     Struct,
     Array,
     ParameterBlock,
@@ -243,6 +252,7 @@ impl LayoutCursor {
 
     pub fn kind(&self) -> LayoutKind {
         match &self.tree.nodes[self.node.0] {
+            Node::Pointer { .. } => LayoutKind::Pointer,
             Node::Struct { .. } => LayoutKind::Struct,
             Node::Array { .. } => LayoutKind::Array,
             Node::ParameterBlock { .. } => LayoutKind::ParameterBlock,
@@ -259,6 +269,7 @@ impl LayoutCursor {
 
     pub fn element_layout(&self) -> Result<LayoutCursor> {
         let element = match &self.tree.nodes[self.node.0] {
+            Node::Pointer { element, .. } => Some(*element),
             Node::Struct { .. } => None,
             Node::Array { element, .. } => Some(*element),
             Node::ParameterBlock { element, .. } => Some(*element),

@@ -84,7 +84,9 @@ pub enum Type {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PointerType;
+pub struct PointerType {
+    pub element: Box<TypeLayout>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum NumericType {
