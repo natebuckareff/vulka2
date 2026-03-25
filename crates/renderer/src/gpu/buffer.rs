@@ -99,6 +99,22 @@ impl Buffer {
         })
     }
 
+    pub fn check_usage(&self, usage: vk::BufferUsageFlags) -> Result<()> {
+        if !self.usage.contains(usage) {
+            Err(anyhow!("buffer does not support usage request"))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn check_flags(&self, flags: vma::AllocationCreateFlags) -> Result<()> {
+        if !self.flags.contains(flags) {
+            Err(anyhow!("buffer does not support allocation flags request"))
+        } else {
+            Ok(())
+        }
+    }
+
     // TODO: will want to get offset addresses
     pub fn device_address(&self) -> DeviceAddress<'_> {
         use vulkanalia::prelude::v1_3::*;

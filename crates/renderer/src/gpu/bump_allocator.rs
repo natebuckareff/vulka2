@@ -1,4 +1,5 @@
 use anyhow::Result;
+use vulkanalia_vma as vma;
 
 use crate::gpu::{BufferBlock, BufferSpan, Range};
 
@@ -9,10 +10,10 @@ struct BumpAllocator<Storage: Copy> {
 
 impl<Storage: Copy> BumpAllocator<Storage> {
     pub fn new(storage: BufferSpan<Storage>) -> Result<Self> {
-        // TODO XXX: should be checking this somewhere, maybe "allocator
-        // capabilities"?
-        // let required_flags = vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
-        //     | vma::AllocationCreateFlags::MAPPED;
+        storage.buffer().check_flags(
+            vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
+                | vma::AllocationCreateFlags::MAPPED,
+        )?;
         let offset = storage.range().start();
         Ok(Self { storage, offset })
     }

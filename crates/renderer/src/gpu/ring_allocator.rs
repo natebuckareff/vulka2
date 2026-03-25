@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use vulkanalia_vma as vma;
 
 use crate::gpu::{BufferBlock, BufferSpan, BufferToken, Range, RetireQueue, align_up};
 
@@ -20,10 +21,10 @@ pub struct RingAllocator<Storage: Copy> {
 
 impl<Storage: Copy> RingAllocator<Storage> {
     pub fn new(storage: BufferSpan<Storage>) -> Result<Self> {
-        // TODO XXX: should be checking this somewhere, maybe "allocator
-        // capabilities"?
-        // let flags = vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
-        //     | vma::AllocationCreateFlags::MAPPED;
+        storage.buffer().check_flags(
+            vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
+                | vma::AllocationCreateFlags::MAPPED,
+        )?;
         let device = storage.buffer().device().clone();
         let retirement = RetireQueue::new(device)?;
         Ok(Self {
