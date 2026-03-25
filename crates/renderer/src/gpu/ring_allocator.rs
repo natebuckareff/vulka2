@@ -1,7 +1,9 @@
 use anyhow::{Result, anyhow};
 use vulkanalia_vma as vma;
 
-use crate::gpu::{BufferBlock, BufferSpan, BufferToken, Range, RetireQueue, align_up};
+use crate::gpu::{
+    AlignedRange, BufferBlock, BufferSpan, BufferToken, Range, RetireQueue, align_up,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RingHandle {
@@ -43,14 +45,15 @@ impl<Storage: Copy> RingAllocator<Storage> {
         self.storage.range().size()
     }
 
-    fn acquire_range(&mut self, size: u64, align: u64) -> Result<Option<Range>> {
+    fn acquire_range(&mut self, size: u64, align: u64) -> Result<Option<AlignedRange>> {
         let tail = self.host_tail_range();
         let start = align_up(tail.start(), align);
-        let request = Range::sized(start, size)?;
-        if !tail.fits(request) {
-            Ok(None)
-        } else {
+        let aligned = Range::sized(start, size)?;
+        let request = AlignedRange::new(tail.start(), aligned);
+        if tail.fits(request.aligned()) {
             Ok(Some(request))
+        } else {
+            Ok(None)
         }
     }
 
@@ -111,11 +114,13 @@ impl<Storage: Copy> BufferBlock for RingAllocator<Storage> {
             if let Some(range) = self.acquire_range(size, align)? {
                 let buffer = self.storage.buffer().clone();
                 let id = self.next_id;
-                let size = range.end() - self.device_end;
+                let size = range.full().size();
                 let handle = RingHandle { id, size };
-                let span = BufferSpan::new(buffer, handle, range);
+                let offset = self.storage.range().start();
+                let span_range = range.aligned().add(offset)?;
+                let span = BufferSpan::new(buffer, handle, span_range);
                 self.next_id += 1;
-                self.device_end = range.end() % self.capacity();
+                self.device_end = range.full().end();
                 return Ok(Some(span));
             }
 

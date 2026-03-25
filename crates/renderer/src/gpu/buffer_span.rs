@@ -94,6 +94,46 @@ impl Range {
         let end = self.end.clamp(other.start, other.end);
         Range { start, end }
     }
+
+    pub fn add(&self, offset: u64) -> Result<Range> {
+        Ok(Self {
+            start: self
+                .start
+                .checked_add(offset)
+                .context("range add overflow")?,
+            end: self.end.checked_add(offset).context("range add overflow")?,
+        })
+    }
+
+    pub fn sub(&self, offset: u64) -> Result<Range> {
+        Ok(Self {
+            start: self
+                .start
+                .checked_sub(offset)
+                .context("range add overflow")?,
+            end: self.end.checked_sub(offset).context("range add overflow")?,
+        })
+    }
+}
+
+pub struct AlignedRange {
+    start: u64,
+    aligned: Range,
+}
+
+impl AlignedRange {
+    pub fn new(start: u64, aligned: Range) -> Self {
+        debug_assert!(start <= aligned.start);
+        Self { start, aligned }
+    }
+
+    pub fn full(&self) -> Range {
+        Range::new(self.start, self.aligned.end)
+    }
+
+    pub fn aligned(&self) -> Range {
+        self.aligned
+    }
 }
 
 // TODO: will implement ByteWritable
