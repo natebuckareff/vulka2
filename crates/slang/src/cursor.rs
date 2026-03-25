@@ -340,4 +340,12 @@ impl LayoutCursor {
             },
         })
     }
+
+    pub fn rebase(&self) -> Self {
+        Self {
+            tree: self.tree.clone(),
+            node: self.node,
+            base: ShaderOffset::default(),
+        }
+    }
 }
