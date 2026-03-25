@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 use vulkanalia_vma as vma;
 
-use crate::gpu::{GpuAllocator, Range};
+use crate::gpu::{BufferSpan, GpuAllocator, Range};
 
 pub struct Buffer {
     gpu_allocator: Arc<GpuAllocator>,
@@ -141,6 +141,11 @@ impl Buffer {
                 .invalidate_allocation(self.allocation, start, size)?;
         };
         Ok(())
+    }
+
+    pub fn into_storage(self) -> BufferSpan<()> {
+        let range = Range::new(0, self.size);
+        BufferSpan::new(Arc::new(self), (), range)
     }
 }
 
