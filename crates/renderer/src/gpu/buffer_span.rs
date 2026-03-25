@@ -110,8 +110,8 @@ impl Range {
             start: self
                 .start
                 .checked_sub(offset)
-                .context("range add overflow")?,
-            end: self.end.checked_sub(offset).context("range add overflow")?,
+                .context("range sub overflow")?,
+            end: self.end.checked_sub(offset).context("range sub overflow")?,
         })
     }
 }
