@@ -6,7 +6,7 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu::{
-    CommandAllocator, DeviceId, DeviceInfo, Engine, FrameAllocator, LaneKey, LaneVec,
+    CommandAllocator, DeviceId, DeviceInfo, Engine, FrameAllocator, GpuAllocator, LaneKey, LaneVec,
     LaneVecBuilder, OwnedDevice, OwnedSemaphore, Queue, QueueAllocation, QueueBinding, QueueFamily,
     QueueFamilyId, QueueGroup, QueueGroupBuilder, QueueGroupId, QueueGroupInfo, QueueGroupTable,
     QueueId, QueueRoleFlags, ResourceArena, SettledLanes, SubmissionProgress, VulkanHandle,
@@ -143,6 +143,7 @@ pub struct Device {
     queue_group_table: QueueGroupTable,
     next_child_id: AtomicUsize,
     settled: Arc<SettledLanes>,
+    gpu_allocator: GpuAllocator,
 }
 
 struct BuiltQueueLane {
@@ -184,6 +185,8 @@ impl Device {
         };
         let frame_allocator = FrameAllocator::new(settled.clone(), progress);
 
+        let gpu_allocator = GpuAllocator::new(&engine, &device, &plan.info)?;
+
         let device = Self {
             engine,
             info: plan.info,
@@ -194,6 +197,7 @@ impl Device {
             queue_group_table,
             next_child_id: AtomicUsize::new(0),
             settled,
+            gpu_allocator,
         };
 
         Ok((device, frame_allocator))
@@ -209,6 +213,10 @@ impl Device {
 
     pub fn info(&self) -> &DeviceInfo {
         &self.info
+    }
+
+    pub(crate) fn gpu_allocator(&self) -> &GpuAllocator {
+        &self.gpu_allocator
     }
 
     pub(crate) fn queue_group_table(&self) -> &QueueGroupTable {

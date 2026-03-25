@@ -24,7 +24,7 @@ impl<Storage: Copy> RingAllocator<Storage> {
         // capabilities"?
         // let flags = vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
         //     | vma::AllocationCreateFlags::MAPPED;
-        let device = storage.buffer().gpu_allocator().device().clone();
+        let device = storage.buffer().device().clone();
         let retirement = RetireQueue::new(device)?;
         Ok(Self {
             storage,

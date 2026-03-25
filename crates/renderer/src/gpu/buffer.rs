@@ -4,10 +4,10 @@ use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 use vulkanalia_vma as vma;
 
-use crate::gpu::{BufferSpan, GpuAllocator, Range};
+use crate::gpu::{BufferSpan, Device, Range};
 
 pub struct Buffer {
-    gpu_allocator: Arc<GpuAllocator>,
+    device: Arc<Device>,
     buffer: vk::Buffer,
     allocation: vma::Allocation,
     size: u64,
@@ -19,7 +19,7 @@ pub struct Buffer {
 
 impl Buffer {
     pub fn new(
-        gpu_allocator: Arc<GpuAllocator>,
+        device: Arc<Device>,
         size: u64,
         usage: vk::BufferUsageFlags,
         flags: vma::AllocationCreateFlags,
@@ -37,6 +37,7 @@ impl Buffer {
             ..Default::default()
         };
 
+        let gpu_allocator = device.gpu_allocator();
         let (buffer, allocation) = unsafe { gpu_allocator.raw().create_buffer(info, &options)? };
         let info = unsafe { gpu_allocator.raw().get_allocation_info(allocation) };
 
@@ -57,7 +58,7 @@ impl Buffer {
             .contains(vk::MemoryPropertyFlags::HOST_COHERENT);
 
         Ok(Self {
-            gpu_allocator,
+            device,
             buffer,
             allocation,
             size,
@@ -72,8 +73,8 @@ impl Buffer {
         self.buffer
     }
 
-    pub fn gpu_allocator(&self) -> &Arc<GpuAllocator> {
-        &self.gpu_allocator
+    pub fn device(&self) -> &Arc<Device> {
+        &self.device
     }
 
     pub fn size(&self) -> u64 {
@@ -101,7 +102,7 @@ impl Buffer {
     // TODO: will want to get offset addresses
     pub fn device_address(&self) -> DeviceAddress<'_> {
         use vulkanalia::prelude::v1_3::*;
-        let device = unsafe { self.gpu_allocator.device().handle().raw() };
+        let device = unsafe { self.device.handle().raw() };
         let info = vk::BufferDeviceAddressInfo::builder().buffer(self.buffer);
         let addr = unsafe { device.get_buffer_device_address(&info) };
         DeviceAddress { buffer: self, addr }
@@ -119,8 +120,9 @@ impl Buffer {
         }
         let start = range.start();
         let size = range.size();
+        let gpu_allocator = self.device.gpu_allocator();
         unsafe {
-            self.gpu_allocator
+            gpu_allocator
                 .raw()
                 .flush_allocation(self.allocation, start, size)?;
         };
@@ -135,8 +137,9 @@ impl Buffer {
         }
         let start = range.start();
         let size = range.size();
+        let gpu_allocator = self.device.gpu_allocator();
         unsafe {
-            self.gpu_allocator
+            gpu_allocator
                 .raw()
                 .invalidate_allocation(self.allocation, start, size)?;
         };
@@ -157,8 +160,9 @@ impl PartialEq for Buffer {
 
 impl Drop for Buffer {
     fn drop(&mut self) {
+        let gpu_allocator = self.device.gpu_allocator();
         unsafe {
-            self.gpu_allocator
+            gpu_allocator
                 .raw()
                 .destroy_buffer(self.buffer, self.allocation);
         }
