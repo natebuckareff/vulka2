@@ -4,6 +4,8 @@ use anyhow::Result;
 use bytemuck::Pod;
 use slang::LayoutCursor;
 
+// Cursors wrap objects that support writing bytes or binding resources, for
+// some layout
 pub struct ShaderCursor<'a, T> {
     layout: LayoutCursor,
     object: &'a RefCell<T>,
@@ -39,12 +41,8 @@ impl<'a, T> ShaderCursor<'a, T> {
 }
 
 impl<'a, T: ByteWritable> ShaderCursor<'a, T> {
-    pub fn write_pod<P: Pod>(&self, pod: &P) -> Result<()> {
-        self.object.borrow_mut().write_pod(&self.layout, pod)
-    }
-
-    pub fn write_slice<P: Pod>(&self, slice: &[P]) -> Result<()> {
-        self.object.borrow_mut().write_slice(&self.layout, slice)
+    pub fn write<S: ShaderBytes>(&self, value: S) -> Result<()> {
+        value.encode(self)
     }
 
     pub fn write_bytes(&self, bytes: &[u8]) -> Result<()> {
@@ -58,12 +56,12 @@ impl<'a, T: ResourceBindable> ShaderCursor<'a, T> {
     }
 }
 
+// Implemented by the object that supports writing bytes
 pub trait ByteWritable {
-    fn write_pod<T: Pod>(&mut self, layout: &LayoutCursor, value: &T) -> Result<()>;
-    fn write_slice<T: Pod>(&mut self, layout: &LayoutCursor, slice: &[T]) -> Result<()>;
     fn write_bytes(&mut self, layout: &LayoutCursor, bytes: &[u8]) -> Result<()>;
 }
 
+// Implemented by the object that supports binding resources
 pub trait ResourceBindable {
     fn bind(&mut self, layout: &LayoutCursor, resource: &ResourceBinding) -> Result<()>;
 }
@@ -73,4 +71,30 @@ pub enum ResourceBinding {
     SampledImage(/* TODO */),
     Sampler(/* TODO */),
     CombinedImageSampler(/* TODO */),
+}
+
+// Anything that can be written as bytes to a buffer should implement this
+pub trait ShaderBytes {
+    fn encode<W: ByteWritable>(&self, cursor: &ShaderCursor<W>) -> Result<()>;
+}
+
+impl ShaderBytes for bool {
+    fn encode<W: ByteWritable>(&self, cursor: &ShaderCursor<W>) -> Result<()> {
+        let byte = if *self { 1 } else { 0 };
+        cursor.write_bytes(bytemuck::bytes_of(&byte))
+    }
+}
+
+impl<T: Pod> ShaderBytes for &T {
+    fn encode<W: ByteWritable>(&self, cursor: &ShaderCursor<W>) -> Result<()> {
+        let bytes = bytemuck::bytes_of(*self);
+        cursor.write_bytes(bytes)
+    }
+}
+
+impl<T: Pod> ShaderBytes for &[T] {
+    fn encode<W: ByteWritable>(&self, cursor: &ShaderCursor<W>) -> Result<()> {
+        let bytes = bytemuck::cast_slice(*self);
+        cursor.write_bytes(bytes)
+    }
 }

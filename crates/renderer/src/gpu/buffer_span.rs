@@ -181,22 +181,6 @@ impl<Handle: Copy> BufferWriter<Handle> {
 }
 
 impl<Handle: Copy> ByteWritable for BufferWriter<Handle> {
-    fn write_pod<T: bytemuck::Pod>(
-        &mut self,
-        layout: &slang::LayoutCursor,
-        value: &T,
-    ) -> Result<()> {
-        self.write_bytes(layout, bytemuck::bytes_of(value))
-    }
-
-    fn write_slice<T: bytemuck::Pod>(
-        &mut self,
-        layout: &slang::LayoutCursor,
-        slice: &[T],
-    ) -> Result<()> {
-        self.write_bytes(layout, bytemuck::cast_slice(slice))
-    }
-
     fn write_bytes(&mut self, layout: &slang::LayoutCursor, bytes: &[u8]) -> Result<()> {
         let size = bytes.len();
 
