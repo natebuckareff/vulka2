@@ -37,7 +37,7 @@ impl<Handle: Copy> BufferSpan<Handle> {
         self.buffer.usage()
     }
 
-    pub fn object(self, layout: slang::LayoutCursor) -> BufferObject<Handle> {
+    pub fn object(self, layout: &slang::LayoutCursor) -> BufferObject<Handle> {
         let writer = BufferWriter::new(self);
         BufferObject::new(layout, writer)
     }
@@ -143,9 +143,9 @@ impl<Handle: Copy> ByteWritable for BufferWriter<Handle> {
     }
 
     fn write_bytes(&mut self, layout: &slang::LayoutCursor, bytes: &[u8]) -> Result<()> {
-        let count = bytes.len();
+        let size = bytes.len();
 
-        if count == 0 {
+        if size == 0 {
             return Ok(());
         }
 
@@ -153,26 +153,24 @@ impl<Handle: Copy> ByteWritable for BufferWriter<Handle> {
             return Err(anyhow!("write to empty buffer span"));
         }
 
-        let size = count as u64;
-        // TODO FIXME: this is broken; wrong coordinate space
-        let write_start = layout.offset().bytes as u64;
-        let write_range = Range::sized(write_start, size)?;
+        let write_offset = layout.offset().bytes as u64;
+        let write_start = self
+            .span
+            .range()
+            .start()
+            .checked_add(write_offset)
+            .context("buffer span write overflow")?;
+
+        let write_range = Range::sized(write_start, size as u64)?;
 
         if !self.span.range.fits(write_range) {
             return Err(anyhow!("buffer span write out-of-bounds"));
         }
 
-        let dst_offset = self
-            .span
-            .range
-            .start()
-            .checked_add(write_start)
-            .context("buffer span offset overflow")?;
-
         self.span
             .buffer
             .map()?
-            .copy_from_nonoverlapping(bytes, dst_offset)?;
+            .copy_from_nonoverlapping(bytes, write_start)?;
 
         self.mark_dirty(write_range);
 

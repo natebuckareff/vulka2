@@ -11,9 +11,9 @@ pub struct BufferObject<Handle: Copy> {
 }
 
 impl<Handle: Copy> BufferObject<Handle> {
-    pub fn new(layout: LayoutCursor, writer: BufferWriter<Handle>) -> Self {
+    pub fn new(layout: &LayoutCursor, writer: BufferWriter<Handle>) -> Self {
         Self {
-            layout,
+            layout: layout.rebase(),
             writer: RefCell::new(writer),
         }
     }
