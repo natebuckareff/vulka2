@@ -2,12 +2,12 @@ use anyhow::Result;
 
 use crate::gpu::{BufferBlock, BufferSpan, Range};
 
-struct BumpBuffer<Storage: Copy> {
+struct BumpAllocator<Storage: Copy> {
     storage: BufferSpan<Storage>,
     offset: u64,
 }
 
-impl<Storage: Copy> BumpBuffer<Storage> {
+impl<Storage: Copy> BumpAllocator<Storage> {
     pub fn new(storage: BufferSpan<Storage>) -> Result<Self> {
         // TODO XXX: should be checking this somewhere, maybe "allocator
         // capabilities"?
@@ -27,7 +27,7 @@ impl<Storage: Copy> BumpBuffer<Storage> {
     }
 }
 
-impl<Storage: Copy> BufferBlock for BumpBuffer<Storage> {
+impl<Storage: Copy> BufferBlock for BumpAllocator<Storage> {
     type Storage = Storage;
     type Handle = ();
 

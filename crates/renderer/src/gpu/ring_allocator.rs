@@ -8,8 +8,7 @@ pub struct RingHandle {
     size: u64,
 }
 
-// TODO: refactor to RingAllocator
-pub struct RingBuffer<Storage: Copy> {
+pub struct RingAllocator<Storage: Copy> {
     storage: BufferSpan<Storage>,
     device_start: u64,
     device_end: u64,
@@ -19,7 +18,7 @@ pub struct RingBuffer<Storage: Copy> {
     next_id: u64,
 }
 
-impl<Storage: Copy> RingBuffer<Storage> {
+impl<Storage: Copy> RingAllocator<Storage> {
     pub fn new(storage: BufferSpan<Storage>) -> Result<Self> {
         // TODO XXX: should be checking this somewhere, maybe "allocator
         // capabilities"?
@@ -96,7 +95,7 @@ impl<Storage: Copy> RingBuffer<Storage> {
     }
 }
 
-impl<Storage: Copy> BufferBlock for RingBuffer<Storage> {
+impl<Storage: Copy> BufferBlock for RingAllocator<Storage> {
     type Storage = Storage;
     type Handle = RingHandle;
 
