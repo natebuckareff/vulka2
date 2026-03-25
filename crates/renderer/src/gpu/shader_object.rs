@@ -63,7 +63,8 @@ impl<'a, T: ResourceBindable> ShaderCursor<'a, T> {
 }
 
 pub trait ByteWritable {
-    fn write_pod<P: Pod>(&mut self, layout: &LayoutCursor, pod: &P) -> Result<()>;
+    fn write_pod<T: Pod>(&mut self, layout: &LayoutCursor, value: &T) -> Result<()>;
+    fn write_slice<T: Pod>(&mut self, layout: &LayoutCursor, slice: &[T]) -> Result<()>;
     fn write_bytes(&mut self, layout: &LayoutCursor, bytes: &[u8]) -> Result<()>;
 }
 
@@ -73,7 +74,6 @@ pub trait ResourceBindable {
 
 pub enum ResourceBinding {
     UniformBuffer(/* TODO */),
-    StorageBuffer(/* TODO */),
     SampledImage(/* TODO */),
     Sampler(/* TODO */),
     CombinedImageSampler(/* TODO */),
