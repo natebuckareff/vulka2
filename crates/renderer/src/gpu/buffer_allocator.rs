@@ -28,3 +28,8 @@ pub trait BufferBlock {
         token.id() == Some(self.id())
     }
 }
+
+// TODO: Telemetry events system to monitor span ownership and raise errors in
+// debug builds. Have a global context that all object can use to emit telemetry
+// events and implement decoupled aggregator logic. First use-case is raising an
+// error if a BufferSpan is never deallocated
