@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu::{Buffer, ByteWritable, RetireToken};
+use crate::gpu::{Buffer, BufferObject, ByteWritable, RetireToken};
 
 pub struct BufferSpan<Handle: Copy> {
     buffer: Arc<Buffer>,
@@ -37,8 +37,9 @@ impl<Handle: Copy> BufferSpan<Handle> {
         self.buffer.usage()
     }
 
-    pub fn write(self) -> BufferWriter<Handle> {
-        BufferWriter::new(self)
+    pub fn object(self, layout: slang::LayoutCursor) -> BufferObject<Handle> {
+        let writer = BufferWriter::new(self);
+        BufferObject::new(layout, writer)
     }
 
     pub fn parts(self) -> (Arc<Buffer>, Handle, Range) {
@@ -179,8 +180,6 @@ impl<Handle: Copy> ByteWritable for BufferWriter<Handle> {
     }
 }
 
-// TODO XXX: feeling like the span should just become owned by the BufferToken,
-// but that requires figuring out if the BufferWriter should own the span or not
 pub struct BufferToken<T: Copy> {
     buffer: Arc<Buffer>,
     retire: RetireToken<T>,

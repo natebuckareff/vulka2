@@ -1,4 +1,4 @@
-use std::{cell::RefCell, marker::PhantomData, rc::Rc};
+use std::cell::RefCell;
 
 use anyhow::Result;
 use bytemuck::Pod;
@@ -6,42 +6,34 @@ use slang::LayoutCursor;
 
 pub struct ShaderCursor<'a, T> {
     layout: LayoutCursor,
-    object: Rc<RefCell<T>>,
-    marker: PhantomData<&'a T>,
+    object: &'a RefCell<T>,
 }
 
 impl<'a, T> Clone for ShaderCursor<'a, T> {
     fn clone(&self) -> Self {
         Self {
             layout: self.layout.clone(),
-            object: self.object.clone(),
-            marker: PhantomData,
+            object: self.object,
         }
     }
 }
 
 impl<'a, T> ShaderCursor<'a, T> {
-    pub fn new(layout: LayoutCursor, object: Rc<RefCell<T>>) -> Self {
-        Self {
-            layout,
-            object,
-            marker: PhantomData,
-        }
+    pub fn new(layout: LayoutCursor, object: &'a RefCell<T>) -> Self {
+        Self { layout, object }
     }
 
     pub fn field(&self, name: &str) -> Result<Self> {
         self.layout.field(name).map(|layout| Self {
             layout,
-            object: self.object.clone(),
-            marker: PhantomData,
+            object: self.object,
         })
     }
 
     pub fn index(&self, index: usize) -> Result<Self> {
         self.layout.index(index).map(|layout| Self {
             layout,
-            object: self.object.clone(),
-            marker: PhantomData,
+            object: self.object,
         })
     }
 }
@@ -49,6 +41,10 @@ impl<'a, T> ShaderCursor<'a, T> {
 impl<'a, T: ByteWritable> ShaderCursor<'a, T> {
     pub fn write_pod<P: Pod>(&self, pod: &P) -> Result<()> {
         self.object.borrow_mut().write_pod(&self.layout, pod)
+    }
+
+    pub fn write_slice<P: Pod>(&self, slice: &[P]) -> Result<()> {
+        self.object.borrow_mut().write_slice(&self.layout, slice)
     }
 
     pub fn write_bytes(&self, bytes: &[u8]) -> Result<()> {

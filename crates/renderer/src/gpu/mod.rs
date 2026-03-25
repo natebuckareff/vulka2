@@ -1,5 +1,6 @@
 mod buffer;
 mod buffer_allocator;
+mod buffer_object;
 mod buffer_span;
 mod bump_buffer;
 mod command_allocator;
@@ -40,6 +41,7 @@ mod swapchain;
 mod validation_layers;
 
 pub use buffer_allocator::*;
+pub use buffer_object::*;
 pub use buffer_span::*;
 pub use bump_buffer::*;
 pub use command_allocator::*;
