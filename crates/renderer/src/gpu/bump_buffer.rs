@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::gpu::{BufferBlock, BufferSpan, Range};
 
@@ -13,7 +13,8 @@ impl<Storage: Copy> BumpBuffer<Storage> {
         // capabilities"?
         // let required_flags = vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
         //     | vma::AllocationCreateFlags::MAPPED;
-        Ok(Self { storage, offset: 0 })
+        let offset = storage.range().start();
+        Ok(Self { storage, offset })
     }
 
     pub fn offset(&self) -> u64 {
@@ -22,7 +23,7 @@ impl<Storage: Copy> BumpBuffer<Storage> {
 
     // TODO: is "capacity" the right name here?
     pub fn capacity(&self) -> u64 {
-        self.storage.range().size() - self.offset
+        self.storage.range().end().saturating_sub(self.offset)
     }
 }
 
@@ -40,16 +41,14 @@ impl<Storage: Copy> BufferBlock for BumpBuffer<Storage> {
 
     fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<Option<BufferSpan<()>>> {
         let align = align.unwrap_or(1);
-        let offset = align_up(self.offset, align);
-        let span_range = Range::sized(offset, size)?;
+        let start = align_up(self.offset, align);
+        let span_range = Range::sized(start, size)?;
         if !self.storage.range().fits(span_range) {
             return Ok(None);
         }
         let buffer = self.storage.buffer().clone();
         let span = BufferSpan::new(buffer, (), span_range);
-        self.offset = offset
-            .checked_add(size)
-            .context("bump allocator overflow")?;
+        self.offset = span_range.end();
         Ok(Some(span))
     }
 
