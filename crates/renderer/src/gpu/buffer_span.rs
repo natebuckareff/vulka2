@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk;
@@ -6,19 +9,25 @@ use vulkanalia::vk;
 use crate::gpu::{Buffer, BufferObject, ByteWritable, RetireToken};
 
 pub struct BufferSpan<Handle: Copy> {
+    id: Option<AllocId>,
     buffer: Arc<Buffer>,
     handle: Handle,
     range: Range,
 }
 
 impl<Handle: Copy> BufferSpan<Handle> {
-    pub fn new(buffer: Arc<Buffer>, handle: Handle, range: Range) -> Self {
+    pub fn new(id: Option<AllocId>, buffer: Arc<Buffer>, handle: Handle, range: Range) -> Self {
         debug_assert!(buffer.fits(range));
         Self {
+            id,
             buffer,
             handle,
             range,
         }
+    }
+
+    pub fn id(&self) -> Option<AllocId> {
+        self.id
     }
 
     pub fn buffer(&self) -> &Arc<Buffer> {
@@ -41,9 +50,15 @@ impl<Handle: Copy> BufferSpan<Handle> {
         let writer = BufferWriter::new(self);
         BufferObject::new(layout, writer)
     }
+}
 
-    pub fn parts(self) -> (Arc<Buffer>, Handle, Range) {
-        (self.buffer, self.handle, self.range)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct AllocId(u64);
+
+impl AllocId {
+    pub(crate) fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
     }
 }
 
@@ -161,7 +176,7 @@ impl<Handle: Copy> BufferWriter<Handle> {
         if let Some(dirty) = self.dirty {
             self.span.buffer.flush(dirty)?;
         }
-        Ok(BufferToken::new(self.span.buffer, self.span.handle))
+        Ok(BufferToken::new(self.span))
     }
 }
 
@@ -219,6 +234,7 @@ impl<Handle: Copy> ByteWritable for BufferWriter<Handle> {
 }
 
 pub struct BufferToken<T: Copy> {
+    id: Option<AllocId>,
     buffer: Arc<Buffer>,
     retire: RetireToken<T>,
     // TODO: will need additional information here to emit correct pipeline
@@ -226,9 +242,17 @@ pub struct BufferToken<T: Copy> {
 }
 
 impl<T: Copy> BufferToken<T> {
-    pub fn new(buffer: Arc<Buffer>, handle: T) -> Self {
-        let retire = RetireToken::new(handle);
-        Self { buffer, retire }
+    pub fn new(span: BufferSpan<T>) -> Self {
+        let retire = RetireToken::new(span.handle);
+        Self {
+            id: span.id,
+            buffer: span.buffer,
+            retire,
+        }
+    }
+
+    pub fn id(&self) -> Option<AllocId> {
+        self.id
     }
 
     pub fn buffer(&self) -> &Arc<Buffer> {

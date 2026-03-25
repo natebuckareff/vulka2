@@ -1,16 +1,30 @@
 use anyhow::Result;
 
-use crate::gpu::BufferSpan;
+use crate::gpu::{AllocId, BufferSpan, BufferToken};
 
 pub trait BufferAllocator: BufferBlock {
-    fn deallocate(&mut self, span: Self::Span) -> Result<()>;
+    fn deallocate(&mut self, span: BufferSpan<Self::Handle>) -> Result<()>;
 }
 
 pub trait BufferBlock {
     type Storage: Copy;
     type Handle: Copy;
-    type Span = BufferSpan<Self::Handle>;
-    fn owns(&self, span: Self::Span) -> bool;
-    fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<Option<Self::Span>>;
+
+    fn id(&self) -> AllocId;
+
+    fn acquire(
+        &mut self,
+        size: u64,
+        align: Option<u64>,
+    ) -> Result<Option<BufferSpan<Self::Handle>>>;
+
     fn free(self) -> BufferSpan<Self::Storage>;
+
+    fn owns_span(&self, span: BufferSpan<Self::Handle>) -> bool {
+        span.id() == Some(self.id())
+    }
+
+    fn owns_token(&self, token: &BufferToken<Self::Handle>) -> bool {
+        token.id() == Some(self.id())
+    }
 }

@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use vulkanalia_vma as vma;
 
 use crate::gpu::{
-    AlignedRange, BufferBlock, BufferSpan, BufferToken, Range, RetireQueue, align_up,
+    AlignedRange, AllocId, BufferBlock, BufferSpan, BufferToken, Range, RetireQueue, align_up,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -12,6 +12,7 @@ pub struct RingHandle {
 }
 
 pub struct RingAllocator<Storage: Copy> {
+    id: AllocId,
     storage: BufferSpan<Storage>,
     device_start: u64,
     device_end: u64,
@@ -30,6 +31,7 @@ impl<Storage: Copy> RingAllocator<Storage> {
         let device = storage.buffer().device().clone();
         let retirement = RetireQueue::new(device)?;
         Ok(Self {
+            id: AllocId::new(),
             storage,
             device_start: 0,
             device_end: 0,
@@ -89,10 +91,8 @@ impl<Storage: Copy> RingAllocator<Storage> {
     // TODO: should rename from release->retire in a lot of places to match
     // general API pattern
     pub fn retire(&mut self, token: BufferToken<RingHandle>) -> Result<()> {
-        // TODO: this is not longer correct, since a single buffer can be used
-        // as backing storage for many buffers/allocators
-        if token.buffer() != self.storage.buffer() {
-            return Err(anyhow!("buffer mismatch"));
+        if !self.owns_token(&token) {
+            return Err(anyhow!("allocator mismatch"));
         }
         let (_, retire) = token.parts();
         self.retirement.retire(retire)
@@ -103,11 +103,15 @@ impl<Storage: Copy> BufferBlock for RingAllocator<Storage> {
     type Storage = Storage;
     type Handle = RingHandle;
 
-    fn owns(&self, span: Self::Span) -> bool {
-        todo!()
+    fn id(&self) -> AllocId {
+        self.id
     }
 
-    fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<Option<Self::Span>> {
+    fn acquire(
+        &mut self,
+        size: u64,
+        align: Option<u64>,
+    ) -> Result<Option<BufferSpan<Self::Handle>>> {
         let align = align.unwrap_or(1);
 
         loop {
@@ -118,7 +122,7 @@ impl<Storage: Copy> BufferBlock for RingAllocator<Storage> {
                 let handle = RingHandle { id, size };
                 let offset = self.storage.range().start();
                 let span_range = range.aligned().add(offset)?;
-                let span = BufferSpan::new(buffer, handle, span_range);
+                let span = BufferSpan::new(Some(self.id), buffer, handle, span_range);
                 self.next_id += 1;
                 self.device_end = range.full().end();
                 return Ok(Some(span));

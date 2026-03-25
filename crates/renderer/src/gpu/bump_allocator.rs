@@ -1,9 +1,10 @@
 use anyhow::Result;
 use vulkanalia_vma as vma;
 
-use crate::gpu::{BufferBlock, BufferSpan, Range};
+use crate::gpu::{AllocId, BufferBlock, BufferSpan, Range};
 
 struct BumpAllocator<Storage: Copy> {
+    id: AllocId,
     storage: BufferSpan<Storage>,
     offset: u64,
 }
@@ -15,7 +16,11 @@ impl<Storage: Copy> BumpAllocator<Storage> {
                 | vma::AllocationCreateFlags::MAPPED,
         )?;
         let offset = storage.range().start();
-        Ok(Self { storage, offset })
+        Ok(Self {
+            id: AllocId::new(),
+            storage,
+            offset,
+        })
     }
 
     pub fn offset(&self) -> u64 {
@@ -32,12 +37,8 @@ impl<Storage: Copy> BufferBlock for BumpAllocator<Storage> {
     type Storage = Storage;
     type Handle = ();
 
-    fn owns(&self, span: Self::Span) -> bool {
-        // TODO: not sure how to do this, will probably need some kind of unique
-        // per buffer/allocator ID. For BumpBuffer, we don't really need to
-        // implement this since we neither retire() nor deallocate() ever, but
-        // we will need to impl it for RingBuffer and later RegionAllocator
-        todo!()
+    fn id(&self) -> super::AllocId {
+        self.id
     }
 
     fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<Option<BufferSpan<()>>> {
@@ -48,7 +49,7 @@ impl<Storage: Copy> BufferBlock for BumpAllocator<Storage> {
             return Ok(None);
         }
         let buffer = self.storage.buffer().clone();
-        let span = BufferSpan::new(buffer, (), span_range);
+        let span = BufferSpan::new(Some(self.id), buffer, (), span_range);
         self.offset = span_range.end();
         Ok(Some(span))
     }
