@@ -1,6 +1,7 @@
 mod buffer;
 mod buffer_allocator;
 mod buffer_object;
+mod buffer_region;
 mod buffer_span;
 mod bump_allocator;
 mod command_allocator;
@@ -42,6 +43,7 @@ mod validation_layers;
 
 pub use buffer_allocator::*;
 pub use buffer_object::*;
+pub use buffer_region::*;
 pub use buffer_span::*;
 pub use bump_allocator::*;
 pub use command_allocator::*;

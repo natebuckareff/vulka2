@@ -55,6 +55,54 @@ impl<T: Copy> RetireToken<T> {
             "token already retired"
         );
     }
+
+    pub fn retire(self) -> Result<RetireRecord<T>> {
+        if self.state.retired.swap(true, Ordering::Relaxed) {
+            return Err(anyhow!("token already retired"));
+        }
+        Ok(RetireRecord {
+            handle: self.state.handle,
+            last_frame: self.state.last_frame.load(Ordering::Relaxed),
+            dirty: self.state.dirty.load(Ordering::Relaxed),
+        })
+    }
+}
+
+pub struct RetireRecord<T: Copy> {
+    handle: T,
+    last_frame: u64,
+    dirty: usize,
+}
+
+impl<T: Copy> RetireRecord<T> {
+    pub fn handle(&self) -> T {
+        self.handle
+    }
+
+    pub fn is_complete(&self, device: &Device) -> Result<bool> {
+        let mut dirty = self.dirty;
+        let queue_groups = device.queue_group_table();
+
+        while dirty != 0 {
+            let bit = dirty.trailing_zeros() as usize;
+
+            // TODO FIXME: this is currently unnecessarily slow because of
+            // QueueGroupTable not using QueueGroupVec for storage
+            let key = queue_groups
+                .get_nth_binding(bit)
+                .context("invalid lane bits")?
+                .key;
+
+            dirty ^= 1 << bit;
+            if device.is_lane_device_complete(key, self.last_frame) {
+                // ready in this lane, skip
+                continue;
+            }
+            return Ok(false);
+        }
+
+        return Ok(true);
+    }
 }
 
 pub struct RetireQueue<T: Copy + Eq + Hash> {
@@ -85,15 +133,13 @@ impl<T: Copy + Eq + Hash> RetireQueue<T> {
         // NOTE: While allocators that use RetireQueue internally will generally
         // always be called from the same thread, RetireToken does not
         // inherently care which RetireQueue retires it. Any RetireQueue will do
-        if token.state.retired.swap(true, Ordering::Relaxed) {
-            return Err(anyhow!("token already retired"));
-        }
 
-        let handle = token.state.handle;
-        let last_frame = token.state.last_frame.load(Ordering::Relaxed);
-        let mut dirty = token.state.dirty.load(Ordering::Relaxed);
-
+        let retired = token.retire()?;
+        let handle = retired.handle;
+        let last_frame = retired.last_frame;
+        let mut dirty = retired.dirty;
         let mut count = 0;
+
         while dirty != 0 {
             let bit = dirty.trailing_zeros() as usize;
             let key = self.retired.key(bit).context("invalid lane key")?;

@@ -36,8 +36,8 @@ impl<Handle: Copy> BufferSpan<Handle> {
         self.handle
     }
 
-    pub fn range(&self) -> &Range {
-        &self.range
+    pub fn range(&self) -> Range {
+        self.range
     }
 
     pub fn usage(&self) -> vk::BufferUsageFlags {
