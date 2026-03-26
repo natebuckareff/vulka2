@@ -1,20 +1,20 @@
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use generational_arena::{Arena, Index};
 use vulkanalia::vk::{self, DeviceV1_0, HasBuilder};
 
 use crate::gpu::{
-    DescriptorSet, DescriptorSetId, DescriptorSetLayout, DescriptorUsage, Device,
-    FinishedDescriptorSet, OwnedDescriptorPool, RetireQueue, VulkanResource,
+    BufferToken, DescriptorSet, DescriptorSetHandle, DescriptorSetId, DescriptorSetLayout,
+    DescriptorSetToken, Device, OwnedDescriptorPool, ParameterToken, RetireQueue, VulkanResource,
 };
 
 pub struct DescriptorAllocator {
     id: usize,
     device: Arc<Device>,
-    layout: Arc<DescriptorSetLayout>,
+    set_layout: Arc<DescriptorSetLayout>,
     pools: Arena<DescriptorPool>,
-    retirement: RetireQueue<DescriptorUsage>,
+    retirement: RetireQueue<DescriptorSetHandle>,
     next_set_id: usize,
 }
 
@@ -22,15 +22,15 @@ impl DescriptorAllocator {
     // TODO: this `id` situation is pretty messy currently and annoyingly
     // bespoke across the codebase
     pub(crate) fn new(
-        id: usize,
+        id: usize, // TODO: reuse/generalize AllocId into EntityId  or something?
         device: Arc<Device>,
-        layout: Arc<DescriptorSetLayout>,
+        set_layout: Arc<DescriptorSetLayout>,
     ) -> Result<Self> {
         let retirement = RetireQueue::new(device.clone())?;
         Ok(Self {
             id,
             device,
-            layout,
+            set_layout,
             pools: Arena::new(),
             retirement,
             next_set_id: 0,
@@ -41,7 +41,8 @@ impl DescriptorAllocator {
         let id = DescriptorSetId::from(self.next_set_id);
         let index = self.acquire_or_create_pool()?;
         let pool = &self.pools[index];
-        let set = DescriptorSet::new(id, &self.device, pool, &self.layout)?;
+        let set_layout = self.set_layout.clone();
+        let set = DescriptorSet::new(id, &self.device, &pool, set_layout)?;
         self.next_set_id += 1;
         Ok(set)
     }
@@ -51,10 +52,10 @@ impl DescriptorAllocator {
             return Ok(index);
         }
         let info = vk::DescriptorPoolCreateInfo::builder()
-            .max_sets(self.layout.sizing().max_sets())
-            .pool_sizes(&self.layout.sizing().sizes());
+            .max_sets(self.set_layout.sizing().max_sets())
+            .pool_sizes(&self.set_layout.sizing().sizes());
         let device = self.device.handle().clone();
-        let handle = Rc::new(OwnedDescriptorPool::new(device, &info)?);
+        let owned = OwnedDescriptorPool::new(device, &info)?;
         let index = self.pools.insert_with(|index| {
             let id = DescriptorPoolId {
                 allocator_id: self.id,
@@ -62,7 +63,7 @@ impl DescriptorAllocator {
             };
             DescriptorPool {
                 id,
-                handle,
+                owned,
                 unretired: 0,
             }
         });
@@ -71,37 +72,41 @@ impl DescriptorAllocator {
 
     fn acquire_unused_pool(&mut self) -> Result<Option<Index>> {
         loop {
-            let Some(usage) = self.retirement.acquire()? else {
+            let Some(handle) = self.retirement.acquire()? else {
                 break;
             };
-            let pool = &mut self.pools[usage.pool.index];
+            let pool = &mut self.pools[handle.pool().index];
             pool.unretired -= 1;
             if pool.unretired == 0 {
                 let device = self.device.handle();
                 let flags = vk::DescriptorPoolResetFlags::empty();
                 unsafe {
-                    let descriptor_pool = *pool.handle.raw();
+                    let descriptor_pool = *pool.owned.raw();
                     device.raw().reset_descriptor_pool(descriptor_pool, flags)?;
                 }
-                return Ok(Some(usage.pool.index));
+                return Ok(Some(handle.pool().index));
             }
         }
         Ok(None)
     }
 
-    pub fn release(&mut self, set: FinishedDescriptorSet) -> Result<()> {
-        if set.pool_id.allocator_id != self.id {
-            return Err(anyhow!("descriptor pool allocator mismatch"));
-        };
+    pub fn retire(&mut self, token: DescriptorSetToken) -> Result<()> {
+        let retire = token.into_retire();
+        let handle = retire.handle();
 
+        if handle.pool().allocator_id != self.id {
+            return Err(anyhow!("descriptor pool allocator mismatch"));
+        }
+
+        // TODO: why get_mut here by indexing elsewhere?
         let pool = self
             .pools
-            .get_mut(set.pool_id.index)
+            .get_mut(handle.pool().index)
             .context("pool not found")?;
 
         pool.unretired += 1;
 
-        if let Err(e) = self.retirement.retire(set.token.retire) {
+        if let Err(e) = self.retirement.retire(retire) {
             pool.unretired -= 1;
             return Err(e);
         }
@@ -112,7 +117,7 @@ impl DescriptorAllocator {
 
 pub(crate) struct DescriptorPool {
     id: DescriptorPoolId,
-    handle: Rc<OwnedDescriptorPool>, // TODO XXX: ResourceArena is kinda annoying
+    owned: OwnedDescriptorPool, // TODO XXX: ResourceArena is kinda annoying
     unretired: usize,
 }
 
@@ -121,13 +126,15 @@ impl DescriptorPool {
         self.id
     }
 
-    pub(crate) fn handle(&self) -> &Rc<OwnedDescriptorPool> {
-        &self.handle
+    // TODO: ensure consistent naming everywhere when re-evaluating VulkanHandle
+    // and ResourceArena
+    pub(crate) fn owned(&self) -> &OwnedDescriptorPool {
+        &self.owned
     }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct DescriptorPoolId {
-    allocator_id: usize,
+    allocator_id: usize, // TODO: AllocId?
     index: Index,
 }

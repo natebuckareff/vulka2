@@ -1,84 +1,123 @@
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
 
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
+use slang::LayoutCursor;
+use vulkanalia::vk;
 
 use crate::gpu::{
-    ByteWritable, DescriptorSet, FinishedDescriptorSet, ResourceBindable, ResourceBinding,
-    ShaderCursor,
+    BufferToken, BufferWriter, ByteWritable, DescriptorSet, DescriptorSetHandle, ResourceBindable,
+    ResourceBinding, RetireToken, ShaderCursor,
 };
 
-pub type BufferRef = (); // TODO
+// TODO: rename to ParameterObject?
+pub struct ParameterBlock<Handle: Copy> {
+    layout: LayoutCursor,
+    writer: RefCell<ParameterWriter<Handle>>,
+}
 
-pub struct ParameterBlock {
+impl<Handle: Copy> ParameterBlock<Handle> {
+    pub fn new(writer: ParameterWriter<Handle>) -> Self {
+        Self {
+            layout: writer.set.set_layout().layout().rebase(),
+            writer: RefCell::new(writer),
+        }
+    }
+
+    pub fn cursor(&self) -> ShaderCursor<'_, ParameterWriter<Handle>> {
+        ShaderCursor::new(self.layout.clone(), &self.writer)
+    }
+
+    pub fn finish(self) -> Result<ParameterToken<Handle>> {
+        self.writer.into_inner().finish()
+    }
+}
+
+pub struct ParameterWriter<Handle: Copy> {
     set: DescriptorSet,
-    ubo: Option<BufferRef>,
-    writer: Rc<RefCell<ParameterWriter>>,
+    ubo: Option<BufferWriter<Handle>>,
 }
 
-impl ParameterBlock {
-    pub(crate) fn new(set: DescriptorSet, ubo: Option<BufferRef>) -> Self {
-        let writer = Rc::new(RefCell::new(ParameterWriter::new()));
-        Self { set, ubo, writer }
+impl<Handle: Copy> ParameterWriter<Handle> {
+    pub fn new(set: DescriptorSet, ubo: Option<BufferWriter<Handle>>) -> Self {
+        Self { set, ubo }
     }
 
-    pub fn cursor(&self) -> ShaderCursor<'_, ParameterWriter> {
-        todo!()
-    }
-
-    pub fn finish(self) -> FinishedDescriptorSet {
-        assert_eq!(Rc::strong_count(&self.writer), 1);
-        self.set.finish()
+    pub fn finish(self) -> Result<ParameterToken<Handle>> {
+        let handle = *self.set.handle();
+        let ubo = self.ubo.map(|writer| writer.finish()).transpose()?;
+        Ok(ParameterToken::new(handle, ubo))
     }
 }
 
-pub struct ParameterWriter {
-    // TODO
-}
+impl<Handle: Copy> ResourceBindable for ParameterWriter<Handle> {
+    fn bind(&mut self, layout: &slang::LayoutCursor, resource: &ResourceBinding) -> Result<()> {
+        let parameter_block_layout = self.set.set_layout().layout().parameter_block_layout()?;
+        let binding_range = layout.offset().binding_range;
+        let binding = &parameter_block_layout
+            .find_binding_range(binding_range)
+            .context("binding range out-of-bounds")?
+            .descriptor;
 
-impl ParameterWriter {
-    fn new() -> Self {
-        Self {}
-    }
-}
+        use ResourceBinding::*;
+        match (resource, binding.descriptor_type) {
+            (UniformBuffer(), vk::DescriptorType::UNIFORM_BUFFER) => {
+                todo!();
+            }
+            (SampledImage(), vk::DescriptorType::SAMPLED_IMAGE) => {
+                todo!()
+            }
+            (Sampler(), vk::DescriptorType::SAMPLER) => {
+                todo!()
+            }
+            (CombinedImageSampler(), vk::DescriptorType::COMBINED_IMAGE_SAMPLER) => {
+                todo!()
+            }
+            _ => {}
+        };
 
-impl ResourceBindable for ParameterWriter {
-    fn bind(
-        &mut self,
-        layout: &slang::LayoutCursor,
-        resource: &ResourceBinding,
-    ) -> anyhow::Result<()> {
-        todo!()
-    }
-}
-
-impl ByteWritable for ParameterWriter {
-    fn write_pod<P: bytemuck::Pod>(
-        &mut self,
-        layout: &slang::LayoutCursor,
-        pod: &P,
-    ) -> anyhow::Result<()> {
-        todo!()
-    }
-
-    fn write_bytes(&mut self, layout: &slang::LayoutCursor, bytes: &[u8]) -> anyhow::Result<()> {
         todo!()
     }
 }
 
-/*
-fn test(pb: ParameterBlock) -> Result<()> {
-    let cursor = pb.cursor();
+impl<Handle: Copy> ByteWritable for ParameterWriter<Handle> {
+    fn write_bytes(&mut self, layout: &slang::LayoutCursor, bytes: &[u8]) -> Result<()> {
+        let Some(ubo) = &mut self.ubo else {
+            return Err(anyhow!("implicit parameter block ubo not found"));
+        };
+        ubo.write_bytes(layout, bytes)
+    }
+}
 
-    let cursor_foo = cursor.field("foo")?;
-    let cursor_bar = cursor.field("bar")?;
+// TODO: all of these token wrappers around RetireToken, including BufferToken,
+// need some higher-level API for CommandBuffer to use
+pub struct ParameterToken<Handle: Copy> {
+    retire: RetireToken<DescriptorSetHandle>,
+    ubo: Option<BufferToken<Handle>>,
+}
 
-    for _ in 0..10 {
-        cursor_foo.write_bytes(&[])?;
-        cursor_bar.write_bytes(&[])?;
+impl<Handle: Copy> ParameterToken<Handle> {
+    pub fn new(handle: DescriptorSetHandle, ubo: Option<BufferToken<Handle>>) -> Self {
+        Self {
+            retire: RetireToken::new(handle),
+            ubo,
+        }
     }
 
-    let x = pb.finish();
-
-    Ok(())
+    pub fn split(self) -> (DescriptorSetToken, Option<BufferToken<Handle>>) {
+        let token = DescriptorSetToken {
+            retire: self.retire,
+        };
+        (token, self.ubo)
+    }
 }
-*/
+
+pub struct DescriptorSetToken {
+    retire: RetireToken<DescriptorSetHandle>,
+}
+
+impl DescriptorSetToken {
+    // TODO: rename parts() -> into_parts() in this codebase
+    pub fn into_retire(self) -> RetireToken<DescriptorSetHandle> {
+        self.retire
+    }
+}

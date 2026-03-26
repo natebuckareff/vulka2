@@ -1,4 +1,6 @@
-use std::{cmp::Ordering, collections::BTreeMap, rc::Rc, sync::Arc};
+// TODO: llm generated file; rewrite
+
+use std::{cmp::Ordering, collections::BTreeMap, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use vulkanalia::vk::{self, HasBuilder};
@@ -7,7 +9,7 @@ use crate::gpu::{Device, OwnedDescriptorSetLayout};
 
 pub struct DescriptorSetLayout {
     layout: slang::LayoutCursor,
-    handle: Rc<OwnedDescriptorSetLayout>,
+    handle: OwnedDescriptorSetLayout,
     sizing: DescriptorPoolSizing,
 }
 
@@ -21,7 +23,7 @@ impl DescriptorSetLayout {
 
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         let device = device.handle().clone();
-        let handle = Rc::new(OwnedDescriptorSetLayout::new(device, &info)?);
+        let handle = OwnedDescriptorSetLayout::new(device, &info)?;
 
         Ok(Self {
             layout,
@@ -30,12 +32,16 @@ impl DescriptorSetLayout {
         })
     }
 
-    pub(crate) fn handle(&self) -> &Rc<OwnedDescriptorSetLayout> {
+    pub(crate) fn owned(&self) -> &OwnedDescriptorSetLayout {
         &self.handle
     }
 
     pub(crate) fn sizing(&self) -> &DescriptorPoolSizing {
         &self.sizing
+    }
+
+    pub fn layout(&self) -> &slang::LayoutCursor {
+        &self.layout
     }
 
     fn bindings(
