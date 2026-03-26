@@ -80,8 +80,8 @@ pub trait ShaderBytes {
 
 impl ShaderBytes for bool {
     fn encode<W: ByteWritable>(&self, cursor: &ShaderCursor<W>) -> Result<()> {
-        let byte = if *self { 1 } else { 0 };
-        cursor.write_bytes(bytemuck::bytes_of(&byte))
+        let value: i32 = if *self { 1 } else { 0 };
+        cursor.write_bytes(bytemuck::bytes_of(&value))
     }
 }
 
