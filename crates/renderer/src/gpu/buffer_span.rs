@@ -1,12 +1,10 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use vulkanalia::vk;
 
-use crate::gpu::{Buffer, BufferObject, ByteWritable, RetireToken};
+use crate::gpu::{Buffer, BufferObject, BufferWriter};
 
 pub struct BufferSpan<Handle: Copy> {
     id: Option<AllocId>,
@@ -46,9 +44,17 @@ impl<Handle: Copy> BufferSpan<Handle> {
         self.buffer.usage()
     }
 
+    pub fn writer(self) -> BufferWriter<Handle> {
+        BufferWriter::new(self)
+    }
+
     pub fn object(self, layout: &slang::LayoutCursor) -> BufferObject<Handle> {
-        let writer = BufferWriter::new(self);
+        let writer = self.writer();
         BufferObject::new(layout, writer)
+    }
+
+    pub fn parts(self) -> (Option<AllocId>, Arc<Buffer>, Handle, Range) {
+        (self.id, self.buffer, self.handle, self.range)
     }
 }
 
@@ -148,102 +154,5 @@ impl AlignedRange {
 
     pub fn aligned(&self) -> Range {
         self.aligned
-    }
-}
-
-// TODO: will implement ByteWritable
-pub struct BufferWriter<Handle: Copy> {
-    span: BufferSpan<Handle>,
-    dirty: Option<Range>,
-}
-
-impl<Handle: Copy> BufferWriter<Handle> {
-    fn new(span: BufferSpan<Handle>) -> Self {
-        Self { span, dirty: None }
-    }
-
-    fn mark_dirty(&mut self, range: Range) {
-        match &mut self.dirty {
-            Some(dirty) => {
-                dirty.start = dirty.start.min(range.start);
-                dirty.end = dirty.end.max(range.end);
-            }
-            None => self.dirty = Some(range),
-        }
-    }
-
-    pub fn finish(self) -> Result<BufferToken<Handle>> {
-        if let Some(dirty) = self.dirty {
-            self.span.buffer.flush(dirty)?;
-        }
-        Ok(BufferToken::new(self.span))
-    }
-}
-
-impl<Handle: Copy> ByteWritable for BufferWriter<Handle> {
-    fn write_bytes(&mut self, layout: &slang::LayoutCursor, bytes: &[u8]) -> Result<()> {
-        let size = bytes.len();
-
-        if size == 0 {
-            return Ok(());
-        }
-
-        if self.span.range.size() == 0 {
-            return Err(anyhow!("write to empty buffer span"));
-        }
-
-        let write_offset = layout.offset().bytes as u64;
-        let write_start = self
-            .span
-            .range()
-            .start()
-            .checked_add(write_offset)
-            .context("buffer span write overflow")?;
-
-        let write_range = Range::sized(write_start, size as u64)?;
-
-        if !self.span.range.fits(write_range) {
-            return Err(anyhow!("buffer span write out-of-bounds"));
-        }
-
-        self.span
-            .buffer
-            .map()?
-            .copy_from_nonoverlapping(bytes, write_start)?;
-
-        self.mark_dirty(write_range);
-
-        Ok(())
-    }
-}
-
-pub struct BufferToken<T: Copy> {
-    id: Option<AllocId>,
-    buffer: Arc<Buffer>,
-    retire: RetireToken<T>,
-    // TODO: will need additional information here to emit correct pipeline
-    // barriers and wait on any semaphores for inter-queue use
-}
-
-impl<T: Copy> BufferToken<T> {
-    pub fn new(span: BufferSpan<T>) -> Self {
-        let retire = RetireToken::new(span.handle);
-        Self {
-            id: span.id,
-            buffer: span.buffer,
-            retire,
-        }
-    }
-
-    pub fn id(&self) -> Option<AllocId> {
-        self.id
-    }
-
-    pub fn buffer(&self) -> &Arc<Buffer> {
-        &self.buffer
-    }
-
-    pub fn parts(self) -> (Arc<Buffer>, RetireToken<T>) {
-        (self.buffer, self.retire)
     }
 }

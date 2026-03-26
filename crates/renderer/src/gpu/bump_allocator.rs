@@ -3,7 +3,7 @@ use vulkanalia_vma as vma;
 
 use crate::gpu::{AllocId, BufferBlock, BufferSpan, Range};
 
-struct BumpAllocator<Storage: Copy> {
+pub struct BumpAllocator<Storage: Copy> {
     id: AllocId,
     storage: BufferSpan<Storage>,
     offset: u64,

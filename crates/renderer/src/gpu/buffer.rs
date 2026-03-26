@@ -69,6 +69,7 @@ impl Buffer {
         })
     }
 
+    // TODO: why not OwnedBuffer?
     pub(crate) unsafe fn raw(&self) -> vk::Buffer {
         self.buffer
     }
