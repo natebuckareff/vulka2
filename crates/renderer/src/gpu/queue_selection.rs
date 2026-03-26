@@ -116,7 +116,7 @@ fn get_bias_ranked_families(families: &[QueueFamily]) -> Vec<QueueFamily> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
 
     use crate::gpu::{QueueFamily, QueueFamilyId, QueueRoleFlags};
 

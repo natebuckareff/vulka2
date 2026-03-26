@@ -1,13 +1,10 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use bitflags::bitflags;
 use vulkanalia::vk;
 
-use crate::gpu::{
-    Device, DeviceBuilder, DeviceId, FrameRef, LaneVec, LaneVecBuilder, Queue, Submission,
-    VulkanHandle,
-};
+use crate::gpu::{DeviceBuilder, DeviceId, LaneVec, Queue, Submission, VulkanHandle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct QueueFamilyId(u32);
