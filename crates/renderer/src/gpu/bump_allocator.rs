@@ -1,23 +1,23 @@
 use anyhow::Result;
 use vulkanalia_vma as vma;
 
-use crate::gpu::{AllocId, BufferBlock, BufferSpan, Range};
+use crate::gpu::{AllocatorId, BufferAllocator, BufferSpan, Range};
 
 pub struct BumpAllocator<Storage: Copy> {
-    id: AllocId,
+    id: AllocatorId,
     storage: BufferSpan<Storage>,
     offset: u64,
 }
 
 impl<Storage: Copy> BumpAllocator<Storage> {
     pub fn new(storage: BufferSpan<Storage>) -> Result<Self> {
-        storage.buffer().check_flags(
+        storage.allocation().allocator().buffer().check_flags(
             vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
                 | vma::AllocationCreateFlags::MAPPED,
         )?;
         let offset = storage.range().start();
         Ok(Self {
-            id: AllocId::new(),
+            id: AllocatorId::new(),
             storage,
             offset,
         })
@@ -33,11 +33,15 @@ impl<Storage: Copy> BumpAllocator<Storage> {
     }
 }
 
-impl<Storage: Copy> BufferBlock for BumpAllocator<Storage> {
+impl<Storage: Copy> BufferAllocator for BumpAllocator<Storage> {
     type Storage = Storage;
     type Handle = ();
 
-    fn id(&self) -> super::AllocId {
+    fn storage(&self) -> &BufferSpan<Self::Storage> {
+        &self.storage
+    }
+
+    fn id(&self) -> AllocatorId {
         self.id
     }
 
@@ -48,8 +52,7 @@ impl<Storage: Copy> BufferBlock for BumpAllocator<Storage> {
         if !self.storage.range().fits(span_range) {
             return Ok(None);
         }
-        let buffer = self.storage.buffer().clone();
-        let span = BufferSpan::new(Some(self.id), buffer, (), span_range);
+        let span = BufferSpan::from_allocator(self, (), span_range);
         self.offset = span_range.end();
         Ok(Some(span))
     }

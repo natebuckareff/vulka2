@@ -165,7 +165,7 @@ impl Buffer {
 
     pub fn into_storage(self) -> BufferSpan<()> {
         let range = Range::new(0, self.size);
-        BufferSpan::new(None, Arc::new(self), (), range)
+        BufferSpan::from_buffer(self, (), range)
     }
 }
 

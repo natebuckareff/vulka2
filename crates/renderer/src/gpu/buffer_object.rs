@@ -1,9 +1,9 @@
-use std::{cell::RefCell, sync::Arc};
+use std::cell::RefCell;
 
 use anyhow::{Context, Result, anyhow};
 use slang::LayoutCursor;
 
-use crate::gpu::{AllocId, Buffer, BufferSpan, ByteWritable, Range, RetireToken, ShaderCursor};
+use crate::gpu::{AllocatorInfo, BufferSpan, ByteWritable, Range, RetireToken, ShaderCursor};
 
 pub struct BufferObject<Handle: Copy> {
     layout: LayoutCursor,
@@ -50,7 +50,7 @@ impl<Handle: Copy> BufferWriter<Handle> {
 
     pub fn finish(self) -> Result<BufferToken<Handle>> {
         if let Some(dirty) = self.dirty {
-            self.span.buffer().flush(dirty)?;
+            self.span.allocation().allocator().buffer().flush(dirty)?;
         }
         Ok(BufferToken::new(self.span))
     }
@@ -64,25 +64,27 @@ impl<Handle: Copy> ByteWritable for BufferWriter<Handle> {
             return Ok(());
         }
 
-        if self.span.range().size() == 0 {
+        let range = self.span.range();
+
+        if range.size() == 0 {
             return Err(anyhow!("write to empty buffer span"));
         }
 
         let write_offset = layout.offset().bytes as u64;
-        let write_start = self
-            .span
-            .range()
+        let write_start = range
             .start()
             .checked_add(write_offset)
             .context("buffer span write overflow")?;
 
         let write_range = Range::sized(write_start, size as u64)?;
 
-        if !self.span.range().fits(write_range) {
+        if !range.fits(write_range) {
             return Err(anyhow!("buffer span write out-of-bounds"));
         }
 
         self.span
+            .allocation()
+            .allocator()
             .buffer()
             .map()?
             .copy_from_nonoverlapping(bytes, write_start)?;
@@ -93,9 +95,10 @@ impl<Handle: Copy> ByteWritable for BufferWriter<Handle> {
     }
 }
 
+// TODO: need some generic interface for tokens that are "used" by command
+// buffers, to pass-through calls to touch()
 pub struct BufferToken<T: Copy> {
-    id: Option<AllocId>,
-    buffer: Arc<Buffer>,
+    allocator: AllocatorInfo,
     retire: RetireToken<T>,
     // TODO: will need additional information here to emit correct pipeline
     // barriers and wait on any semaphores for inter-queue use
@@ -103,20 +106,17 @@ pub struct BufferToken<T: Copy> {
 
 impl<T: Copy> BufferToken<T> {
     pub fn new(span: BufferSpan<T>) -> Self {
-        let (id, buffer, handle, _) = span.parts();
+        let (allocation, _) = span.into_parts();
+        let (allocator, handle) = allocation.into_parts();
         let retire = RetireToken::new(handle);
-        Self { id, buffer, retire }
+        Self { allocator, retire }
     }
 
-    pub fn id(&self) -> Option<AllocId> {
-        self.id
+    pub fn allocator(&self) -> &AllocatorInfo {
+        &self.allocator
     }
 
-    pub fn buffer(&self) -> &Arc<Buffer> {
-        &self.buffer
-    }
-
-    pub fn parts(self) -> (Arc<Buffer>, RetireToken<T>) {
-        (self.buffer, self.retire)
+    pub fn into_parts(self) -> (AllocatorInfo, RetireToken<T>) {
+        (self.allocator, self.retire)
     }
 }

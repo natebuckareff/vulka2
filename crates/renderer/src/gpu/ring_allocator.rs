@@ -2,7 +2,8 @@ use anyhow::{Result, anyhow};
 use vulkanalia_vma as vma;
 
 use crate::gpu::{
-    AlignedRange, AllocId, BufferBlock, BufferSpan, BufferToken, Range, RetireQueue, align_up,
+    AlignedRange, AllocatorId, BufferAllocator, BufferSpan, BufferToken, Range, RetireQueue,
+    align_up,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -12,7 +13,7 @@ pub struct RingHandle {
 }
 
 pub struct RingAllocator<Storage: Copy> {
-    id: AllocId,
+    id: AllocatorId,
     storage: BufferSpan<Storage>,
     device_start: u64,
     device_end: u64,
@@ -24,14 +25,15 @@ pub struct RingAllocator<Storage: Copy> {
 
 impl<Storage: Copy> RingAllocator<Storage> {
     pub fn new(storage: BufferSpan<Storage>) -> Result<Self> {
-        storage.buffer().check_flags(
+        let buffer = storage.allocation().allocator().buffer();
+        buffer.check_flags(
             vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
                 | vma::AllocationCreateFlags::MAPPED,
         )?;
-        let device = storage.buffer().device().clone();
+        let device = buffer.device().clone();
         let retirement = RetireQueue::new(device)?;
         Ok(Self {
-            id: AllocId::new(),
+            id: AllocatorId::new(),
             storage,
             device_start: 0,
             device_end: 0,
@@ -94,16 +96,20 @@ impl<Storage: Copy> RingAllocator<Storage> {
         if !self.owns_token(&token) {
             return Err(anyhow!("allocator mismatch"));
         }
-        let (_, retire) = token.parts();
+        let (_, retire) = token.into_parts();
         self.retirement.retire(retire)
     }
 }
 
-impl<Storage: Copy> BufferBlock for RingAllocator<Storage> {
+impl<Storage: Copy> BufferAllocator for RingAllocator<Storage> {
     type Storage = Storage;
     type Handle = RingHandle;
 
-    fn id(&self) -> AllocId {
+    fn storage(&self) -> &BufferSpan<Self::Storage> {
+        &self.storage
+    }
+
+    fn id(&self) -> AllocatorId {
         self.id
     }
 
@@ -116,13 +122,11 @@ impl<Storage: Copy> BufferBlock for RingAllocator<Storage> {
 
         loop {
             if let Some(range) = self.acquire_range(size, align)? {
-                let buffer = self.storage.buffer().clone();
                 let id = self.next_id;
                 let size = range.full().size();
                 let handle = RingHandle { id, size };
-                let offset = self.storage.range().start();
-                let span_range = range.aligned().add(offset)?;
-                let span = BufferSpan::new(Some(self.id), buffer, handle, span_range);
+                let span_range = range.aligned().add(self.base())?;
+                let span = BufferSpan::from_allocator(self, handle, span_range);
                 self.next_id += 1;
                 self.device_end = range.full().end();
                 return Ok(Some(span));

@@ -93,6 +93,9 @@ pub struct QueueBinding {
     pub semaphore: VulkanHandle<vk::Semaphore>, // TODO: VulkanHandle
 }
 
+// TODO: should really use a QueueGroupVec here so we can more easily infer lane
+// keys throughout the engine. This code pre-dates QueueGroupVec and even
+// LaneKey so that's more of the reason for the friction. We should update it
 struct Inner {
     infos: Vec<QueueGroupInfo>,
     total_lanes: u16,
@@ -130,6 +133,7 @@ impl QueueGroupTable {
         self.inner.infos.iter().find(|info| info.id == id)
     }
 
+    // TODO FIXME: same issue with O(N) as get_binding
     pub fn get_nth_binding(&self, n: usize) -> Option<&QueueBinding> {
         let mut i = 0;
         for info in self.inner.infos.iter() {
@@ -143,6 +147,8 @@ impl QueueGroupTable {
         None
     }
 
+    // TODO FIXME: this is unnecessarily slow when we want to lookup a binding
+    // by LaneKey, would be much better to use QueueGroupVec for O(1) lookups
     pub fn get_binding(&self, key: LaneKey) -> Result<&QueueBinding> {
         self.inner
             .infos

@@ -1,47 +1,35 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use anyhow::{Context, Result};
-use vulkanalia::vk;
 
-use crate::gpu::{Buffer, BufferObject, BufferWriter};
+use crate::gpu::{AllocatorInfo, Buffer, BufferAllocator, BufferObject, BufferWriter};
 
 pub struct BufferSpan<Handle: Copy> {
-    id: Option<AllocId>,
-    buffer: Arc<Buffer>,
-    handle: Handle,
+    allocation: Allocation<Handle>,
     range: Range,
 }
 
 impl<Handle: Copy> BufferSpan<Handle> {
-    pub fn new(id: Option<AllocId>, buffer: Arc<Buffer>, handle: Handle, range: Range) -> Self {
-        debug_assert!(buffer.fits(range));
-        Self {
-            id,
-            buffer,
+    pub fn from_buffer(buffer: Buffer, handle: Handle, range: Range) -> Self {
+        let allocation = Allocation {
+            allocator: AllocatorInfo::from_buffer(buffer),
             handle,
-            range,
-        }
+        };
+        Self { allocation, range }
     }
 
-    pub fn id(&self) -> Option<AllocId> {
-        self.id
+    pub fn from_allocator(allocator: &impl BufferAllocator, handle: Handle, range: Range) -> Self {
+        let allocation = Allocation {
+            allocator: AllocatorInfo::from_allocator(allocator),
+            handle,
+        };
+        Self { allocation, range }
     }
 
-    pub fn buffer(&self) -> &Arc<Buffer> {
-        &self.buffer
-    }
-
-    pub fn handle(&self) -> Handle {
-        self.handle
+    pub fn allocation(&self) -> &Allocation<Handle> {
+        &self.allocation
     }
 
     pub fn range(&self) -> Range {
         self.range
-    }
-
-    pub fn usage(&self) -> vk::BufferUsageFlags {
-        self.buffer.usage()
     }
 
     pub fn writer(self) -> BufferWriter<Handle> {
@@ -53,18 +41,28 @@ impl<Handle: Copy> BufferSpan<Handle> {
         BufferObject::new(layout, writer)
     }
 
-    pub fn parts(self) -> (Option<AllocId>, Arc<Buffer>, Handle, Range) {
-        (self.id, self.buffer, self.handle, self.range)
+    pub fn into_parts(self) -> (Allocation<Handle>, Range) {
+        (self.allocation, self.range)
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct AllocId(u64);
+pub struct Allocation<Handle: Copy> {
+    allocator: AllocatorInfo,
+    handle: Handle,
+}
 
-impl AllocId {
-    pub(crate) fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+impl<Handle: Copy> Allocation<Handle> {
+    pub fn allocator(&self) -> &AllocatorInfo {
+        &self.allocator
+    }
+
+    pub fn handle(&self) -> Handle {
+        self.handle
+    }
+
+    // TODO: consistent naming everywhere
+    pub fn into_parts(self) -> (AllocatorInfo, Handle) {
+        (self.allocator, self.handle)
     }
 }
 
