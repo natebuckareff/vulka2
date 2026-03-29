@@ -1,39 +1,42 @@
 use std::cell::RefCell;
 
-use anyhow::{Context, Result, anyhow};
-use slang::LayoutCursor;
+use anyhow::Result;
+use bytemuck::Pod;
 
-use crate::gpu::{AllocatorInfo, BufferSpan, ByteWritable, Range, RetireToken, ShaderCursor};
+use crate::gpu::{Allocation, AllocatorId, BufferSpan, Range, RetireToken};
 
-pub struct BufferObject<Handle: Copy> {
-    layout: LayoutCursor,
-    writer: RefCell<BufferWriter<Handle>>,
+pub struct BufferObject {
+    layout: slang::LayoutCursor,
+    writer: RefCell<BufferWriter>,
 }
 
-impl<Handle: Copy> BufferObject<Handle> {
-    pub fn new(layout: &LayoutCursor, writer: BufferWriter<Handle>) -> Self {
+impl BufferObject {
+    pub fn new(layout: &slang::LayoutCursor, writer: BufferWriter) -> Self {
         Self {
             layout: layout.rebase(),
             writer: RefCell::new(writer),
         }
     }
 
-    pub fn cursor(&self) -> ShaderCursor<'_, BufferWriter<Handle>> {
-        ShaderCursor::new(self.layout.clone(), &self.writer)
+    pub fn cursor(&self) -> BufferCursor<'_> {
+        BufferCursor {
+            layout: self.layout.clone(),
+            writer: &self.writer,
+        }
     }
 
-    pub fn finish(self) -> Result<BufferToken<Handle>> {
+    pub fn finish(self) -> Result<BufferToken> {
         self.writer.into_inner().finish()
     }
 }
 
-pub struct BufferWriter<Handle: Copy> {
-    span: BufferSpan<Handle>,
+pub struct BufferWriter {
+    span: BufferSpan,
     dirty: Option<Range>,
 }
 
-impl<Handle: Copy> BufferWriter<Handle> {
-    pub(crate) fn new(span: BufferSpan<Handle>) -> Self {
+impl BufferWriter {
+    pub fn new(span: BufferSpan) -> Self {
         Self { span, dirty: None }
     }
 
@@ -48,75 +51,78 @@ impl<Handle: Copy> BufferWriter<Handle> {
         }
     }
 
-    pub fn finish(self) -> Result<BufferToken<Handle>> {
+    pub(crate) fn write<T: Pod>(&mut self, layout: &slang::LayoutCursor, value: &T) -> Result<()> {
+        let offset = layout.offset().bytes as u64;
+        let bytes = bytemuck::bytes_of(value);
+        let range = self.span.write_bytes(offset, bytes)?;
+        self.mark_dirty(range);
+        Ok(())
+    }
+
+    pub(crate) fn finish(self) -> Result<BufferToken> {
         if let Some(dirty) = self.dirty {
-            self.span.allocation().allocator().buffer().flush(dirty)?;
+            self.span.buffer().flush(dirty)?;
         }
         Ok(BufferToken::new(self.span))
     }
 }
 
-impl<Handle: Copy> ByteWritable for BufferWriter<Handle> {
-    fn write_bytes(&mut self, layout: &slang::LayoutCursor, bytes: &[u8]) -> Result<()> {
-        let size = bytes.len();
+pub struct BufferCursor<'obj> {
+    layout: slang::LayoutCursor,
+    writer: &'obj RefCell<BufferWriter>,
+}
 
-        if size == 0 {
-            return Ok(());
-        }
+impl<'obj> BufferCursor<'obj> {
+    pub fn field(&self, name: &str) -> Result<Self> {
+        Ok(Self {
+            layout: self.layout.field(name)?,
+            writer: self.writer,
+        })
+    }
 
-        let range = self.span.range();
+    pub fn index(&self, index: usize) -> Result<Self> {
+        Ok(Self {
+            layout: self.layout.index(index)?,
+            writer: self.writer,
+        })
+    }
 
-        if range.size() == 0 {
-            return Err(anyhow!("write to empty buffer span"));
-        }
+    pub fn set<T: Pod>(&self, value: T) -> Result<()> {
+        self.write(&value)
+    }
 
-        let write_offset = layout.offset().bytes as u64;
-        let write_start = range
-            .start()
-            .checked_add(write_offset)
-            .context("buffer span write overflow")?;
-
-        let write_range = Range::sized(write_start, size as u64)?;
-
-        if !range.fits(write_range) {
-            return Err(anyhow!("buffer span write out-of-bounds"));
-        }
-
-        self.span
-            .allocation()
-            .allocator()
-            .buffer()
-            .map()?
-            .copy_from_nonoverlapping(bytes, write_start)?;
-
-        self.mark_dirty(write_range);
-
-        Ok(())
+    pub fn write<T: Pod>(&self, value: &T) -> Result<()> {
+        let mut writer = self.writer.borrow_mut();
+        writer.write(&self.layout, value)
     }
 }
 
 // TODO: need some generic interface for tokens that are "used" by command
 // buffers, to pass-through calls to touch()
-pub struct BufferToken<T: Copy> {
-    allocator: AllocatorInfo,
-    retire: RetireToken<T>,
+pub struct BufferToken {
+    allocator: AllocatorId,
+    retire: RetireToken<Allocation>,
     // TODO: will need additional information here to emit correct pipeline
     // barriers and wait on any semaphores for inter-queue use
 }
 
-impl<T: Copy> BufferToken<T> {
-    pub fn new(span: BufferSpan<T>) -> Self {
-        let (allocation, _) = span.into_parts();
-        let (allocator, handle) = allocation.into_parts();
-        let retire = RetireToken::new(handle);
+impl BufferToken {
+    pub fn new(span: BufferSpan) -> Self {
+        let (_, allocator, handle, range) = span.into_parts();
+        let allocation = Allocation::new(handle, range);
+        let retire = RetireToken::new(allocation);
         Self { allocator, retire }
     }
 
-    pub fn allocator(&self) -> &AllocatorInfo {
-        &self.allocator
+    pub fn allocator(&self) -> AllocatorId {
+        self.allocator
     }
 
-    pub fn into_parts(self) -> (AllocatorInfo, RetireToken<T>) {
-        (self.allocator, self.retire)
+    pub fn retire(&self) -> &RetireToken<Allocation> {
+        &self.retire
+    }
+
+    pub fn into_retire(self) -> RetireToken<Allocation> {
+        self.retire
     }
 }

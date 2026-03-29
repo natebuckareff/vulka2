@@ -11,6 +11,7 @@ crevice = { version = "0.18.0", features = ["glam"] }
 generational-arena = "0.2.9"
 glam = { version = "0.30.10", features = ["bytemuck"] }
 image = { version = "0.25.9", default-features = false, features = ["png"] }
+num-traits = "0.2.19"
 slang = { path = "../slang" }
 slang_struct = { version = "0.0.2", features = ["glam", "bytemuck"] }
 smallbitvec = "2.6.0"

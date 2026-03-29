@@ -1,156 +1,100 @@
-use anyhow::{Context, Result};
+use std::sync::Arc;
 
-use crate::gpu::{AllocatorInfo, Buffer, BufferAllocator, BufferObject, BufferWriter};
+use anyhow::{Result, anyhow};
 
-pub struct BufferSpan<Handle: Copy> {
-    allocation: Allocation<Handle>,
+use crate::gpu::{
+    AllocHandle, AllocatorId, Buffer, BufferAllocator, BufferObject, BufferWriter, Range,
+};
+
+pub struct BufferSpan {
+    buffer: Arc<Buffer>,
+    allocator: AllocatorId,
+    handle: AllocHandle,
     range: Range,
 }
 
-impl<Handle: Copy> BufferSpan<Handle> {
-    pub fn from_buffer(buffer: Buffer, handle: Handle, range: Range) -> Self {
-        let allocation = Allocation {
-            allocator: AllocatorInfo::from_buffer(buffer),
-            handle,
-        };
-        Self { allocation, range }
+impl BufferSpan {
+    pub fn from_buffer(buffer: Buffer) -> Self {
+        let size = buffer.size();
+        let buffer = Arc::new(buffer);
+        Self {
+            buffer,
+            allocator: AllocatorId::buffer(),
+            handle: AllocHandle::dummy(),
+            range: Range::new(0, size),
+        }
     }
 
-    pub fn from_allocator(allocator: &impl BufferAllocator, handle: Handle, range: Range) -> Self {
-        let allocation = Allocation {
-            allocator: AllocatorInfo::from_allocator(allocator),
+    pub fn from_allocator(
+        allocator: &impl BufferAllocator,
+        handle: AllocHandle,
+        range: Range,
+    ) -> Self {
+        Self {
+            buffer: allocator.backing().buffer().clone(),
+            allocator: allocator.id(),
             handle,
-        };
-        Self { allocation, range }
+            range,
+        }
     }
 
-    pub fn allocation(&self) -> &Allocation<Handle> {
-        &self.allocation
+    pub fn buffer(&self) -> &Arc<Buffer> {
+        &self.buffer
+    }
+
+    pub fn allocator(&self) -> AllocatorId {
+        self.allocator
+    }
+
+    pub fn handle(&self) -> AllocHandle {
+        self.handle
     }
 
     pub fn range(&self) -> Range {
         self.range
     }
 
-    pub fn writer(self) -> BufferWriter<Handle> {
+    pub fn write_bytes(&mut self, offset: u64, bytes: &[u8]) -> Result<Range> {
+        let size = bytes.len();
+        if size == 0 {
+            return Ok(Range::new(0, 0));
+        }
+
+        if self.range.size() == 0 {
+            return Err(anyhow!("write to empty buffer span"));
+        }
+
+        let write_start = self.range.start() + offset;
+        let write_end = write_start + bytes.len() as u64;
+        let write_range = Range::new(write_start, write_end);
+
+        if !self.range.fits(write_range) {
+            return Err(anyhow!("buffer span write out-of-bounds"));
+        }
+
+        self.buffer
+            .map()?
+            .copy_from_nonoverlapping(bytes, write_start)?;
+
+        Ok(write_range)
+    }
+
+    pub fn writer(self) -> BufferWriter {
         BufferWriter::new(self)
     }
 
-    pub fn object(self, layout: &slang::LayoutCursor) -> BufferObject<Handle> {
+    pub fn object<'reg>(self, layout: &slang::LayoutCursor) -> BufferObject {
         let writer = self.writer();
         BufferObject::new(layout, writer)
     }
 
-    pub fn into_parts(self) -> (Allocation<Handle>, Range) {
-        (self.allocation, self.range)
-    }
-}
-
-pub struct Allocation<Handle: Copy> {
-    allocator: AllocatorInfo,
-    handle: Handle,
-}
-
-impl<Handle: Copy> Allocation<Handle> {
-    pub fn allocator(&self) -> &AllocatorInfo {
-        &self.allocator
-    }
-
-    pub fn handle(&self) -> Handle {
-        self.handle
-    }
-
-    // TODO: consistent naming everywhere
-    pub fn into_parts(self) -> (AllocatorInfo, Handle) {
-        (self.allocator, self.handle)
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Range {
-    start: u64,
-    end: u64,
-}
-
-impl Range {
-    pub fn new(start: u64, end: u64) -> Self {
-        debug_assert!(start <= end, "invalid range");
-        Self { start, end }
-    }
-
-    pub fn sized(start: u64, size: u64) -> Result<Self> {
-        let end = start.checked_add(size).context("range overflow")?;
-        Ok(Self { start, end })
-    }
-
-    pub fn empty() -> Self {
-        Self { start: 0, end: 0 }
-    }
-
-    pub fn start(&self) -> u64 {
-        self.start
-    }
-
-    pub fn end(&self) -> u64 {
-        self.end
-    }
-
-    pub fn size(&self) -> u64 {
-        // OVERFLOW: since end is always > start, this will never overflow
-        self.end - self.start
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.end == self.start
-    }
-
-    pub fn fits(&self, other: Range) -> bool {
-        other.start >= self.start && other.end <= self.end
-    }
-
-    pub fn clamp(&self, other: Range) -> Range {
-        let start = self.start.clamp(other.start, other.end);
-        let end = self.end.clamp(other.start, other.end);
-        Range { start, end }
-    }
-
-    pub fn add(&self, offset: u64) -> Result<Range> {
-        Ok(Self {
-            start: self
-                .start
-                .checked_add(offset)
-                .context("range add overflow")?,
-            end: self.end.checked_add(offset).context("range add overflow")?,
-        })
-    }
-
-    pub fn sub(&self, offset: u64) -> Result<Range> {
-        Ok(Self {
-            start: self
-                .start
-                .checked_sub(offset)
-                .context("range sub overflow")?,
-            end: self.end.checked_sub(offset).context("range sub overflow")?,
-        })
-    }
-}
-
-pub struct AlignedRange {
-    start: u64,
-    aligned: Range,
-}
-
-impl AlignedRange {
-    pub fn new(start: u64, aligned: Range) -> Self {
-        debug_assert!(start <= aligned.start);
-        Self { start, aligned }
-    }
-
-    pub fn full(&self) -> Range {
-        Range::new(self.start, self.aligned.end)
-    }
-
-    pub fn aligned(&self) -> Range {
-        self.aligned
+    pub fn into_parts(self) -> (Arc<Buffer>, AllocatorId, AllocHandle, Range) {
+        let BufferSpan {
+            buffer,
+            allocator,
+            handle,
+            range,
+        } = self;
+        (buffer, allocator, handle, range)
     }
 }

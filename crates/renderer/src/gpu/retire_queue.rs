@@ -33,6 +33,18 @@ impl<T: Copy> RetireToken<T> {
         }
     }
 
+    // TODO: is this correct? I think so...
+    pub fn from_record(record: RetireRecord<T>) -> Self {
+        Self {
+            state: Arc::new(RetireState {
+                dirty: AtomicUsize::new(record.dirty),
+                last_frame: AtomicU64::new(record.last_frame),
+                retired: AtomicBool::new(false),
+                handle: record.handle,
+            }),
+        }
+    }
+
     pub fn handle(&self) -> T {
         self.state.handle
     }

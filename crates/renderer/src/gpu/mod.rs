@@ -1,3 +1,4 @@
+mod allocation;
 mod buffer;
 mod buffer_allocator;
 mod buffer_object;
@@ -32,14 +33,15 @@ mod queue_group;
 mod queue_group_table;
 mod queue_group_vec;
 mod queue_selection;
+mod range;
 mod resource_arena;
 mod retire_queue;
 mod ring_allocator;
-mod shader_object;
 mod submission_progress;
 mod swapchain;
 mod validation_layers;
 
+pub use allocation::*;
 pub use buffer_allocator::*;
 pub use buffer_object::*;
 pub use buffer_span::*;
@@ -57,9 +59,9 @@ pub use frame_allocator::*;
 pub use gpu_allocator::*;
 pub use parameter_block::*;
 pub use queue_group::*;
+pub use range::*;
 pub use resource_arena::*;
 pub use ring_allocator::*;
-pub use shader_object::*;
 pub use swapchain::*;
 
 pub(crate) use buffer::*;

@@ -1,123 +1,144 @@
 use std::cell::RefCell;
 
-use anyhow::{Context, Result, anyhow};
-use slang::LayoutCursor;
-use vulkanalia::vk;
+use anyhow::{Result, anyhow};
+use bytemuck::Pod;
 
 use crate::gpu::{
-    BufferToken, BufferWriter, ByteWritable, DescriptorSet, DescriptorSetHandle, ResourceBindable,
-    ResourceBinding, RetireToken, ShaderCursor,
+    BufferObject, BufferSpan, BufferToken, BufferWriter, DescriptorSet, DescriptorSetHandle,
+    RetireToken, ShaderDescriptor,
 };
 
-// TODO: rename to ParameterObject?
-pub struct ParameterBlock<Handle: Copy> {
-    layout: LayoutCursor,
-    writer: RefCell<ParameterWriter<Handle>>,
+pub struct ParameterBlock {
+    layout: slang::LayoutCursor,
+    parameter_writer: RefCell<ParameterWriter>,
+    ubo_writer: Option<RefCell<BufferWriter>>,
 }
 
-impl<Handle: Copy> ParameterBlock<Handle> {
-    pub fn new(writer: ParameterWriter<Handle>) -> Self {
+impl ParameterBlock {
+    pub fn new(parameter_writer: ParameterWriter, ubo_writer: Option<BufferWriter>) -> Self {
         Self {
-            layout: writer.set.set_layout().layout().rebase(),
-            writer: RefCell::new(writer),
+            layout: parameter_writer.set.set_layout().layout().rebase(),
+            parameter_writer: RefCell::new(parameter_writer),
+            ubo_writer: ubo_writer.map(RefCell::new),
         }
     }
 
-    pub fn cursor(&self) -> ShaderCursor<'_, ParameterWriter<Handle>> {
-        ShaderCursor::new(self.layout.clone(), &self.writer)
-    }
-
-    pub fn finish(self) -> Result<ParameterToken<Handle>> {
-        self.writer.into_inner().finish()
-    }
-}
-
-pub struct ParameterWriter<Handle: Copy> {
-    set: DescriptorSet,
-    ubo: Option<BufferWriter<Handle>>,
-}
-
-impl<Handle: Copy> ParameterWriter<Handle> {
-    pub fn new(set: DescriptorSet, ubo: Option<BufferWriter<Handle>>) -> Self {
-        Self { set, ubo }
-    }
-
-    pub fn finish(self) -> Result<ParameterToken<Handle>> {
-        let handle = *self.set.handle();
-        let ubo = self.ubo.map(|writer| writer.finish()).transpose()?;
-        Ok(ParameterToken::new(handle, ubo))
-    }
-}
-
-impl<Handle: Copy> ResourceBindable for ParameterWriter<Handle> {
-    fn bind(&mut self, layout: &slang::LayoutCursor, resource: &ResourceBinding) -> Result<()> {
-        let parameter_block_layout = self.set.set_layout().layout().parameter_block_layout()?;
-        let binding_range = layout.offset().binding_range;
-        let binding = &parameter_block_layout
-            .find_binding_range(binding_range)
-            .context("binding range out-of-bounds")?
-            .descriptor;
-
-        use ResourceBinding::*;
-        match (resource, binding.descriptor_type) {
-            (UniformBuffer(), vk::DescriptorType::UNIFORM_BUFFER) => {
-                todo!();
-            }
-            (SampledImage(), vk::DescriptorType::SAMPLED_IMAGE) => {
-                todo!()
-            }
-            (Sampler(), vk::DescriptorType::SAMPLER) => {
-                todo!()
-            }
-            (CombinedImageSampler(), vk::DescriptorType::COMBINED_IMAGE_SAMPLER) => {
-                todo!()
-            }
-            _ => {}
-        };
-
-        todo!()
-    }
-}
-
-impl<Handle: Copy> ByteWritable for ParameterWriter<Handle> {
-    fn write_bytes(&mut self, layout: &slang::LayoutCursor, bytes: &[u8]) -> Result<()> {
-        let Some(ubo) = &mut self.ubo else {
-            return Err(anyhow!("implicit parameter block ubo not found"));
-        };
-        ubo.write_bytes(layout, bytes)
-    }
-}
-
-// TODO: all of these token wrappers around RetireToken, including BufferToken,
-// need some higher-level API for CommandBuffer to use
-pub struct ParameterToken<Handle: Copy> {
-    retire: RetireToken<DescriptorSetHandle>,
-    ubo: Option<BufferToken<Handle>>,
-}
-
-impl<Handle: Copy> ParameterToken<Handle> {
-    pub fn new(handle: DescriptorSetHandle, ubo: Option<BufferToken<Handle>>) -> Self {
-        Self {
-            retire: RetireToken::new(handle),
-            ubo,
+    pub fn cursor(&self) -> ParameterCursor<'_> {
+        ParameterCursor {
+            layout: self.layout.clone(),
+            parameter_writer: &self.parameter_writer,
+            ubo_writer: self.ubo_writer.as_ref(),
         }
     }
 
-    pub fn split(self) -> (DescriptorSetToken, Option<BufferToken<Handle>>) {
-        let token = DescriptorSetToken {
-            retire: self.retire,
+    pub fn finish(self) -> Result<ParameterToken> {
+        let set = self.parameter_writer.into_inner().finish();
+        let ubo_token = self
+            .ubo_writer
+            .map(|u| u.into_inner().finish())
+            .transpose()?;
+        let retire = RetireToken::new(*set.handle());
+        let set_token = DescriptorSetToken {
+            set: Box::new(set),
+            retire,
         };
-        (token, self.ubo)
+        Ok(ParameterToken {
+            set_token,
+            ubo_token,
+        })
+    }
+}
+
+// TODO: how are dynamic offsets bound? can figure that out when working on
+// descriptor set binding command
+pub struct ParameterToken {
+    set_token: DescriptorSetToken,
+    ubo_token: Option<BufferToken>,
+}
+
+impl ParameterToken {
+    pub fn split(self) -> (DescriptorSetToken, Option<BufferToken>) {
+        (self.set_token, self.ubo_token)
     }
 }
 
 pub struct DescriptorSetToken {
+    set: Box<DescriptorSet>,
     retire: RetireToken<DescriptorSetHandle>,
 }
 
 impl DescriptorSetToken {
-    // TODO: rename parts() -> into_parts() in this codebase
-    pub fn into_retire(self) -> RetireToken<DescriptorSetHandle> {
-        self.retire
+    pub fn into_parts(self) -> (Box<DescriptorSet>, RetireToken<DescriptorSetHandle>) {
+        (self.set, self.retire)
+    }
+}
+
+pub struct ParameterWriter {
+    set: DescriptorSet,
+}
+
+impl ParameterWriter {
+    pub fn new(set: DescriptorSet) -> Self {
+        Self { set }
+    }
+
+    fn write_descriptor<T: ShaderDescriptor>(
+        &mut self,
+        layout: &slang::LayoutCursor,
+        value: T,
+    ) -> Result<()> {
+        value.encode_into(layout, &mut self.set)
+    }
+
+    fn finish(self) -> DescriptorSet {
+        self.set
+    }
+}
+
+pub struct ParameterCursor<'obj> {
+    layout: slang::LayoutCursor,
+    parameter_writer: &'obj RefCell<ParameterWriter>,
+    ubo_writer: Option<&'obj RefCell<BufferWriter>>,
+}
+
+impl<'obj> ParameterCursor<'obj> {
+    pub fn field(&self, name: &str) -> Result<Self> {
+        Ok(Self {
+            layout: self.layout.field(name)?,
+            parameter_writer: self.parameter_writer,
+            ubo_writer: self.ubo_writer,
+        })
+    }
+
+    pub fn index(&self, index: usize) -> Result<Self> {
+        Ok(Self {
+            layout: self.layout.index(index)?,
+            parameter_writer: self.parameter_writer,
+            ubo_writer: self.ubo_writer,
+        })
+    }
+
+    // returns handle to non-implicit ubo binding
+    pub fn uniform<'r>(&self, span: BufferSpan) -> BufferObject {
+        span.object(&self.layout)
+    }
+
+    // writes into implicit ubo
+    pub fn set<T: Pod>(&self, value: T) -> Result<()> {
+        self.write(&value)
+    }
+
+    // writes into implicit ubo
+    pub fn write<T: Pod>(&self, value: &T) -> Result<()> {
+        let Some(mut writer) = self.ubo_writer.map(RefCell::borrow_mut) else {
+            return Err(anyhow!("parameter block has no implicit uniform buffer"));
+        };
+        writer.write(&self.layout, value)
+    }
+
+    // writes into descriptor
+    pub fn write_descriptor<T: ShaderDescriptor>(&self, value: T) -> Result<()> {
+        let mut writer = self.parameter_writer.borrow_mut();
+        writer.write_descriptor(&self.layout, value)
     }
 }
