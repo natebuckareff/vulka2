@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use anyhow::Result;
-use vulkanalia::vk::{self, HasBuilder};
+use anyhow::{Result, anyhow};
 
-use crate::gpu::{DescriptorSetLayout, Device, OwnedPipelineLayout, PushConstant, VulkanResource};
+use crate::gpu::{
+    DescriptorSetLayout, Device, OwnedPipelineLayout, PushConstant, PushConstantData,
+    VulkanResource,
+};
 
 pub struct PipelineLayout {
     sets: Box<[DescriptorSetLayout]>,
@@ -17,6 +19,8 @@ impl PipelineLayout {
         sets: Box<[DescriptorSetLayout]>,
         constants: Box<[PushConstant]>,
     ) -> Result<Self> {
+        use vulkanalia::prelude::v1_0::*;
+
         let set_layouts = sets
             .iter()
             .map(|set| unsafe { *set.owned().raw() })
@@ -46,6 +50,25 @@ impl PipelineLayout {
 
     pub fn constants(&self) -> &[PushConstant] {
         &self.constants
+    }
+
+    pub(crate) fn validate_push_constant_data(&self, data: &PushConstantData) -> Result<()> {
+        let range = data.range();
+        let is_valid = self
+            .constants
+            .iter()
+            .map(|constant| constant.matches_range(range))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .any(|matches| matches);
+
+        if !is_valid {
+            return Err(anyhow!(
+                "push constant range is not declared on this pipeline layout"
+            ));
+        }
+
+        Ok(())
     }
 
     pub(crate) fn owned(&self) -> &OwnedPipelineLayout {

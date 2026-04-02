@@ -2,6 +2,8 @@ use anyhow::{Context, Result, anyhow, ensure};
 use slang::{LayoutCursor, LayoutKind};
 use vulkanalia::vk;
 
+use crate::gpu::PushConstantData;
+
 #[derive(Clone, Debug)]
 pub struct PushConstant {
     layouts: Box<[LayoutCursor]>,
@@ -88,6 +90,21 @@ impl PushConstant {
             offset: range.offset,
             size: range.size,
         })
+    }
+
+    pub(crate) fn matches_range(&self, range: vk::PushConstantRange) -> Result<bool> {
+        Ok(self.vk_range()? == range)
+    }
+
+    pub fn data(&self) -> Result<PushConstantData> {
+        let layout = self
+            .layouts()
+            .first()
+            .context("push constant has no source layouts")?
+            .element_layout()?
+            .rebase();
+        let range = self.vk_range()?;
+        PushConstantData::new(layout, range)
     }
 }
 
