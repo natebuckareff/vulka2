@@ -1,6 +1,4 @@
-use shader_slang as slang;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Result, bail};
 use blake3::{Hash, Hasher};

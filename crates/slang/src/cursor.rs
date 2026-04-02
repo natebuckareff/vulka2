@@ -2,7 +2,10 @@ use anyhow::{Context, Result, anyhow};
 use compact_str::CompactString;
 use std::sync::Arc;
 
-use crate::{ElementCount, ParameterBlockLayout, ShaderLayout, SlangShaderStage, Type, VarLayout};
+use crate::{
+    ElementCount, ParameterBlockLayout, PushConstantRangeLayout, ShaderLayout, SlangShaderStage,
+    Type, VarLayout,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 struct NodeId(usize);
@@ -54,6 +57,10 @@ enum Node {
     },
     ParameterBlock {
         layout: ParameterBlockLayout,
+        element: NodeId,
+    },
+    PushConstantBuffer {
+        layout: PushConstantRangeLayout,
         element: NodeId,
     },
     Resource {
@@ -191,6 +198,10 @@ impl LayoutIndexer {
                 layout: pb.layout,
                 element: self.intern_type(*pb.element)?,
             },
+            Type::PushConstantBuffer(push_constants) => Node::PushConstantBuffer {
+                layout: push_constants.layout,
+                element: self.intern_type(*push_constants.element)?,
+            },
             Type::ConstantBuffer(inner) => Node::ConstantBuffer {
                 element: self.intern_type(*inner)?,
             },
@@ -214,6 +225,7 @@ pub enum LayoutKind {
     Struct,
     Array,
     ParameterBlock,
+    PushConstantBuffer,
     Resource,
     Sampler,
     ConstantBuffer,
@@ -256,6 +268,7 @@ impl LayoutCursor {
             Node::Struct { .. } => LayoutKind::Struct,
             Node::Array { .. } => LayoutKind::Array,
             Node::ParameterBlock { .. } => LayoutKind::ParameterBlock,
+            Node::PushConstantBuffer { .. } => LayoutKind::PushConstantBuffer,
             Node::Resource { .. } => LayoutKind::Resource,
             Node::Sampler => LayoutKind::Sampler,
             Node::ConstantBuffer { .. } => LayoutKind::ConstantBuffer,
@@ -273,6 +286,7 @@ impl LayoutCursor {
             Node::Struct { .. } => None,
             Node::Array { element, .. } => Some(*element),
             Node::ParameterBlock { element, .. } => Some(*element),
+            Node::PushConstantBuffer { element, .. } => Some(*element),
             Node::Resource { element, .. } => *element,
             Node::Sampler => None,
             Node::ConstantBuffer { element } => Some(*element),
@@ -295,6 +309,22 @@ impl LayoutCursor {
         }
     }
 
+    pub fn push_constant_layout(&self) -> Result<&PushConstantRangeLayout> {
+        match &self.tree.nodes[self.node.0] {
+            Node::PushConstantBuffer { layout, .. } => Ok(layout),
+            _ => Err(anyhow!("node is not a push constant buffer")),
+        }
+    }
+
+    pub fn push_constant_range(&self) -> Result<vulkanalia::vk::PushConstantRange> {
+        let layout = self.push_constant_layout()?;
+
+        Ok(vulkanalia::vk::PushConstantRange {
+            stage_flags: layout.stages,
+            offset: layout.offset,
+            size: layout.size,
+        })
+    }
     pub fn field(&self, name: &str) -> Result<Self> {
         let node = self.tree.node(self.node).context("node not found")?;
         let Node::Struct { fields } = &node else {

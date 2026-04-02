@@ -80,6 +80,7 @@ pub enum Type {
     SamplerState(SamplerStateType),
     SamplerComparisonState(SamplerComparisonStateType),
     ParameterBlock(ParameterBlockType),
+    PushConstantBuffer(PushConstantBufferType),
     ConstantBuffer(Box<TypeLayout>),
 }
 
@@ -148,6 +149,20 @@ pub struct SamplerComparisonStateType {
 pub struct ParameterBlockType {
     pub layout: ParameterBlockLayout,
     pub element: Box<TypeLayout>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PushConstantBufferType {
+    pub layout: PushConstantRangeLayout,
+    pub element: Box<TypeLayout>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub struct PushConstantRangeLayout {
+    #[serde(with = "serde_shader_stage_flags")]
+    pub stages: vk::ShaderStageFlags,
+    pub offset: u32,
+    pub size: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]

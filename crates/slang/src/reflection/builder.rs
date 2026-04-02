@@ -366,7 +366,24 @@ impl LayoutBuilder {
                     return Err(anyhow::anyhow!("element not found"));
                 };
 
-                Type::ConstantBuffer(Box::new(element))
+                if slang_type_layout
+                    .categories()
+                    .any(|category| category == slang::ParameterCategory::PushConstantBuffer)
+                {
+                    let size = u32::try_from(slang_element_type.size(slang::ParameterCategory::Uniform))
+                        .context("push constant size exceeds Vulkan u32 limit")?;
+
+                    Type::PushConstantBuffer(PushConstantBufferType {
+                        layout: PushConstantRangeLayout {
+                            stages: self.current_stage_flags(),
+                            offset: 0,
+                            size,
+                        },
+                        element: Box::new(element),
+                    })
+                } else {
+                    Type::ConstantBuffer(Box::new(element))
+                }
             }
             _ => Type::Unknown(
                 format!("{:?}", slang_type_layout.kind()),
@@ -397,13 +414,7 @@ impl LayoutBuilder {
             binding_ranges: vec![],
         };
 
-        use BuilderLocation::*;
-        let stages = match self.location {
-            Global => vk::ShaderStageFlags::ALL,
-            Entrypoint(SlangShaderStage::Vertex) => vk::ShaderStageFlags::VERTEX,
-            Entrypoint(SlangShaderStage::Fragment) => vk::ShaderStageFlags::FRAGMENT,
-            Entrypoint(SlangShaderStage::Compute) => vk::ShaderStageFlags::COMPUTE,
-        };
+        let stages = self.current_stage_flags();
 
         // implicit UBO binding
         if type_layout.size(slang::ParameterCategory::Uniform) > 0 {
@@ -486,6 +497,16 @@ impl LayoutBuilder {
         }
 
         Ok(set)
+    }
+
+    fn current_stage_flags(&self) -> vk::ShaderStageFlags {
+        use BuilderLocation::*;
+        match self.location {
+            Global => vk::ShaderStageFlags::ALL, // TODO: may want to override this
+            Entrypoint(SlangShaderStage::Vertex) => vk::ShaderStageFlags::VERTEX,
+            Entrypoint(SlangShaderStage::Fragment) => vk::ShaderStageFlags::FRAGMENT,
+            Entrypoint(SlangShaderStage::Compute) => vk::ShaderStageFlags::COMPUTE,
+        }
     }
 
     fn build_size(slang_type_layout: &slang::reflection::TypeLayout) -> Option<LayoutSize> {
