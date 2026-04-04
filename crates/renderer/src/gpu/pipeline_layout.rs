@@ -8,16 +8,16 @@ use crate::gpu::{
 };
 
 pub struct PipelineLayout {
-    sets: Box<[DescriptorSetLayout]>,
-    constants: Box<[PushConstant]>,
+    sets: Box<[Arc<DescriptorSetLayout>]>,
+    constants: Box<[Arc<PushConstant>]>,
     handle: OwnedPipelineLayout,
 }
 
 impl PipelineLayout {
     pub fn new(
         device: Arc<Device>,
-        sets: Box<[DescriptorSetLayout]>,
-        constants: Box<[PushConstant]>,
+        sets: Box<[Arc<DescriptorSetLayout>]>,
+        constants: Box<[Arc<PushConstant>]>,
     ) -> Result<Self> {
         use vulkanalia::prelude::v1_0::*;
 
@@ -28,7 +28,7 @@ impl PipelineLayout {
 
         let push_constant_ranges = constants
             .iter()
-            .map(PushConstant::vk_range)
+            .map(|pc| pc.vk_range())
             .collect::<Result<Vec<_>>>()?;
 
         let info = vk::PipelineLayoutCreateInfo::builder()
@@ -44,11 +44,11 @@ impl PipelineLayout {
         })
     }
 
-    pub fn sets(&self) -> &[DescriptorSetLayout] {
+    pub fn sets(&self) -> &[Arc<DescriptorSetLayout>] {
         &self.sets
     }
 
-    pub fn constants(&self) -> &[PushConstant] {
+    pub fn constants(&self) -> &[Arc<PushConstant>] {
         &self.constants
     }
 
