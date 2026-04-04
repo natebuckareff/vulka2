@@ -57,6 +57,14 @@ pub struct ParameterToken {
 }
 
 impl ParameterToken {
+    pub fn set_token(&self) -> &DescriptorSetToken {
+        &self.set_token
+    }
+
+    pub fn ubo_token(&self) -> Option<&BufferToken> {
+        self.ubo_token.as_ref()
+    }
+
     pub fn split(self) -> (DescriptorSetToken, Option<BufferToken>) {
         (self.set_token, self.ubo_token)
     }
@@ -68,6 +76,10 @@ pub struct DescriptorSetToken {
 }
 
 impl DescriptorSetToken {
+    pub fn set(&self) -> &DescriptorSet {
+        &self.set
+    }
+
     pub fn into_parts(self) -> (Box<DescriptorSet>, RetireToken<DescriptorSetHandle>) {
         (self.set, self.retire)
     }
@@ -139,6 +151,8 @@ impl<'obj> ParameterCursor<'obj> {
     // writes into descriptor
     pub fn write_descriptor<T: ShaderDescriptor>(&self, value: T) -> Result<()> {
         let mut writer = self.parameter_writer.borrow_mut();
+        // OPTIMIZE: should bulk write all the descriptors in one go instead of
+        // one-by-one
         writer.write_descriptor(&self.layout, value)
     }
 }

@@ -98,6 +98,14 @@ impl DescriptorSet {
                 });
             }
         };
+        if let Some(ubo) = &ubo {
+            if let Err(e) = self.write_implicit_ubo_descriptor(ubo.span()) {
+                return Err(AcquireError {
+                    set: self,
+                    cause: Some(e),
+                });
+            }
+        }
         let parameter_writer = ParameterWriter::new(self);
         Ok(ParameterBlock::new(parameter_writer, ubo))
     }
@@ -149,7 +157,48 @@ impl DescriptorSet {
         Ok(FreedDescriptorSet { set: self, retire })
     }
 
-    pub fn write_buffer_descriptor(
+    pub fn write_implicit_ubo_descriptor(&mut self, span: &BufferSpan) -> Result<()> {
+        use vulkanalia::prelude::v1_0::*;
+
+        // TODO: should be validating
+        // - size limits
+        // - alignment limits
+
+        let buffer = span.buffer();
+        buffer.check_usage(vk::BufferUsageFlags::UNIFORM_BUFFER)?;
+
+        let dst_binding = 0; // implicit UBO is always binding 0
+        let dst_array_element = 0;
+
+        let info = vk::DescriptorBufferInfo::builder()
+            .buffer(unsafe { buffer.raw() })
+            .offset(span.range().start())
+            .range(span.range().size());
+
+        let buffer_info = &[info];
+
+        let write = vk::WriteDescriptorSet::builder()
+            .dst_set(self.set)
+            .dst_binding(dst_binding)
+            .dst_array_element(dst_array_element)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .buffer_info(buffer_info);
+
+        let descriptor_writes = &[write];
+        let descriptor_copies: &[vk::CopyDescriptorSet; 0] = &[];
+
+        unsafe {
+            self.device
+                .handle()
+                .raw()
+                .update_descriptor_sets(descriptor_writes, descriptor_copies);
+        }
+
+        Ok(())
+    }
+
+    // TODO: lot of duplication with `write_buffer_descriptor`
+    pub fn write_dynamic_buffer_descriptor(
         &mut self,
         offset: &slang::ShaderOffset,
         allocator: &impl BlockAllocator,
@@ -226,6 +275,7 @@ pub struct AcquireError {
     pub cause: Option<anyhow::Error>,
 }
 
+// TODO: same clunky feeling handle as command buffers...is it a smell?
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DescriptorSetHandle {
     id: DescriptorSetId,
@@ -274,6 +324,6 @@ pub trait ShaderDescriptor {
 
 impl<'a, T: BlockAllocator> ShaderDescriptor for &BufferBinding<'a, T> {
     fn encode_into(self, layout: &slang::LayoutCursor, set: &mut DescriptorSet) -> Result<()> {
-        set.write_buffer_descriptor(layout.offset(), self.allocator())
+        set.write_dynamic_buffer_descriptor(layout.offset(), self.allocator())
     }
 }
