@@ -1,43 +1,34 @@
 // TODO: llm generated file; rewrite
 
-use std::{cmp::Ordering, collections::BTreeMap, sync::Arc};
+use std::{cmp::Ordering, sync::Arc};
 
-use anyhow::{Context, Result, anyhow};
-use vulkanalia::vk::{self, HasBuilder};
+use anyhow::{Result, anyhow};
+use vulkanalia::vk;
 
-use crate::gpu::{Device, OwnedDescriptorSetLayout};
+use crate::gpu::{Device, OwnedDescriptorSetLayout, VulkanResource};
 
 pub struct DescriptorSetLayout {
     layout: slang::LayoutCursor,
     handle: OwnedDescriptorSetLayout,
-    sizing: DescriptorPoolSizing,
 }
 
 impl DescriptorSetLayout {
-    pub fn new(device: Arc<Device>, layout: slang::LayoutCursor, max_sets: u32) -> Result<Self> {
+    pub fn new(device: Arc<Device>, layout: slang::LayoutCursor) -> Result<Self> {
         use vulkanalia::prelude::v1_0::*;
 
         let parameter_block_layout = layout.parameter_block_layout()?;
         let bindings = Self::bindings(parameter_block_layout)?;
-        let sizing = DescriptorPoolSizing::new(parameter_block_layout, max_sets)?;
 
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         let device = device.handle().clone();
         let handle = OwnedDescriptorSetLayout::new(device, &info)?;
 
-        Ok(Self {
-            layout,
-            handle,
-            sizing,
-        })
+        Ok(Self { layout, handle })
     }
 
+    // TODO: feel like this should be a trait, then we can derive PartialEq etc
     pub(crate) fn owned(&self) -> &OwnedDescriptorSetLayout {
         &self.handle
-    }
-
-    pub(crate) fn sizing(&self) -> &DescriptorPoolSizing {
-        &self.sizing
     }
 
     pub fn layout(&self) -> &slang::LayoutCursor {
@@ -71,6 +62,8 @@ impl DescriptorSetLayout {
     }
 
     fn binding(binding: &slang::DescriptorBindingLayout) -> Result<vk::DescriptorSetLayoutBinding> {
+        use vulkanalia::prelude::v1_0::*;
+
         let descriptor_count = match binding.count {
             slang::ElementCount::Bounded(count) => count as u32,
             slang::ElementCount::Runtime => {
@@ -93,67 +86,8 @@ impl DescriptorSetLayout {
     }
 }
 
-pub(crate) struct DescriptorPoolSizing {
-    max_sets: u32,
-    sizes: Vec<vk::DescriptorPoolSize>,
-}
-
-impl DescriptorPoolSizing {
-    fn new(layout: &slang::ParameterBlockLayout, max_sets: u32) -> Result<Self> {
-        let mut counts = BTreeMap::new();
-
-        if let Some(binding) = &layout.implicit_ubo {
-            Self::accumulate(&mut counts, binding, max_sets)?;
-        }
-
-        for range in &layout.binding_ranges {
-            Self::accumulate(&mut counts, &range.descriptor, max_sets)?;
-        }
-
-        let sizes = counts
-            .into_iter()
-            .map(|(ty, descriptor_count)| {
-                vk::DescriptorPoolSize::builder()
-                    .type_(ty)
-                    .descriptor_count(descriptor_count)
-                    .build()
-            })
-            .collect();
-
-        Ok(Self { max_sets, sizes })
-    }
-
-    pub(crate) fn max_sets(&self) -> u32 {
-        self.max_sets
-    }
-
-    pub(crate) fn sizes(&self) -> &[vk::DescriptorPoolSize] {
-        &self.sizes
-    }
-
-    fn accumulate(
-        counts: &mut BTreeMap<vk::DescriptorType, u32>,
-        binding: &slang::DescriptorBindingLayout,
-        max_sets: u32,
-    ) -> Result<()> {
-        let per_set = match binding.count {
-            slang::ElementCount::Bounded(count) => count as u32,
-            slang::ElementCount::Runtime => {
-                return Err(anyhow!(
-                    "runtime-sized descriptor bindings are not supported for transient descriptor sets"
-                ));
-            }
-        };
-
-        let total = per_set
-            .checked_mul(max_sets)
-            .context("descriptor pool size overflow")?;
-
-        counts
-            .entry(binding.descriptor_type)
-            .and_modify(|count| *count += total)
-            .or_insert(total);
-
-        Ok(())
+impl PartialEq for DescriptorSetLayout {
+    fn eq(&self, other: &Self) -> bool {
+        unsafe { self.owned().raw() == other.owned().raw() }
     }
 }

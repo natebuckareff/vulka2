@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Arc};
+use std::{collections::{BTreeMap, VecDeque}, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use generational_arena::{Arena, Index};
@@ -13,6 +13,7 @@ pub struct DescriptorAllocator {
     id: usize,
     device: Arc<Device>,
     set_layout: Arc<DescriptorSetLayout>,
+    max_sets: u32,
     pools: Arena<DescriptorPool>,
     ready: VecDeque<DescriptorSetHandle>,
     retirement: RetireQueue<DescriptorSetHandle>,
@@ -26,12 +27,14 @@ impl DescriptorAllocator {
         id: usize, // TODO: reuse/generalize AllocId into EntityId  or something?
         device: Arc<Device>,
         set_layout: Arc<DescriptorSetLayout>,
+        max_sets: u32,
     ) -> Result<Self> {
         let retirement = RetireQueue::new(device.clone())?;
         Ok(Self {
             id,
             device,
             set_layout,
+            max_sets,
             pools: Arena::new(),
             ready: VecDeque::new(),
             retirement,
@@ -54,9 +57,11 @@ impl DescriptorAllocator {
         if let Some(index) = self.acquire_unused_pool()? {
             return Ok(index);
         }
+
+        let sizing = DescriptorPoolSizing::for_layout(self.set_layout.as_ref(), self.max_sets)?;
         let info = vk::DescriptorPoolCreateInfo::builder()
-            .max_sets(self.set_layout.sizing().max_sets())
-            .pool_sizes(&self.set_layout.sizing().sizes());
+            .max_sets(sizing.max_sets)
+            .pool_sizes(&sizing.sizes);
         let device = self.device.handle().clone();
         let owned = OwnedDescriptorPool::new(device, &info)?;
         let index = self.pools.insert_with(|index| {
@@ -153,4 +158,62 @@ impl DescriptorPool {
 pub(crate) struct DescriptorPoolId {
     allocator_id: usize, // TODO: AllocId?
     index: Index,
+}
+
+struct DescriptorPoolSizing {
+    max_sets: u32,
+    sizes: Vec<vk::DescriptorPoolSize>,
+}
+
+impl DescriptorPoolSizing {
+    fn for_layout(set_layout: &DescriptorSetLayout, max_sets: u32) -> Result<Self> {
+        let layout = set_layout.layout().parameter_block_layout()?;
+        let mut counts = BTreeMap::new();
+
+        if let Some(binding) = &layout.implicit_ubo {
+            Self::accumulate(&mut counts, binding, max_sets)?;
+        }
+
+        for range in &layout.binding_ranges {
+            Self::accumulate(&mut counts, &range.descriptor, max_sets)?;
+        }
+
+        let sizes = counts
+            .into_iter()
+            .map(|(ty, descriptor_count)| {
+                vk::DescriptorPoolSize::builder()
+                    .type_(ty)
+                    .descriptor_count(descriptor_count)
+                    .build()
+            })
+            .collect();
+
+        Ok(Self { max_sets, sizes })
+    }
+
+    fn accumulate(
+        counts: &mut BTreeMap<vk::DescriptorType, u32>,
+        binding: &slang::DescriptorBindingLayout,
+        max_sets: u32,
+    ) -> Result<()> {
+        let per_set = match binding.count {
+            slang::ElementCount::Bounded(count) => count as u32,
+            slang::ElementCount::Runtime => {
+                return Err(anyhow!(
+                    "runtime-sized descriptor bindings are not supported for transient descriptor sets"
+                ));
+            }
+        };
+
+        let total = per_set
+            .checked_mul(max_sets)
+            .context("descriptor pool size overflow")?;
+
+        counts
+            .entry(binding.descriptor_type)
+            .and_modify(|count| *count += total)
+            .or_insert(total);
+
+        Ok(())
+    }
 }
