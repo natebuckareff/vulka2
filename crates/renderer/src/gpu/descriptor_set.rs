@@ -260,13 +260,13 @@ impl DescriptorSet {
         ParameterWriter::new(self)
     }
 
-    pub fn object<'a, T>(self, ubo: Option<BufferSpan>) -> ParameterBlock
+    pub fn object<'a, T>(self, ubo: Option<BufferSpan>) -> Result<ParameterBlock>
     where
         T: BlockAllocator,
     {
         let parameter_writer = self.writer();
-        let ubo_writer = ubo.map(BufferSpan::writer);
-        ParameterBlock::new(parameter_writer, ubo_writer)
+        let ubo_writer = ubo.map(BufferSpan::writer).transpose()?;
+        Ok(ParameterBlock::new(parameter_writer, ubo_writer))
     }
 }
 

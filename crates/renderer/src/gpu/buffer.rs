@@ -1,10 +1,10 @@
 use std::{ptr::NonNull, sync::Arc};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 use vulkanalia_vma as vma;
 
-use crate::gpu::{BufferSpan, Device, Range};
+use crate::gpu::{BufferMap, BufferSpan, Device, Range};
 
 pub struct Buffer {
     device: Arc<Device>,
@@ -74,6 +74,13 @@ impl Buffer {
         self.buffer
     }
 
+    pub(crate) unsafe fn pointer(&self) -> Result<NonNull<u8>> {
+        let Some(pointer) = self.pointer else {
+            return Err(anyhow!("buffer not persistently mapped"));
+        };
+        Ok(pointer)
+    }
+
     pub fn device(&self) -> &Arc<Device> {
         &self.device
     }
@@ -91,13 +98,7 @@ impl Buffer {
     }
 
     pub fn map(&self) -> Result<BufferMap<'_>> {
-        let Some(pointer) = self.pointer else {
-            return Err(anyhow!("buffer not persistently mapped"));
-        };
-        Ok(BufferMap {
-            buffer: self,
-            pointer,
-        })
+        unsafe { BufferMap::new(self) }
     }
 
     pub fn check_usage(&self, usage: vk::BufferUsageFlags) -> Result<()> {
@@ -182,34 +183,6 @@ impl Drop for Buffer {
                 .raw()
                 .destroy_buffer(self.buffer, self.allocation);
         }
-    }
-}
-
-pub struct BufferMap<'a> {
-    buffer: &'a Buffer,
-    pointer: NonNull<u8>,
-}
-
-impl<'a> BufferMap<'a> {
-    fn pointer_at(&self, offset: u64) -> Result<NonNull<u8>> {
-        if offset >= self.buffer.size() {
-            return Err(anyhow!("buffer map offset out-of-bounds"));
-        }
-        Ok(unsafe { self.pointer.add(offset as usize) })
-    }
-
-    pub fn copy_from_nonoverlapping(&self, src: &[u8], dst: u64) -> Result<()> {
-        let count = src.len();
-        let end = dst
-            .checked_add(count as u64)
-            .context("buffer map bounds overflow")?;
-        if end > self.buffer.size() {
-            return Err(anyhow!("buffer map size out-of-bounds"));
-        }
-        let src_ptr = src.as_ptr();
-        let dst_ptr = self.pointer_at(dst)?.as_ptr();
-        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, count) };
-        Ok(())
     }
 }
 

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 
 use crate::gpu::{
     AllocHandle, AllocatorId, Buffer, BufferAllocator, BufferObject, BufferWriter, Range,
@@ -54,38 +54,13 @@ impl BufferSpan {
         self.range
     }
 
-    pub fn write_bytes(&mut self, offset: u64, bytes: &[u8]) -> Result<Range> {
-        let size = bytes.len();
-        if size == 0 {
-            return Ok(Range::new(0, 0));
-        }
-
-        if self.range.size() == 0 {
-            return Err(anyhow!("write to empty buffer span"));
-        }
-
-        let write_start = self.range.start() + offset;
-        let write_end = write_start + bytes.len() as u64;
-        let write_range = Range::new(write_start, write_end);
-
-        if !self.range.fits(write_range) {
-            return Err(anyhow!("buffer span write out-of-bounds"));
-        }
-
-        self.buffer
-            .map()?
-            .copy_from_nonoverlapping(bytes, write_start)?;
-
-        Ok(write_range)
-    }
-
-    pub fn writer(self) -> BufferWriter {
+    pub fn writer(self) -> Result<BufferWriter> {
         BufferWriter::new(self)
     }
 
-    pub fn object<'reg>(self, layout: &slang::LayoutCursor) -> BufferObject {
-        let writer = self.writer();
-        BufferObject::new(layout, writer)
+    pub fn object<'reg>(self, layout: &slang::LayoutCursor) -> Result<BufferObject> {
+        let writer = self.writer()?;
+        Ok(BufferObject::new(layout, writer))
     }
 
     pub fn into_parts(self) -> (Arc<Buffer>, AllocatorId, AllocHandle, Range) {

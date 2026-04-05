@@ -142,7 +142,7 @@ impl<'obj> ParameterCursor<'obj> {
     }
 
     // returns handle to non-implicit ubo binding
-    pub fn uniform<'r>(&self, span: BufferSpan) -> BufferObject {
+    pub fn uniform<'r>(&self, span: BufferSpan) -> Result<BufferObject> {
         span.object(&self.layout)
     }
 

@@ -4,8 +4,8 @@ use anyhow::Result;
 use bytemuck::Pod;
 
 use crate::gpu::{
-    Allocation, AllocatorId, Buffer, BufferSpan, FrameToken, LaneKey, QueueFamilyId, Range,
-    RetireToken,
+    Allocation, AllocatorId, Buffer, BufferSpan, FrameToken, LaneKey, MapSpan, QueueFamilyId,
+    Range, RetireToken,
 };
 
 pub struct BufferObject {
@@ -34,17 +34,18 @@ impl BufferObject {
 }
 
 pub struct BufferWriter {
-    span: BufferSpan,
+    map: MapSpan,
     dirty: Option<Range>,
 }
 
 impl BufferWriter {
-    pub fn new(span: BufferSpan) -> Self {
-        Self { span, dirty: None }
+    pub fn new(span: BufferSpan) -> Result<Self> {
+        let map = MapSpan::new(span)?;
+        Ok(Self { map, dirty: None })
     }
 
     pub(crate) fn span(&self) -> &BufferSpan {
-        &self.span
+        self.map.span()
     }
 
     fn mark_dirty(&mut self, range: Range) {
@@ -61,16 +62,16 @@ impl BufferWriter {
     pub(crate) fn write<T: Pod>(&mut self, layout: &slang::LayoutCursor, value: &T) -> Result<()> {
         let offset = layout.offset().bytes as u64;
         let bytes = bytemuck::bytes_of(value);
-        let range = self.span.write_bytes(offset, bytes)?;
+        let range = self.map.write_bytes(offset, bytes)?;
         self.mark_dirty(range);
         Ok(())
     }
 
     pub(crate) fn finish(self) -> Result<BufferToken> {
         if let Some(dirty) = self.dirty {
-            self.span.buffer().flush(dirty)?;
+            self.span().buffer().flush(dirty)?;
         }
-        Ok(BufferToken::new(self.span))
+        Ok(BufferToken::new(self.map.into_span()))
     }
 }
 
