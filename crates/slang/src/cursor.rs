@@ -316,15 +316,6 @@ impl LayoutCursor {
         }
     }
 
-    pub fn push_constant_range(&self) -> Result<vulkanalia::vk::PushConstantRange> {
-        let layout = self.push_constant_layout()?;
-
-        Ok(vulkanalia::vk::PushConstantRange {
-            stage_flags: layout.stages,
-            offset: layout.offset,
-            size: layout.size,
-        })
-    }
     pub fn field(&self, name: &str) -> Result<Self> {
         let node = self.tree.node(self.node).context("node not found")?;
         let Node::Struct { fields } = &node else {
