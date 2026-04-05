@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{cell::OnceCell, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
-use crate::gpu::{ImageView, SampleCount};
+use crate::gpu::{ImageView, SampleCount, VulkanResource};
 
 pub struct RenderTargets {
     layout: Arc<RenderingLayout>,
@@ -11,6 +11,7 @@ pub struct RenderTargets {
     colors: Box<[ColorTarget]>,
     depth: Option<DepthTarget>,
     stencil: Option<StencilTarget>,
+    info: OnceCell<RenderTargetsInfo>,
 }
 
 impl RenderTargets {
@@ -33,6 +34,7 @@ impl RenderTargets {
             colors,
             depth,
             stencil,
+            info: OnceCell::new(),
         })
     }
 
@@ -59,6 +61,70 @@ impl RenderTargets {
 
     pub fn stencil(&self) -> Option<&StencilTarget> {
         self.stencil.as_ref()
+    }
+
+    pub fn get_rendering_info(&self) -> &vk::RenderingInfo {
+        let info = self.info.get_or_init(|| RenderTargetsInfo::new(self));
+        info.rendering_info(self)
+    }
+}
+
+struct RenderTargetsInfo {
+    color_info: Vec<vk::RenderingAttachmentInfo>,
+    depth_info: Option<vk::RenderingAttachmentInfo>,
+    stencil_info: Option<vk::RenderingAttachmentInfo>,
+    rendering_info: OnceCell<vk::RenderingInfo>,
+}
+
+impl RenderTargetsInfo {
+    fn new(targets: &RenderTargets) -> Self {
+        let mut color_info = Vec::with_capacity(targets.colors.len());
+        for color in &targets.colors {
+            let info = color.target.get_rendering_attachment_info();
+            color_info.push(info);
+        }
+
+        let mut depth_info = None;
+        if let Some(depth) = &targets.depth {
+            let info = depth.target.get_rendering_attachment_info();
+            depth_info = Some(info);
+        }
+
+        let mut stencil_info = None;
+        if let Some(stencil) = &targets.stencil {
+            let info = stencil.target.get_rendering_attachment_info();
+            stencil_info = Some(info);
+        }
+
+        Self {
+            color_info,
+            depth_info,
+            stencil_info,
+            rendering_info: OnceCell::new(),
+        }
+    }
+
+    fn rendering_info(&self, targets: &RenderTargets) -> &vk::RenderingInfo {
+        use vulkanalia::prelude::v1_0::*;
+
+        self.rendering_info.get_or_init(|| {
+            let mut rendering_info = vk::RenderingInfo::builder()
+                .flags(vk::RenderingFlags::empty())
+                .render_area(targets.area)
+                .layer_count(targets.layer_count())
+                .view_mask(targets.layout().view_mask())
+                .color_attachments(&self.color_info);
+
+            if let Some(info) = &self.depth_info {
+                rendering_info = rendering_info.depth_attachment(info);
+            }
+
+            if let Some(info) = &self.stencil_info {
+                rendering_info = rendering_info.stencil_attachment(info);
+            }
+
+            rendering_info.build()
+        })
     }
 }
 
@@ -149,7 +215,7 @@ impl DepthTarget {
         self.target.store_op
     }
 
-    pub fn clear_value(&self) -> f32 {
+    pub fn clear_depth(&self) -> f32 {
         unsafe { self.target.clear.depth_stencil.depth }
     }
 }
@@ -197,7 +263,7 @@ impl StencilTarget {
         self.target.store_op
     }
 
-    pub fn clear_value(&self) -> u32 {
+    pub fn clear_stencil(&self) -> u32 {
         unsafe { self.target.clear.depth_stencil.stencil }
     }
 }
@@ -208,6 +274,19 @@ struct AttachmentTarget {
     load_op: vk::AttachmentLoadOp,
     store_op: vk::AttachmentStoreOp,
     clear: vk::ClearValue,
+}
+
+impl AttachmentTarget {
+    fn get_rendering_attachment_info(&self) -> vk::RenderingAttachmentInfo {
+        use vulkanalia::prelude::v1_0::*;
+        vk::RenderingAttachmentInfo::builder()
+            .image_view(unsafe { *self.view.owned().raw() })
+            .image_layout(self.layout)
+            .load_op(self.load_op)
+            .store_op(self.store_op)
+            .clear_value(self.clear)
+            .build()
+    }
 }
 
 pub struct RenderingLayout {
@@ -223,7 +302,7 @@ impl RenderingLayout {
         0
     }
 
-    pub fn validate_color_targets(&self, colors: &[ColorTarget]) -> Result<()> {
+    fn validate_color_targets(&self, colors: &[ColorTarget]) -> Result<()> {
         if self.color_formats.len() != colors.len() {
             return Err(anyhow!("invalid number of color targets"));
         }
@@ -239,7 +318,7 @@ impl RenderingLayout {
         Ok(())
     }
 
-    pub fn validate_depth_target(&self, depth: Option<&DepthTarget>) -> Result<()> {
+    fn validate_depth_target(&self, depth: Option<&DepthTarget>) -> Result<()> {
         match (self.depth_format.as_ref(), depth) {
             (Some(layout), Some(depth)) => self.validate_image_view(
                 "depth",
@@ -258,7 +337,7 @@ impl RenderingLayout {
         Ok(())
     }
 
-    pub fn validate_stencil_target(&self, stencil: Option<&StencilTarget>) -> Result<()> {
+    fn validate_stencil_target(&self, stencil: Option<&StencilTarget>) -> Result<()> {
         match (self.stencil_format.as_ref(), stencil) {
             (Some(layout), Some(stencil)) => self.validate_image_view(
                 "stencil",
