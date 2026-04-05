@@ -1,4 +1,4 @@
-use std::{cell::OnceCell, sync::Arc};
+use std::sync::{Arc, OnceLock};
 
 use anyhow::{Result, anyhow};
 use vulkanalia::vk;
@@ -11,7 +11,7 @@ pub struct RenderTargets {
     colors: Box<[ColorTarget]>,
     depth: Option<DepthTarget>,
     stencil: Option<StencilTarget>,
-    info: OnceCell<RenderTargetsInfo>,
+    info: OnceLock<RenderTargetsInfo>,
 }
 
 impl RenderTargets {
@@ -34,7 +34,7 @@ impl RenderTargets {
             colors,
             depth,
             stencil,
-            info: OnceCell::new(),
+            info: OnceLock::new(),
         })
     }
 
@@ -63,7 +63,7 @@ impl RenderTargets {
         self.stencil.as_ref()
     }
 
-    pub fn get_rendering_info(&self) -> &vk::RenderingInfo {
+    pub fn rendering_info(&self) -> &vk::RenderingInfo {
         let info = self.info.get_or_init(|| RenderTargetsInfo::new(self));
         info.rendering_info(self)
     }
@@ -73,7 +73,7 @@ struct RenderTargetsInfo {
     color_info: Vec<vk::RenderingAttachmentInfo>,
     depth_info: Option<vk::RenderingAttachmentInfo>,
     stencil_info: Option<vk::RenderingAttachmentInfo>,
-    rendering_info: OnceCell<vk::RenderingInfo>,
+    rendering_info: OnceLock<vk::RenderingInfo>,
 }
 
 impl RenderTargetsInfo {
@@ -100,7 +100,7 @@ impl RenderTargetsInfo {
             color_info,
             depth_info,
             stencil_info,
-            rendering_info: OnceCell::new(),
+            rendering_info: OnceLock::new(),
         }
     }
 
