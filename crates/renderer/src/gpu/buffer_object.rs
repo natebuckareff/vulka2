@@ -1,9 +1,12 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::Arc};
 
 use anyhow::Result;
 use bytemuck::Pod;
 
-use crate::gpu::{Allocation, AllocatorId, BufferSpan, Range, RetireToken};
+use crate::gpu::{
+    Allocation, AllocatorId, Buffer, BufferSpan, FrameToken, LaneKey, QueueFamilyId, Range,
+    RetireToken,
+};
 
 pub struct BufferObject {
     layout: slang::LayoutCursor,
@@ -38,6 +41,10 @@ pub struct BufferWriter {
 impl BufferWriter {
     pub fn new(span: BufferSpan) -> Self {
         Self { span, dirty: None }
+    }
+
+    pub(crate) fn span(&self) -> &BufferSpan {
+        &self.span
     }
 
     fn mark_dirty(&mut self, range: Range) {
@@ -100,29 +107,74 @@ impl<'obj> BufferCursor<'obj> {
 // TODO: need some generic interface for tokens that are "used" by command
 // buffers, to pass-through calls to touch()
 pub struct BufferToken {
-    allocator: AllocatorId,
+    owner: Option<QueueFamilyId>,
     retire: RetireToken<Allocation>,
-    // TODO: will need additional information here to emit correct pipeline
-    // barriers and wait on any semaphores for inter-queue use
+    buffer: Arc<Buffer>,
+    allocator: AllocatorId,
+    range: Range,
+    access: BufferAccess,
 }
 
 impl BufferToken {
     pub fn new(span: BufferSpan) -> Self {
-        let (_, allocator, handle, range) = span.into_parts();
+        let (buffer, allocator, handle, range) = span.into_parts();
         let allocation = Allocation::new(handle, range);
         let retire = RetireToken::new(allocation);
-        Self { allocator, retire }
+        let access = BufferAccess::HostWrite;
+        Self {
+            owner: None,
+            retire,
+            buffer,
+            allocator,
+            range,
+            access,
+        }
     }
 
-    pub fn allocator(&self) -> AllocatorId {
-        self.allocator
+    pub fn owner(&self) -> Option<QueueFamilyId> {
+        self.owner
     }
 
     pub fn retire(&self) -> &RetireToken<Allocation> {
         &self.retire
     }
 
+    pub fn buffer(&self) -> &Arc<Buffer> {
+        &self.buffer
+    }
+
+    pub fn allocator(&self) -> AllocatorId {
+        self.allocator
+    }
+
+    pub fn range(&self) -> Range {
+        self.range
+    }
+
+    pub fn access(&self) -> BufferAccess {
+        self.access
+    }
+
+    // TODO: trait?
+    pub fn touch(&mut self, key: LaneKey, frame: &FrameToken) {
+        self.retire.touch(key, frame);
+    }
+
     pub fn into_retire(self) -> RetireToken<Allocation> {
         self.retire
     }
+}
+
+// XXX
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BufferAccess {
+    HostWrite,
+    TransferRead,
+    TransferWrite,
+    UniformRead,
+    StorageRead,
+    StorageWrite,
+    // Vertex
+    IndexRead,
+    IndirectRead,
 }

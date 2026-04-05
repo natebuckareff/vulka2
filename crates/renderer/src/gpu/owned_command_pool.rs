@@ -19,6 +19,10 @@ impl OwnedCommandPool {
         let pool = unsafe { device.raw().create_command_pool(info, None)? };
         Ok(Self { device, pool })
     }
+
+    pub(crate) fn device(&self) -> &VulkanHandle<Arc<vulkanalia::Device>> {
+        &self.device
+    }
 }
 
 impl VulkanResource for OwnedCommandPool {

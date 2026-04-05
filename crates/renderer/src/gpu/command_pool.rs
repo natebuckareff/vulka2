@@ -4,8 +4,9 @@ use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
 use crate::gpu::{
-    BufferLane, CommandBuffer, CommandPoolId, Device, FrameToken, LaneVec, LaneVecBuilder,
-    OwnedCommandPool, QueueBinding, QueueFamilyId, QueueGroupInfo, RetireToken, VulkanResource,
+    CommandBuffer, CommandLane, CommandPoolId, Device, FrameToken, LaneVec, LaneVecBuilder,
+    OwnedCommandPool, QueueBinding, QueueFamilyId, QueueGroupInfo, QueueId, QueueRoleFlags,
+    RetireToken, VulkanResource,
 };
 
 pub struct CommandPool {
@@ -40,12 +41,21 @@ impl CommandPool {
         let mut cmdbuf_lanes = LaneVecBuilder::with_lanes(&self.state.lanes);
         for lane in self.state.lanes.iter_mut() {
             let cmdbuf = lane.allocate(&self.state.device)?;
-            let cmdbuf_lane = BufferLane::new(cmdbuf);
+            let cmdbuf_lane = CommandLane::new(lane.roles, cmdbuf);
             cmdbuf_lanes.push(cmdbuf_lane);
         }
+        // TODO: this is the only use-case for shared-cloning of RetireToken
+        // currently, which feels invasive to the design and is holding
+        // RetireToken back from becoming a much simpler linear token
         let retire = self.retire.clone();
         let alive = self.state.children.clone();
-        let cmdbuf = CommandBuffer::new(frame, retire, cmdbuf_lanes.build(), alive);
+        let cmdbuf = CommandBuffer::new(
+            self.state.device.clone(),
+            frame,
+            retire,
+            cmdbuf_lanes.build(),
+            alive,
+        );
         Ok(cmdbuf)
     }
 }
@@ -82,6 +92,8 @@ impl CommandPoolState {
 }
 
 struct PoolLane {
+    queue: QueueId,
+    roles: QueueRoleFlags,
     pool: Arc<OwnedCommandPool>,
     cmdbufs: Vec<vk::CommandBuffer>,
     next_cmdbuf: usize,
@@ -92,6 +104,8 @@ impl PoolLane {
     fn new(device: &Device, binding: &QueueBinding) -> Result<Self> {
         let pool = create_command_pool(&device, binding.id.family)?;
         Ok(Self {
+            queue: binding.id,
+            roles: binding.roles,
             pool: Arc::new(pool),
             cmdbufs: vec![],
             next_cmdbuf: 0,
@@ -128,6 +142,7 @@ impl PoolLane {
     }
 }
 
+// TODO: this handle type feels clunky
 #[derive(Clone)]
 pub(crate) struct CommandBufferHandle {
     pool: Arc<OwnedCommandPool>,
@@ -137,6 +152,10 @@ pub(crate) struct CommandBufferHandle {
 impl CommandBufferHandle {
     pub(crate) unsafe fn raw(&self) -> vk::CommandBuffer {
         self.cmdbuf
+    }
+
+    pub(crate) fn device(&self) -> &crate::gpu::VulkanHandle<Arc<vulkanalia::Device>> {
+        self.pool.device()
     }
 }
 

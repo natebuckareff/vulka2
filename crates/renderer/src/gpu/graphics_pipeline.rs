@@ -5,8 +5,7 @@ use slang::SlangShaderStage;
 use vulkanalia::vk;
 
 use crate::gpu::{
-    CommandBuffer, Device, OwnedGraphicsPipeline, Pipeline, PipelineLayout, RenderingLayout,
-    ShaderModule, VulkanResource,
+    Device, OwnedGraphicsPipeline, PipelineLayout, RenderingLayout, ShaderModule, VulkanResource,
 };
 
 #[derive(Default)]
@@ -570,11 +569,5 @@ impl GraphicsPipeline {
 
     pub fn rendering(&self) -> &Arc<RenderingLayout> {
         &self.rendering
-    }
-}
-
-impl Pipeline for GraphicsPipeline {
-    fn bind(&self, cmdbuf: &mut CommandBuffer) {
-        todo!()
     }
 }

@@ -5,7 +5,7 @@ use bytemuck::Pod;
 
 use crate::gpu::{
     BufferObject, BufferSpan, BufferToken, BufferWriter, DescriptorSet, DescriptorSetHandle,
-    RetireToken, ShaderDescriptor,
+    FrameToken, LaneKey, RetireToken, ShaderDescriptor,
 };
 
 pub struct ParameterBlock {
@@ -65,6 +65,12 @@ impl ParameterToken {
         self.ubo_token.as_ref()
     }
 
+    // TODO: trait?
+    pub fn touch(&mut self, key: LaneKey, frame: &FrameToken) {
+        self.set_token.touch(key, frame);
+        self.ubo_token.as_mut().map(|token| token.touch(key, frame));
+    }
+
     pub fn split(self) -> (DescriptorSetToken, Option<BufferToken>) {
         (self.set_token, self.ubo_token)
     }
@@ -78,6 +84,11 @@ pub struct DescriptorSetToken {
 impl DescriptorSetToken {
     pub fn set(&self) -> &DescriptorSet {
         &self.set
+    }
+
+    // TODO: trait?
+    pub fn touch(&mut self, key: LaneKey, frame: &FrameToken) {
+        self.retire.touch(key, frame);
     }
 
     pub fn into_parts(self) -> (Box<DescriptorSet>, RetireToken<DescriptorSetHandle>) {

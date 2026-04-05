@@ -50,7 +50,7 @@ impl<T: Copy> RetireToken<T> {
     }
 
     // called when a RetireToken is used in a CommandBuffer
-    pub fn touch(&self, key: LaneKey, frame: &FrameToken) {
+    pub fn touch(&mut self, key: LaneKey, frame: &FrameToken) {
         debug_assert!(
             !self.state.retired.load(Ordering::Relaxed),
             "token already retired"

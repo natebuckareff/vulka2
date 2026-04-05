@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 use vulkanalia_vma as vma;
 
-use crate::gpu::Device;
+use crate::gpu::{Device, QueueFamilyId, RetireToken};
 
 pub struct Image {
     device: Arc<Device>,
@@ -182,4 +182,53 @@ impl SampleCount {
             _ => 1,
         }
     }
+}
+
+// XXX
+pub struct ImageToken {
+    owner: QueueFamilyId,
+    retire: RetireToken<()>, // XXX
+    image: Arc<Image>,
+    subresource: vk::ImageSubresourceRange,
+    layout: vk::ImageLayout,
+    access: ImageAccess,
+}
+
+impl ImageToken {
+    pub fn owner(&self) -> QueueFamilyId {
+        self.owner
+    }
+
+    pub fn retire(&self) -> &RetireToken<()> {
+        &self.retire
+    }
+
+    pub fn image(&self) -> &Arc<Image> {
+        &self.image
+    }
+
+    pub fn subresource(&self) -> &vk::ImageSubresourceRange {
+        &self.subresource
+    }
+
+    pub fn layout(&self) -> vk::ImageLayout {
+        self.layout
+    }
+
+    pub fn access(&self) -> ImageAccess {
+        self.access
+    }
+}
+
+// XXX
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ImageAccess {
+    TransferRead,
+    TransferWrite,
+    SampledRead,
+    StorageRead,
+    StorageWrite,
+    ColorAttachmentWrite,
+    DepthStencilAttachmentRead,
+    DepthStencilAttachmentWrite,
 }

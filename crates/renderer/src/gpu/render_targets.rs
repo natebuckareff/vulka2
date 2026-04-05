@@ -385,3 +385,19 @@ impl RenderingLayout {
         Ok(())
     }
 }
+
+impl PartialEq for RenderingLayout {
+    fn eq(&self, other: &Self) -> bool {
+        if self.color_formats.len() != other.color_formats.len() {
+            return false;
+        }
+        for i in 0..self.color_formats.len() {
+            if self.color_formats[i] != other.color_formats[i] {
+                return false;
+            }
+        }
+        self.depth_format == other.depth_format
+            && self.stencil_format == other.stencil_format
+            && self.samples == other.samples
+    }
+}
