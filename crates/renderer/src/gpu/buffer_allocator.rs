@@ -2,22 +2,24 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::Result;
 
-use crate::gpu::BufferSpan;
+use crate::gpu::{BufferSpan, StorageSpan};
 
 pub trait BackingAllocator: BufferAllocator {
     fn deallocate(&mut self, span: BufferSpan) -> Result<()>;
 }
 
 pub trait BufferStorage {
+    type Storage: StorageSpan;
     fn id(&self) -> AllocatorId;
-    fn backing(&self) -> &BufferSpan;
-    fn free(self) -> BufferSpan;
+    fn storage(&self) -> &Self::Storage;
+    fn free(self) -> Self::Storage;
 }
 
 pub trait BufferAllocator: BufferStorage {
     fn len(&self) -> u64;
     fn capacity(&self) -> u64;
-    fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<Option<BufferSpan>>;
+    // TODO: rename `allocate`
+    fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<Option<Self::Storage>>;
 }
 
 pub trait BlockAllocator: BufferStorage {
@@ -25,10 +27,9 @@ pub trait BlockAllocator: BufferStorage {
     fn capacity(&self) -> u64;
     fn block_size(&self) -> u64;
     fn block_alignment(&self) -> u64;
+    // TODO: rename `allocate`
     fn acquire(&mut self) -> Result<Option<BufferSpan>>;
 }
-
-// pub trait BlockAllocator {}
 
 // TODO: Telemetry events system to monitor span ownership and raise errors in
 // debug builds. Have a global context that all object can use to emit telemetry

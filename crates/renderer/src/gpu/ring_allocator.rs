@@ -1,16 +1,15 @@
 use std::collections::VecDeque;
 
 use anyhow::{Result, anyhow};
-use vulkanalia_vma as vma;
 
 use crate::gpu::{
-    AlignedRange, AllocHandle, Allocation, AllocatorId, BufferAllocator, BufferSpan, BufferStorage,
-    BufferToken, Range, RetireQueue, align_up,
+    AlignedRange, AllocHandle, Allocation, AllocatorId, BufferAllocator, BufferStorage,
+    BufferToken, Range, RetireQueue, StorageSpan,
 };
 
-pub struct RingAllocator {
+pub struct RingAllocator<T: StorageSpan> {
     id: AllocatorId,
-    backing: BufferSpan,
+    storage: T,
     device_start: u64,
     device_end: u64,
     retirement: RetireQueue<Allocation>,
@@ -19,18 +18,14 @@ pub struct RingAllocator {
     next_id: u64,
 }
 
-impl RingAllocator {
-    pub fn new(backing: BufferSpan) -> Result<Self> {
-        let buffer = backing.buffer();
-        buffer.check_flags(
-            vma::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE
-                | vma::AllocationCreateFlags::MAPPED,
-        )?;
+impl<T: StorageSpan> RingAllocator<T> {
+    pub fn new(storage: T) -> Result<Self> {
+        let buffer = storage.span().buffer();
         let device = buffer.device().clone();
         let retirement = RetireQueue::new(device)?;
         Ok(Self {
             id: AllocatorId::new(),
-            backing,
+            storage,
             device_start: 0,
             device_end: 0,
             retirement,
@@ -42,7 +37,7 @@ impl RingAllocator {
 
     fn acquire_range(&mut self, size: u64, align: u64) -> Result<Option<AlignedRange>> {
         let tail = self.host_tail_range();
-        let start = align_up(tail.start(), align);
+        let start = self.storage.align_relative(tail.start(), align);
         let aligned = Range::sized(start, size)?;
         let request = AlignedRange::new(tail.start(), aligned);
         if tail.fits(request.aligned()) {
@@ -97,38 +92,41 @@ impl RingAllocator {
     }
 }
 
-impl BufferStorage for RingAllocator {
+impl<T: StorageSpan> BufferStorage for RingAllocator<T> {
+    type Storage = T;
+
     fn id(&self) -> AllocatorId {
         self.id
     }
 
-    fn backing(&self) -> &BufferSpan {
-        &self.backing
+    fn storage(&self) -> &Self::Storage {
+        &self.storage
     }
 
-    fn free(self) -> BufferSpan {
-        self.backing
+    fn free(self) -> Self::Storage {
+        self.storage
     }
 }
 
-impl BufferAllocator for RingAllocator {
+impl<T: StorageSpan> BufferAllocator for RingAllocator<T> {
     fn len(&self) -> u64 {
         self.capacity() - self.host_tail_range().size()
     }
 
     fn capacity(&self) -> u64 {
-        self.backing.range().size()
+        self.storage.span().range().size()
     }
 
-    fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<Option<BufferSpan>> {
+    fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<Option<T>> {
         let align = align.unwrap_or(1);
 
         loop {
             if let Some(arange) = self.acquire_range(size, align)? {
-                let id = self.next_id;
+                let id: u64 = self.next_id;
                 let handle = AllocHandle::from_id(id);
                 let range = arange.aligned();
-                let span = BufferSpan::from_allocator(self, handle, range);
+                let span_range = range.add(self.storage.span().range().start())?;
+                let span = self.storage.suballocate(self, handle, span_range)?;
                 let allocation = Allocation::new(handle, arange.full());
                 self.next_id += 1;
                 self.device_end = arange.full().end();

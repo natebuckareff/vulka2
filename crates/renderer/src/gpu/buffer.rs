@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 use vulkanalia_vma as vma;
 
-use crate::gpu::{BufferMap, BufferSpan, Device, Range};
+use crate::gpu::{BufferSpan, Device, Range};
 
 pub struct Buffer {
     device: Arc<Device>,
@@ -95,10 +95,6 @@ impl Buffer {
 
     pub fn flags(&self) -> vma::AllocationCreateFlags {
         self.flags
-    }
-
-    pub fn map(&self) -> Result<BufferMap<'_>> {
-        unsafe { BufferMap::new(self) }
     }
 
     pub fn check_usage(&self, usage: vk::BufferUsageFlags) -> Result<()> {

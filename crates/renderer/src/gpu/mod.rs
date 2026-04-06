@@ -49,6 +49,7 @@ mod resource_arena;
 mod retire_queue;
 mod ring_allocator;
 mod shader_module;
+mod storage_span;
 mod submission_progress;
 mod swapchain;
 mod validation_layers;
@@ -83,6 +84,7 @@ pub use render_targets::*;
 pub use resource_arena::*;
 pub use ring_allocator::*;
 pub use shader_module::*;
+pub use storage_span::*;
 pub use swapchain::*;
 
 pub(crate) use buffer::*;

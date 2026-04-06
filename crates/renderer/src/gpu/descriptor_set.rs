@@ -6,7 +6,7 @@ use vulkanalia::vk;
 use crate::gpu::{
     BlockAllocator, BufferSpan, BufferWriter, DescriptorPool, DescriptorPoolId,
     DescriptorSetLayout, DescriptorSetToken, Device, ParameterBlock, ParameterWriter, RetireRecord,
-    RetireToken, VulkanResource,
+    RetireToken, StorageSpan, VulkanResource,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -221,11 +221,12 @@ impl DescriptorSet {
             _ => return Err(anyhow!("invalid resource and descriptor type")),
         };
 
-        let region = allocator.backing();
+        let region = allocator.storage().span();
+        let buffer = region.buffer();
 
-        region.buffer().check_usage(usage)?;
+        buffer.check_usage(usage)?;
 
-        let buffer = unsafe { allocator.backing().buffer().raw() };
+        let buffer = unsafe { buffer.raw() };
         let dst_binding = binding_layout.binding as u32;
         let dst_array_element = offset.array_index as u32;
 

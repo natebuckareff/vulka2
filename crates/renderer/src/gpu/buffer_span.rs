@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use crate::gpu::{
     AllocHandle, AllocatorId, Buffer, BufferAllocator, BufferObject, BufferWriter, Range,
+    StorageSpan,
 };
 
 pub struct BufferSpan {
@@ -14,7 +15,7 @@ pub struct BufferSpan {
 }
 
 impl BufferSpan {
-    pub fn from_buffer(buffer: Buffer) -> Self {
+    pub(crate) fn from_buffer(buffer: Buffer) -> Self {
         let size = buffer.size();
         let buffer = Arc::new(buffer);
         Self {
@@ -25,13 +26,13 @@ impl BufferSpan {
         }
     }
 
-    pub fn from_allocator(
+    pub(crate) fn from_allocator(
         allocator: &impl BufferAllocator,
         handle: AllocHandle,
         range: Range,
     ) -> Self {
         Self {
-            buffer: allocator.backing().buffer().clone(),
+            buffer: allocator.storage().span().buffer().clone(),
             allocator: allocator.id(),
             handle,
             range,
