@@ -3,11 +3,12 @@ use std::marker::PhantomData;
 use anyhow::{Result, anyhow};
 use bytemuck::Pod;
 
-use crate::gpu::BufferMap;
+use crate::gpu::{BufferMap, BufferToken};
 
 pub struct BufferView<T: Pod> {
     map: BufferMap,
-    len: u64,
+    offset: u64,
+    capacity: u64,
     marker: PhantomData<T>,
 }
 
@@ -30,13 +31,36 @@ impl<T: Pod> BufferView<T> {
 
         Ok(Self {
             map,
-            len: byte_len / stride,
+            offset: 0,
+            capacity: byte_len / stride,
             marker: PhantomData,
         })
     }
 
     pub fn len(&self) -> u64 {
-        self.len
+        self.offset
+    }
+
+    pub fn set_len(&mut self, new_len: u64) -> Result<()> {
+        if new_len > self.capacity {
+            return Err(anyhow!("new buffer view len larger than capacity"));
+        }
+        self.offset = new_len;
+        Ok(())
+    }
+
+    pub fn capacity(&self) -> u64 {
+        self.capacity
+    }
+
+    pub fn push(&mut self, value: T) -> Result<()> {
+        if self.len() == self.capacity {
+            return Err(anyhow!("buffer view already filled to capacity"));
+        }
+        let offset = self.offset;
+        self.offset += 1;
+        self[offset] = value;
+        Ok(())
     }
 
     fn translate_range(&self, range: std::ops::Range<u64>) -> std::ops::Range<u64> {
@@ -50,6 +74,10 @@ impl<T: Pod> BufferView<T> {
         let end = range.end * size;
         start..end
     }
+
+    pub fn finish(self) -> Result<BufferToken> {
+        Ok(BufferToken::new(self.map.into_span()?))
+    }
 }
 
 impl<T: Pod> std::ops::Index<u64> for BufferView<T> {
@@ -57,7 +85,7 @@ impl<T: Pod> std::ops::Index<u64> for BufferView<T> {
 
     fn index(&self, index: u64) -> &Self::Output {
         // TODO: doing bounds check twice
-        assert!(index < self.len, "buffer view index out-of-bounds");
+        assert!(index < self.len(), "buffer view index out-of-bounds");
 
         let range = self.translate_range(index..index + 1);
         // SAFETY: assert guards this
@@ -68,7 +96,7 @@ impl<T: Pod> std::ops::Index<u64> for BufferView<T> {
 impl<T: Pod> std::ops::IndexMut<u64> for BufferView<T> {
     fn index_mut(&mut self, index: u64) -> &mut Self::Output {
         // TODO: doing bounds check twice
-        assert!(index < self.len, "buffer view index out-of-bounds");
+        assert!(index < self.len(), "buffer view index out-of-bounds");
 
         let range = self.translate_range(index..index + 1);
         // SAFETY: assert guards this
