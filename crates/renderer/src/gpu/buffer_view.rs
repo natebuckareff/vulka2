@@ -41,16 +41,16 @@ impl<T: Pod> BufferView<T> {
         self.offset
     }
 
+    pub fn capacity(&self) -> u64 {
+        self.capacity
+    }
+
     pub fn set_len(&mut self, new_len: u64) -> Result<()> {
         if new_len > self.capacity {
             return Err(anyhow!("new buffer view len larger than capacity"));
         }
         self.offset = new_len;
         Ok(())
-    }
-
-    pub fn capacity(&self) -> u64 {
-        self.capacity
     }
 
     pub fn push(&mut self, value: T) -> Result<()> {
