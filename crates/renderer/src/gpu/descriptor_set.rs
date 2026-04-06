@@ -5,8 +5,8 @@ use vulkanalia::vk;
 
 use crate::gpu::{
     BlockAllocator, BufferSpan, BufferWriter, DescriptorPool, DescriptorPoolId,
-    DescriptorSetLayout, DescriptorSetToken, Device, ParameterBlock, ParameterWriter, RetireRecord,
-    RetireToken, StorageSpan, VulkanResource,
+    DescriptorSetLayout, DescriptorSetToken, Device, Map, ParameterBlock, ParameterWriter,
+    RetireRecord, RetireToken, StorageSpan, VulkanResource,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -99,7 +99,7 @@ impl DescriptorSet {
             }
         };
         if let Some(ubo) = &ubo {
-            if let Err(e) = self.write_implicit_ubo_descriptor(ubo.span()) {
+            if let Err(e) = self.write_implicit_ubo_descriptor(ubo.map()) {
                 return Err(AcquireError {
                     set: self,
                     cause: Some(e),
@@ -157,13 +157,14 @@ impl DescriptorSet {
         Ok(FreedDescriptorSet { set: self, retire })
     }
 
-    pub fn write_implicit_ubo_descriptor(&mut self, span: &BufferSpan) -> Result<()> {
+    pub fn write_implicit_ubo_descriptor(&mut self, map: &Map) -> Result<()> {
         use vulkanalia::prelude::v1_0::*;
 
         // TODO: should be validating
         // - size limits
         // - alignment limits
 
+        let span = map.span();
         let buffer = span.buffer();
         buffer.check_usage(vk::BufferUsageFlags::UNIFORM_BUFFER)?;
 
@@ -261,12 +262,12 @@ impl DescriptorSet {
         ParameterWriter::new(self)
     }
 
-    pub fn object<'a, T>(self, ubo: Option<BufferSpan>) -> Result<ParameterBlock>
+    pub fn object<'a, T>(self, ubo: Option<Map>) -> Result<ParameterBlock>
     where
         T: BlockAllocator,
     {
         let parameter_writer = self.writer();
-        let ubo_writer = ubo.map(BufferSpan::writer).transpose()?;
+        let ubo_writer = ubo.map(Map::writer).transpose()?;
         Ok(ParameterBlock::new(parameter_writer, ubo_writer))
     }
 }

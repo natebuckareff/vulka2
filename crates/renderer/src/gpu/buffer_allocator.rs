@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+use bytemuck::Pod;
 
 use crate::gpu::{BufferSpan, StorageSpan};
 
@@ -18,8 +19,15 @@ pub trait BufferStorage {
 pub trait BufferAllocator: BufferStorage {
     fn len(&self) -> u64;
     fn capacity(&self) -> u64;
-    // TODO: rename `allocate`
     fn acquire(&mut self, size: u64, align: Option<u64>) -> Result<Option<Self::Storage>>;
+    fn acquire_for<T: Pod>(&mut self) -> Result<Option<Self::Storage>> {
+        let size = std::mem::size_of::<T>() as u64;
+        if size == 0 {
+            return Err(anyhow!("cannot allocate zero-sized type"));
+        }
+        let align = std::mem::align_of::<T>() as u64;
+        self.acquire(size, Some(align))
+    }
 }
 
 pub trait BlockAllocator: BufferStorage {
@@ -27,7 +35,6 @@ pub trait BlockAllocator: BufferStorage {
     fn capacity(&self) -> u64;
     fn block_size(&self) -> u64;
     fn block_alignment(&self) -> u64;
-    // TODO: rename `allocate`
     fn acquire(&mut self) -> Result<Option<BufferSpan>>;
 }
 

@@ -1,11 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
-
-use crate::gpu::{
-    AllocHandle, AllocatorId, Buffer, BufferAllocator, BufferObject, BufferWriter, Range,
-    StorageSpan,
-};
+use crate::gpu::{AllocHandle, AllocatorId, Buffer, BufferAllocator, Range, StorageSpan};
 
 pub struct BufferSpan {
     buffer: Arc<Buffer>,
@@ -53,15 +48,6 @@ impl BufferSpan {
 
     pub fn range(&self) -> Range {
         self.range
-    }
-
-    pub fn writer(self) -> Result<BufferWriter> {
-        BufferWriter::new(self)
-    }
-
-    pub fn object<'reg>(self, layout: &slang::LayoutCursor) -> Result<BufferObject> {
-        let writer = self.writer()?;
-        Ok(BufferObject::new(layout, writer))
     }
 
     pub fn into_parts(self) -> (Arc<Buffer>, AllocatorId, AllocHandle, Range) {

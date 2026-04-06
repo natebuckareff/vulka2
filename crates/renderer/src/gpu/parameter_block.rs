@@ -4,8 +4,8 @@ use anyhow::{Result, anyhow};
 use bytemuck::Pod;
 
 use crate::gpu::{
-    BufferObject, BufferSpan, BufferToken, BufferWriter, DescriptorSet, DescriptorSetHandle,
-    FrameToken, LaneKey, RetireToken, ShaderDescriptor,
+    BufferObject, BufferToken, BufferWriter, DescriptorSet, DescriptorSetHandle, FrameToken,
+    LaneKey, Map, RetireToken, ShaderDescriptor,
 };
 
 pub struct ParameterBlock {
@@ -142,8 +142,8 @@ impl<'obj> ParameterCursor<'obj> {
     }
 
     // returns handle to non-implicit ubo binding
-    pub fn uniform<'r>(&self, span: BufferSpan) -> Result<BufferObject> {
-        span.object(&self.layout)
+    pub fn uniform<'r>(&self, map: Map) -> Result<BufferObject> {
+        map.object(&self.layout)
     }
 
     // writes into implicit ubo

@@ -1,141 +1,214 @@
-use std::ptr::NonNull;
+use std::{cell::RefCell, ptr::NonNull};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 
-use crate::gpu::{Buffer, BufferSpan, Range};
+use crate::gpu::{Buffer, BufferObject, BufferSpan, BufferWriter, Range};
 
-pub struct MapSpan {
+pub struct Map {
     // SAFETY: buffer first so it is destructed before the Arc<Buffer> in span
     // is dropped
     buffer: &'static Buffer,
-    pointer: NonNull<u8>,
+    mapping: BufferMapping,
+    base: u64,
     span: BufferSpan,
+    dirty: RefCell<Dirty>,
 }
 
-impl MapSpan {
+impl Map {
     pub fn new(span: BufferSpan) -> Result<Self> {
         let buf = span.buffer();
         // SAFETY: span holds an Arc<Buffer> so span and buffer always live as
         // long as each other
         let buffer = unsafe { std::mem::transmute(buf.as_ref()) };
-        let pointer = unsafe { buf.pointer()? };
+        let mapping = BufferMapping::new(buffer)?;
+        let base = mapping.translate(span.range().start());
         Ok(Self {
             buffer,
-            pointer,
+            mapping,
+            base,
             span,
+            dirty: RefCell::new(Dirty::new()),
         })
     }
 
-    unsafe fn pointer_at(&self, offset: u64) -> NonNull<u8> {
-        assert!(
-            offset <= self.buffer.size(),
-            "map span offset out-of-bounds"
-        );
-        unsafe { self.pointer.add(offset as usize) }
+    pub fn len(&self) -> u64 {
+        self.span.range().size()
     }
 
     pub fn span(&self) -> &BufferSpan {
         &self.span
     }
 
-    // TODO: confusing naming mixing offsets/pointers and relative/absolute
-    pub fn base_pointer(&self) -> u64 {
-        self.pointer.as_ptr() as u64
-    }
-
-    pub fn effective_range(&self) -> Result<Range> {
-        self.span.range().add(self.base_pointer())
+    pub fn mapping(&self) -> &BufferMapping {
+        &self.mapping
     }
 
     pub fn alignment(&self) -> u64 {
         // OVERFLOW: already checked base and start when this span was allocated
-        let addr = self.base_pointer() + self.span.range().start();
-        1u64 << addr.trailing_zeros()
+        1u64 << self.base.trailing_zeros()
     }
 
     pub fn is_aligned(&self, addr: u64) -> bool {
         addr % self.alignment() == 0
     }
 
-    pub fn read_bytes(&mut self, offset: u64, bytes: &mut [u8]) -> Result<Range> {
-        let span = &self.span;
-        let size = bytes.len();
-        if size == 0 {
-            return Ok(Range::new(0, 0));
-        }
-
-        let range = span.range();
-        if range.size() == 0 {
-            return Err(anyhow!("read empty map span"));
-        }
-
-        let read_start = range.start() + offset;
-        let read_end = read_start + bytes.len() as u64;
-        let read_range = Range::new(read_start, read_end);
-
-        if !range.fits(read_range) {
-            return Err(anyhow!("map span read out-of-bounds"));
-        }
-
-        self.copy_into_nonoverlapping(read_start, bytes)?;
-
-        Ok(read_range)
+    pub fn read_bytes(&self, offset: u64, dst: &mut [u8]) -> Result<Range> {
+        let range = Range::sized(offset, dst.len() as u64)?;
+        let end = range.end();
+        dst.copy_from_slice(&self[offset..end]);
+        Ok(range)
     }
 
     pub fn write_bytes(&mut self, offset: u64, bytes: &[u8]) -> Result<Range> {
-        let span = &self.span;
-        let size = bytes.len();
-        if size == 0 {
-            return Ok(Range::new(0, 0));
-        }
-
-        let range = span.range();
-        if range.size() == 0 {
-            return Err(anyhow!("write to empty buffer span"));
-        }
-
-        let write_start = range.start() + offset;
-        let write_end = write_start + bytes.len() as u64;
-        let write_range = Range::new(write_start, write_end);
-
-        if !range.fits(write_range) {
-            return Err(anyhow!("map span write out-of-bounds"));
-        }
-
-        self.copy_from_nonoverlapping(bytes, write_start)?;
-
-        Ok(write_range)
+        let range = Range::sized(offset, bytes.len() as u64)?;
+        let end = range.end();
+        self[offset..end].copy_from_slice(bytes);
+        Ok(range)
     }
 
-    pub fn copy_into_nonoverlapping(&self, src: u64, dst: &mut [u8]) -> Result<()> {
-        let count = dst.len();
-        let end = src
-            .checked_add(count as u64)
-            .context("buffer map bounds overflow")?;
-        if end > self.buffer.size() {
-            return Err(anyhow!("buffer map copy out-of-bounds"));
-        }
-        let src_ptr = unsafe { self.pointer_at(src).as_ptr() };
-        let dst_ptr = dst.as_mut_ptr();
-        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, count) };
-        Ok(())
+    pub fn writer(self) -> Result<BufferWriter> {
+        BufferWriter::new(self)
     }
 
-    pub fn copy_from_nonoverlapping(&self, src: &[u8], dst: u64) -> Result<()> {
-        let count = src.len();
-        let end = dst
-            .checked_add(count as u64)
-            .context("buffer map bounds overflow")?;
-        if end > self.buffer.size() {
-            return Err(anyhow!("buffer map copy out-of-bounds"));
-        }
-        let src_ptr = src.as_ptr();
-        let dst_ptr = unsafe { self.pointer_at(dst).as_ptr() };
-        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, count) };
-        Ok(())
+    pub fn object<'reg>(self, layout: &slang::LayoutCursor) -> Result<BufferObject> {
+        let writer = self.writer()?;
+        Ok(BufferObject::new(layout, writer))
     }
 
-    pub fn into_span(self) -> BufferSpan {
-        self.span
+    pub fn into_span(self) -> Result<BufferSpan> {
+        if let Some(dirty) = self.dirty.into_inner().range {
+            self.span.buffer().flush(dirty)?;
+        }
+        Ok(self.span)
+    }
+}
+
+pub struct BufferMapping {
+    pointer: NonNull<u8>,
+    size: u64,
+}
+
+impl BufferMapping {
+    pub fn new(buffer: &Buffer) -> Result<Self> {
+        let pointer = unsafe { buffer.pointer()? };
+        let size = buffer.size();
+        Ok(Self { pointer, size })
+    }
+
+    pub fn base(&self) -> u64 {
+        self.pointer.as_ptr() as u64
+    }
+
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    pub fn translate(&self, offset: u64) -> u64 {
+        assert!(offset <= self.size);
+        self.pointer.as_ptr() as u64 + offset
+    }
+}
+
+struct Dirty {
+    range: Option<Range>,
+}
+
+impl Dirty {
+    fn new() -> Self {
+        Self { range: None }
+    }
+
+    fn mark(&mut self, dirty: Range) {
+        match &mut self.range {
+            Some(range) => {
+                let min_start = range.start().min(dirty.start());
+                let max_end = range.end().max(dirty.end());
+                *range = Range::new(min_start, max_end)
+            }
+            None => {
+                self.range = Some(dirty);
+            }
+        }
+    }
+
+    fn into_range(self) -> Option<Range> {
+        self.range
+    }
+}
+
+impl Drop for Dirty {
+    fn drop(&mut self) {
+        if let Some(range) = self.range {
+            debug_assert!(range.size() == 0, "map did not flush ranges");
+        }
+    }
+}
+
+impl std::ops::Index<u64> for Map {
+    type Output = u8;
+
+    fn index(&self, index: u64) -> &Self::Output {
+        assert!(index < self.len(), "map index out-of-range");
+        unsafe {
+            // OVERFLOW: if `index` is in range, then this will not overflow, as
+            // the span was already constructed relative to the base offset
+            let ptr = (self.base + index) as *const u8;
+            &*ptr
+        }
+    }
+}
+
+impl std::ops::IndexMut<u64> for Map {
+    fn index_mut(&mut self, index: u64) -> &mut Self::Output {
+        assert!(index < self.len(), "map index out-of-range");
+        unsafe {
+            let start = self.span.range().start() + index;
+            self.dirty.borrow_mut().mark(Range::new(start, start + 1));
+
+            // OVERFLOW: if `index` is in range, then this will not overflow, as
+            // the span was already constructed relative to the base offset
+            let ptr = (self.base + index) as *mut u8;
+            &mut *ptr
+        }
+    }
+}
+
+impl std::ops::Index<std::ops::Range<u64>> for Map {
+    type Output = [u8];
+
+    fn index(&self, range: std::ops::Range<u64>) -> &Self::Output {
+        assert!(range.start <= self.len(), "map index out-of-range");
+        assert!(range.end <= self.len(), "map index out-of-range");
+        assert!(range.start <= range.end, "invalid map range");
+
+        let size = range.end - range.start;
+        assert!(size <= usize::MAX as u64, "map slice too large");
+
+        // OVERFLOW: if `range.start` is in range, then this will not overflow,
+        // as the span was already constructed relative to the base offset
+        let ptr = (self.base + range.start) as *const u8;
+        unsafe { std::slice::from_raw_parts(ptr, size as usize) }
+    }
+}
+
+impl std::ops::IndexMut<std::ops::Range<u64>> for Map {
+    fn index_mut(&mut self, range: std::ops::Range<u64>) -> &mut Self::Output {
+        assert!(range.start <= self.len(), "map index out-of-range");
+        assert!(range.end <= self.len(), "map index out-of-range");
+        assert!(range.start <= range.end, "invalid map range");
+
+        let span_start = self.span.range().start();
+        // OVERFLOW: will not overflow for the same reasoning as below
+        let start = span_start + range.start;
+        let end = span_start + range.end;
+        self.dirty.borrow_mut().mark(Range::new(start, end));
+
+        let size = range.end - range.start;
+        assert!(size <= usize::MAX as u64, "map slice too large");
+
+        // OVERFLOW: if `range.start` is in range, then this will not overflow,
+        // as the span was already constructed relative to the base offset
+        let ptr = (self.base + range.start) as *mut u8;
+        unsafe { std::slice::from_raw_parts_mut(ptr, size as usize) }
     }
 }

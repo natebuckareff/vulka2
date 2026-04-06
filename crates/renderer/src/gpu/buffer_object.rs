@@ -1,11 +1,11 @@
 use std::{cell::RefCell, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bytemuck::Pod;
 
 use crate::gpu::{
-    Allocation, AllocatorId, Buffer, BufferSpan, FrameToken, LaneKey, MapSpan, QueueFamilyId,
-    Range, RetireToken,
+    Allocation, AllocatorId, Buffer, BufferSpan, FrameToken, LaneKey, Map, QueueFamilyId, Range,
+    RetireToken,
 };
 
 pub struct BufferObject {
@@ -34,44 +34,30 @@ impl BufferObject {
 }
 
 pub struct BufferWriter {
-    map: MapSpan,
-    dirty: Option<Range>,
+    map: Map,
 }
 
 impl BufferWriter {
-    pub fn new(span: BufferSpan) -> Result<Self> {
-        let map = MapSpan::new(span)?;
-        Ok(Self { map, dirty: None })
+    pub fn new(map: Map) -> Result<Self> {
+        Ok(Self { map })
     }
 
-    pub(crate) fn span(&self) -> &BufferSpan {
-        self.map.span()
-    }
-
-    fn mark_dirty(&mut self, range: Range) {
-        match &mut self.dirty {
-            Some(dirty) => {
-                let start = dirty.start().min(range.start());
-                let end = dirty.end().max(range.end());
-                *dirty = Range::new(start, end);
-            }
-            None => self.dirty = Some(range),
-        }
+    pub(crate) fn map(&self) -> &Map {
+        &self.map
     }
 
     pub(crate) fn write<T: Pod>(&mut self, layout: &slang::LayoutCursor, value: &T) -> Result<()> {
         let offset = layout.offset().bytes as u64;
         let bytes = bytemuck::bytes_of(value);
-        let range = self.map.write_bytes(offset, bytes)?;
-        self.mark_dirty(range);
+        let end = offset
+            .checked_add(bytes.len() as u64)
+            .context("buffer writer overflow")? as u64;
+        self.map[offset..end].copy_from_slice(bytes);
         Ok(())
     }
 
     pub(crate) fn finish(self) -> Result<BufferToken> {
-        if let Some(dirty) = self.dirty {
-            self.span().buffer().flush(dirty)?;
-        }
-        Ok(BufferToken::new(self.map.into_span()))
+        Ok(BufferToken::new(self.map.into_span()?))
     }
 }
 

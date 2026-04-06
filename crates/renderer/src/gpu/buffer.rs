@@ -129,11 +129,11 @@ impl Buffer {
     // TODO: should this be unsafe?
     pub fn flush(&self, range: Range) -> Result<()> {
         debug_assert!(self.fits(range));
-        if self.is_host_coherent {
-            return Ok(());
-        }
         let start = range.start();
         let size = range.size();
+        if self.is_host_coherent || size == 0 {
+            return Ok(());
+        }
         let gpu_allocator = self.device.gpu_allocator();
         unsafe {
             gpu_allocator
@@ -146,11 +146,11 @@ impl Buffer {
     // TODO: should this be unsafe?
     pub fn invalidate(&self, range: Range) -> Result<()> {
         debug_assert!(self.fits(range));
-        if self.is_host_coherent {
-            return Ok(());
-        }
         let start = range.start();
         let size = range.size();
+        if self.is_host_coherent || size == 0 {
+            return Ok(());
+        }
         let gpu_allocator = self.device.gpu_allocator();
         unsafe {
             gpu_allocator
