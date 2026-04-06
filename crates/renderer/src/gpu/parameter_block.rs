@@ -5,7 +5,7 @@ use bytemuck::Pod;
 
 use crate::gpu::{
     BufferObject, BufferToken, BufferWriter, DescriptorSet, DescriptorSetHandle, FrameToken,
-    LaneKey, Map, RetireToken, ShaderDescriptor,
+    LaneKey, BufferMap, RetireToken, ShaderDescriptor,
 };
 
 pub struct ParameterBlock {
@@ -142,7 +142,7 @@ impl<'obj> ParameterCursor<'obj> {
     }
 
     // returns handle to non-implicit ubo binding
-    pub fn uniform<'r>(&self, map: Map) -> Result<BufferObject> {
+    pub fn uniform<'r>(&self, map: BufferMap) -> Result<BufferObject> {
         map.object(&self.layout)
     }
 

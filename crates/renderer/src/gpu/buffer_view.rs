@@ -3,16 +3,16 @@ use std::marker::PhantomData;
 use anyhow::{Result, anyhow};
 use bytemuck::Pod;
 
-use crate::gpu::Map;
+use crate::gpu::BufferMap;
 
 pub struct BufferView<T: Pod> {
-    map: Map,
+    map: BufferMap,
     len: u64,
     marker: PhantomData<T>,
 }
 
 impl<T: Pod> BufferView<T> {
-    pub fn new(map: Map) -> Result<Self> {
+    pub fn new(map: BufferMap) -> Result<Self> {
         let stride = std::mem::size_of::<T>() as u64;
         if stride == 0 {
             return Err(anyhow!("zero-sized types are invalid"));

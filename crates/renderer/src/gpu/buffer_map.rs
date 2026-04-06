@@ -4,24 +4,23 @@ use anyhow::Result;
 
 use crate::gpu::{Buffer, BufferObject, BufferSpan, BufferWriter, Range};
 
-// TODO: rename to BufferMap
-pub struct Map {
+pub struct BufferMap {
     // SAFETY: buffer first so it is destructed before the Arc<Buffer> in span
     // is dropped
     buffer: &'static Buffer,
-    mapping: BufferMapping,
+    mapping: Mapping,
     base: u64,
     span: BufferSpan,
     dirty: RefCell<Dirty>,
 }
 
-impl Map {
+impl BufferMap {
     pub fn new(span: BufferSpan) -> Result<Self> {
         let buf = span.buffer();
         // SAFETY: span holds an Arc<Buffer> so span and buffer always live as
         // long as each other
         let buffer = unsafe { std::mem::transmute(buf.as_ref()) };
-        let mapping = BufferMapping::new(buffer)?;
+        let mapping = Mapping::new(buffer)?;
         let base = mapping.translate_offset(span.range().start());
         Ok(Self {
             buffer,
@@ -45,7 +44,7 @@ impl Map {
         self.base
     }
 
-    pub fn mapping(&self) -> &BufferMapping {
+    pub fn mapping(&self) -> &Mapping {
         &self.mapping
     }
 
@@ -120,13 +119,12 @@ impl Map {
     }
 }
 
-// TODO: rename to Mapping
-pub struct BufferMapping {
+pub struct Mapping {
     pointer: NonNull<u8>,
     size: u64,
 }
 
-impl BufferMapping {
+impl Mapping {
     pub fn new(buffer: &Buffer) -> Result<Self> {
         let pointer = unsafe { buffer.pointer()? };
         let size = buffer.size();
@@ -184,16 +182,16 @@ impl Dirty {
 impl Drop for Dirty {
     fn drop(&mut self) {
         if let Some(range) = self.range {
-            debug_assert!(range.size() == 0, "map did not flush ranges");
+            debug_assert!(range.size() == 0, "buffer map did not flush ranges");
         }
     }
 }
 
-impl std::ops::Index<u64> for Map {
+impl std::ops::Index<u64> for BufferMap {
     type Output = u8;
 
     fn index(&self, index: u64) -> &Self::Output {
-        assert!(index < self.len(), "map index out-of-bounds");
+        assert!(index < self.len(), "buffer map index out-of-bounds");
         unsafe {
             // OVERFLOW: if `index` is in range, then this will not overflow, as
             // the span was already constructed relative to the base offset
@@ -203,9 +201,9 @@ impl std::ops::Index<u64> for Map {
     }
 }
 
-impl std::ops::IndexMut<u64> for Map {
+impl std::ops::IndexMut<u64> for BufferMap {
     fn index_mut(&mut self, index: u64) -> &mut Self::Output {
-        assert!(index < self.len(), "map index out-of-bounds");
+        assert!(index < self.len(), "buffer map index out-of-bounds");
         unsafe {
             let start = self.span.range().start() + index;
             self.dirty.borrow_mut().mark(Range::new(start, start + 1));
@@ -218,24 +216,24 @@ impl std::ops::IndexMut<u64> for Map {
     }
 }
 
-impl std::ops::Index<std::ops::Range<u64>> for Map {
+impl std::ops::Index<std::ops::Range<u64>> for BufferMap {
     type Output = [u8];
 
     fn index(&self, range: std::ops::Range<u64>) -> &Self::Output {
-        assert!(range.start <= self.len(), "map index out-of-bounds");
-        assert!(range.end <= self.len(), "map index out-of-bounds");
-        assert!(range.start <= range.end, "invalid map range");
+        assert!(range.start <= self.len(), "buffer map index out-of-bounds");
+        assert!(range.end <= self.len(), "buffer map index out-of-bounds");
+        assert!(range.start <= range.end, "invalid buffer map range");
 
         // SAFETY: asserts guard this
         unsafe { self.get_range_unchecked(range) }
     }
 }
 
-impl std::ops::IndexMut<std::ops::Range<u64>> for Map {
+impl std::ops::IndexMut<std::ops::Range<u64>> for BufferMap {
     fn index_mut(&mut self, range: std::ops::Range<u64>) -> &mut Self::Output {
-        assert!(range.start <= self.len(), "map index out-of-bounds");
-        assert!(range.end <= self.len(), "map index out-of-bounds");
-        assert!(range.start <= range.end, "invalid map range");
+        assert!(range.start <= self.len(), "buffer map index out-of-bounds");
+        assert!(range.end <= self.len(), "buffer map index out-of-bounds");
+        assert!(range.start <= range.end, "invalid buffer map range");
 
         // SAFETY: asserts guard this
         unsafe { self.get_range_unchecked_mut(range) }

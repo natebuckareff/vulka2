@@ -1,7 +1,7 @@
 use anyhow::Result;
 use num_traits::{PrimInt, Unsigned};
 
-use crate::gpu::{AllocHandle, BufferAllocator, BufferSpan, Map, Range};
+use crate::gpu::{AllocHandle, BufferAllocator, BufferMap, BufferSpan, Range};
 
 pub trait StorageSpan: Sized {
     fn align(&self, offset: u64, alignment: u64) -> u64;
@@ -52,7 +52,7 @@ impl StorageSpan for BufferSpan {
     }
 }
 
-impl StorageSpan for Map {
+impl StorageSpan for BufferMap {
     fn align(&self, offset: u64, alignment: u64) -> u64 {
         let base = self.mapping().base();
         let effective = base + offset;
@@ -67,7 +67,7 @@ impl StorageSpan for Map {
         range: Range,
     ) -> Result<Self> {
         let span = BufferSpan::from_allocator(allocator, handle, range);
-        Map::new(span)
+        BufferMap::new(span)
     }
 
     fn span(&self) -> &BufferSpan {

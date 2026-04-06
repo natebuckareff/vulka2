@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use bytemuck::Pod;
 
 use crate::gpu::{
-    Allocation, AllocatorId, Buffer, BufferSpan, FrameToken, LaneKey, Map, QueueFamilyId, Range,
-    RetireToken,
+    Allocation, AllocatorId, Buffer, BufferMap, BufferSpan, FrameToken, LaneKey, QueueFamilyId,
+    Range, RetireToken,
 };
 
 pub struct BufferObject {
@@ -34,15 +34,15 @@ impl BufferObject {
 }
 
 pub struct BufferWriter {
-    map: Map,
+    map: BufferMap,
 }
 
 impl BufferWriter {
-    pub fn new(map: Map) -> Result<Self> {
+    pub fn new(map: BufferMap) -> Result<Self> {
         Ok(Self { map })
     }
 
-    pub(crate) fn map(&self) -> &Map {
+    pub(crate) fn map(&self) -> &BufferMap {
         &self.map
     }
 

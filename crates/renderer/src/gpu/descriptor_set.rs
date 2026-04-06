@@ -5,7 +5,7 @@ use vulkanalia::vk;
 
 use crate::gpu::{
     BlockAllocator, BufferSpan, BufferWriter, DescriptorPool, DescriptorPoolId,
-    DescriptorSetLayout, DescriptorSetToken, Device, Map, ParameterBlock, ParameterWriter,
+    DescriptorSetLayout, DescriptorSetToken, Device, BufferMap, ParameterBlock, ParameterWriter,
     RetireRecord, RetireToken, StorageSpan, VulkanResource,
 };
 
@@ -157,7 +157,7 @@ impl DescriptorSet {
         Ok(FreedDescriptorSet { set: self, retire })
     }
 
-    pub fn write_implicit_ubo_descriptor(&mut self, map: &Map) -> Result<()> {
+    pub fn write_implicit_ubo_descriptor(&mut self, map: &BufferMap) -> Result<()> {
         use vulkanalia::prelude::v1_0::*;
 
         // TODO: should be validating
@@ -262,12 +262,12 @@ impl DescriptorSet {
         ParameterWriter::new(self)
     }
 
-    pub fn object<'a, T>(self, ubo: Option<Map>) -> Result<ParameterBlock>
+    pub fn object<'a, T>(self, ubo: Option<BufferMap>) -> Result<ParameterBlock>
     where
         T: BlockAllocator,
     {
         let parameter_writer = self.writer();
-        let ubo_writer = ubo.map(Map::writer).transpose()?;
+        let ubo_writer = ubo.map(BufferMap::writer).transpose()?;
         Ok(ParameterBlock::new(parameter_writer, ubo_writer))
     }
 }
