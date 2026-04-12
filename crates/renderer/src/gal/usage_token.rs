@@ -51,7 +51,7 @@ impl UsageToken {
 
     pub(crate) fn is_reclaimable(&self, device: &Device) -> Result<bool> {
         for index in self.iter() {
-            let timeline = device.get_timeline(index); // XXX
+            let timeline = device.timeline(index); // XXX
             let current = self.inner.lanes[usize::from(index)].load(Ordering::Relaxed);
             if current >= timeline.poll()?.into() {
                 return Ok(false);

@@ -41,7 +41,7 @@ impl Engine {
         }
     }
 
-    pub(crate) fn instance(&self) -> &vulkanalia::Instance {
+    pub(crate) unsafe fn instance(&self) -> &vulkanalia::Instance {
         &self.instance
     }
 

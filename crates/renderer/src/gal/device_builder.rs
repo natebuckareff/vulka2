@@ -61,7 +61,7 @@ impl DeviceBuilder {
         let (info, solution) = best.into_parts();
         let plan = BuildPlan::new(solution.allocations());
         let resource = Arc::new(create_device(
-            &self.engine,
+            unsafe { self.engine.instance() },
             info.physical_device,
             surface,
             &plan.family_counts,
@@ -73,7 +73,7 @@ impl DeviceBuilder {
             .collect::<Vec<_>>();
         let queue_resources = load_queues(resource.as_ref(), &queue_handles)?;
         let queues = build_queues(resource.clone(), queue_resources, &plan)?;
-        let device = Device::new(self.engine, info.physical_device, resource, &queues);
+        let device = Device::new(self.engine, info.physical_device, resource, &queues)?;
         Ok((queues, device))
     }
 }
@@ -114,7 +114,7 @@ fn build_queues(
     let mut queues = Vec::with_capacity(resources.len());
 
     for (index, (resource, plan)) in resources.into_iter().zip(plan.queues.iter()).enumerate() {
-        let semaphore = Arc::new(SemaphoreResource::new(device.clone())?);
+        let semaphore = Arc::new(SemaphoreResource::timeline(device.clone(), 0)?);
         let lane = Lane::new(LaneIndex::new(index as u32), resource.family());
         let queue = Queue::new(
             device.clone(),

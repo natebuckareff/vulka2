@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
+use anyhow::Result;
 use vulkanalia::vk;
 
 use crate::gal::{
     Engine,
+    device_allocator::DeviceAllocator,
     queue::{LaneIndex, Queue},
     queue_timeline::QueueTimeline,
 };
@@ -13,6 +15,7 @@ pub struct Device {
     physical_device: vk::PhysicalDevice,
     resource: Arc<DeviceResource>,
     timelines: Vec<QueueTimeline>,
+    allocator: DeviceAllocator,
 }
 
 impl Device {
@@ -21,32 +24,44 @@ impl Device {
         physical_device: vk::PhysicalDevice,
         resource: Arc<DeviceResource>,
         queues: &[Queue],
-    ) -> Self {
-        let timelines = queues
-            .iter()
-            .map(|queue| {
-                let semaphore = queue.semaphore();
-                QueueTimeline::new(semaphore.clone())
-            })
-            .collect();
-        Self {
+    ) -> Result<Self> {
+        let timelines = Self::create_timelines(queues);
+        let allocator = DeviceAllocator::new(&engine, &resource, physical_device)?;
+        Ok(Self {
             engine,
             physical_device,
             resource,
             timelines,
-        }
+            allocator,
+        })
+    }
+
+    fn create_timelines(queues: &[Queue]) -> Vec<QueueTimeline> {
+        queues
+            .iter()
+            .map(|queue| queue.semaphore().clone())
+            .map(QueueTimeline::new)
+            .collect()
+    }
+
+    pub(crate) fn engine(&self) -> &Arc<Engine> {
+        &self.engine
     }
 
     pub(crate) fn physical_device(&self) -> vk::PhysicalDevice {
         self.physical_device
     }
 
-    pub(crate) fn resource(&self) -> &DeviceResource {
-        self.resource.as_ref()
+    pub(crate) fn resource(&self) -> &Arc<DeviceResource> {
+        &self.resource
     }
 
-    pub(crate) fn get_timeline(&self, index: LaneIndex) -> &QueueTimeline {
+    pub(crate) fn timeline(&self, index: LaneIndex) -> &QueueTimeline {
         &self.timelines[usize::from(index)]
+    }
+
+    pub(crate) fn allocator(&self) -> &DeviceAllocator {
+        &self.allocator
     }
 }
 
@@ -59,7 +74,7 @@ impl DeviceResource {
         Self { handle }
     }
 
-    pub(crate) fn handle(&self) -> &vulkanalia::Device {
+    pub(crate) unsafe fn handle(&self) -> &vulkanalia::Device {
         &self.handle
     }
 }

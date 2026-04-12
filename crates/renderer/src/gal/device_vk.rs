@@ -23,7 +23,7 @@ pub(crate) fn get_device_infos(
 ) -> Result<Vec<DeviceInfo>> {
     use vulkanalia::prelude::v1_0::*;
 
-    let instance = engine.instance();
+    let instance = unsafe { engine.instance() };
     let physical_devices = unsafe { instance.enumerate_physical_devices()? };
     let required_extensions = required_device_extensions(surface);
     let mut infos = Vec::with_capacity(physical_devices.len());
@@ -41,31 +41,31 @@ pub(crate) fn get_device_infos(
 }
 
 pub(crate) fn ensure_required_device_extensions_supported(
-    engine: &Engine,
+    instance: &vulkanalia::Instance,
     physical_device: vk::PhysicalDevice,
     surface: Option<&Surface>,
 ) -> Result<()> {
     let extensions = required_device_extensions(surface);
-    ensure_device_extensions_supported(engine.instance(), physical_device, &extensions)
+    ensure_device_extensions_supported(instance, physical_device, &extensions)
 }
 
 pub(crate) fn ensure_required_device_features_supported(
-    engine: &Engine,
+    instance: &vulkanalia::Instance,
     physical_device: vk::PhysicalDevice,
 ) -> Result<()> {
-    ensure_device_features_supported(engine.instance(), physical_device)
+    ensure_device_features_supported(instance, physical_device)
 }
 
 pub(crate) fn create_device(
-    engine: &Engine,
+    instance: &vulkanalia::Instance,
     physical_device: vk::PhysicalDevice,
     surface: Option<&Surface>,
     queue_families: &[(QueueFamily, u32)],
 ) -> Result<DeviceResource> {
     use vulkanalia::prelude::v1_1::*;
 
-    ensure_required_device_extensions_supported(engine, physical_device, surface)?;
-    ensure_required_device_features_supported(engine, physical_device)?;
+    ensure_required_device_extensions_supported(instance, physical_device, surface)?;
+    ensure_required_device_features_supported(instance, physical_device)?;
 
     let queue_priorities = queue_families
         .iter()
@@ -99,11 +99,7 @@ pub(crate) fn create_device(
         .push_next(&mut enabled_v12)
         .push_next(&mut enabled_v13);
 
-    let handle = unsafe {
-        engine
-            .instance()
-            .create_device(physical_device, &create_info, None)?
-    };
+    let handle = unsafe { instance.create_device(physical_device, &create_info, None)? };
     Ok(DeviceResource::new(handle))
 }
 

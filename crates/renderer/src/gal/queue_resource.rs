@@ -26,7 +26,7 @@ impl QueueResource {
         self.id
     }
 
-    pub(crate) fn handle(&self) -> vk::Queue {
+    pub(crate) unsafe fn handle(&self) -> vk::Queue {
         self.handle
     }
 }

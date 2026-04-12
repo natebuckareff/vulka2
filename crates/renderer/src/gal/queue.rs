@@ -27,9 +27,9 @@ impl Queue {
         lane: Lane,
     ) -> Self {
         Self {
+            resource,
             device,
             semaphore,
-            resource,
             kind,
             present,
             lane,
@@ -40,8 +40,8 @@ impl Queue {
         &self.semaphore
     }
 
-    fn id(&self) -> u32 {
-        self.resource.id()
+    pub(crate) fn resource(&self) -> &QueueResource {
+        &self.resource
     }
 
     pub fn kind(&self) -> QueueKind {
@@ -55,10 +55,6 @@ impl Queue {
     fn lane(&self) -> Lane {
         self.lane
     }
-
-    // fn timeline(&self) -> Result<TimelineValue> {
-    //     todo!()
-    // }
 
     fn submit(&mut self, submission: Submission) -> Result<()> {
         todo!()

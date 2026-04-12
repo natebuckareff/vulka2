@@ -27,7 +27,6 @@ impl SurfaceResource {
         &self.engine
     }
 
-    // XXX TODO: Resource trait?
     pub(crate) unsafe fn handle(&self) -> vk::SurfaceKHR {
         self.handle
     }
