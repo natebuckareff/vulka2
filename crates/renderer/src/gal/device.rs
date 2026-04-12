@@ -25,7 +25,7 @@ impl Device {
         resource: Arc<DeviceResource>,
         queues: &[Queue],
     ) -> Result<Self> {
-        let timelines = Self::create_timelines(queues);
+        let timelines = Self::create_timelines(resource.clone(), queues);
         let allocator = DeviceAllocator::new(&engine, &resource, physical_device)?;
         Ok(Self {
             engine,
@@ -36,11 +36,10 @@ impl Device {
         })
     }
 
-    fn create_timelines(queues: &[Queue]) -> Vec<QueueTimeline> {
+    fn create_timelines(device: Arc<DeviceResource>, queues: &[Queue]) -> Vec<QueueTimeline> {
         queues
             .iter()
-            .map(|queue| queue.semaphore().clone())
-            .map(QueueTimeline::new)
+            .map(|queue| QueueTimeline::new(device.clone(), queue.semaphore().clone()))
             .collect()
     }
 

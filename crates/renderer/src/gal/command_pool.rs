@@ -64,7 +64,7 @@ struct PoolEntry {
 
 impl PoolEntry {
     fn new(pool: CommandPool) -> Self {
-        let usage = pool.usage.replace_with(|_| UsageToken::exclusive());
+        let usage = pool.usage.replace_with(|_| UsageToken::exclusive(pool.lane));
         Self { pool, usage }
     }
 }
@@ -77,7 +77,7 @@ pub struct CommandPool {
 
 impl CommandPool {
     fn new(resource: CommandPoolResource, lane: Lane) -> Self {
-        let usage = UsageToken::exclusive();
+        let usage = UsageToken::exclusive(lane);
         Self {
             resource,
             lane,

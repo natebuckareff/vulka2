@@ -2,11 +2,17 @@ use std::sync::Arc;
 
 use vulkanalia::vk;
 
-use crate::gal::{image::Image, image_view::ImageView, semaphore_resource::SemaphoreResource};
+use crate::gal::{
+    image::Image,
+    image_view::ImageView,
+    queue::QueueFamily,
+    semaphore_resource::SemaphoreResource,
+};
 
 pub struct AcquiredImage {
     generation: u64,
     index: u32,
+    family: QueueFamily,
     image: Arc<Image>,
     view: Arc<ImageView>,
     extent: vk::Extent2D,
@@ -19,6 +25,7 @@ impl AcquiredImage {
     pub(crate) fn new(
         generation: u64,
         index: u32,
+        family: QueueFamily,
         image: Arc<Image>,
         view: Arc<ImageView>,
         extent: vk::Extent2D,
@@ -29,6 +36,7 @@ impl AcquiredImage {
         Self {
             generation,
             index,
+            family,
             image,
             view,
             extent,
@@ -70,6 +78,7 @@ impl AcquiredImage {
         PresentToken {
             generation: self.generation,
             index: self.index,
+            family: self.family,
             render_finished: self.render_finished,
         }
     }
@@ -78,6 +87,7 @@ impl AcquiredImage {
 pub struct PresentToken {
     generation: u64,
     index: u32,
+    family: QueueFamily,
     render_finished: Arc<SemaphoreResource>,
 }
 
@@ -88,6 +98,10 @@ impl PresentToken {
 
     pub fn index(&self) -> u32 {
         self.index
+    }
+
+    pub fn family(&self) -> QueueFamily {
+        self.family
     }
 
     pub fn render_finished(&self) -> &Arc<SemaphoreResource> {

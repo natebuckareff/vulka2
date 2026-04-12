@@ -18,15 +18,15 @@ struct UsageInner<Lanes: ?Sized> {
 }
 
 impl UsageToken {
-    fn new<const N: usize>() -> Self {
-        assert!(N < 64);
+    fn new<const N: usize>(mask: u64) -> Self {
+        assert_eq!(mask.count_ones() as usize, N);
         let lanes: [AtomicU64; N] = [const { AtomicU64::new(0) }; N];
-        let inner = Arc::new(UsageInner { mask: 0, lanes });
+        let inner = Arc::new(UsageInner { mask, lanes });
         UsageToken { inner }
     }
 
-    pub(crate) fn exclusive() -> Self {
-        Self::new::<1>()
+    pub(crate) fn exclusive(lane: Lane) -> Self {
+        Self::new::<1>(1u64 << u32::from(lane.index()))
     }
 
     fn len(&self) -> usize {
@@ -51,9 +51,9 @@ impl UsageToken {
 
     pub(crate) fn is_reclaimable(&self, device: &Device) -> Result<bool> {
         for index in self.iter() {
-            let timeline = device.timeline(index); // XXX
-            let current = self.inner.lanes[usize::from(index)].load(Ordering::Relaxed);
-            if current >= timeline.poll()?.into() {
+            let timeline = device.timeline(index);
+            let current = self.inner.lanes[self.index_of_lane(index)].load(Ordering::Relaxed);
+            if current > timeline.poll()?.into() {
                 return Ok(false);
             }
         }
@@ -63,12 +63,16 @@ impl UsageToken {
     fn iter(&self) -> impl Iterator<Item = LaneIndex> {
         (0..64)
             .into_iter()
-            .filter_map(|i| rank_of_bit(self.inner.mask, i))
-            .map(|index| LaneIndex::new(index as u32))
+            .filter(|i| (self.inner.mask & (1u64 << i)) != 0)
+            .map(LaneIndex::new)
     }
 
     fn index_of(&self, lane: Lane) -> Option<usize> {
         rank_of_bit(self.inner.mask, lane.index().into())
+    }
+
+    fn index_of_lane(&self, lane: LaneIndex) -> usize {
+        rank_of_bit(self.inner.mask, lane.into()).expect("lane index missing from usage token mask")
     }
 }
 
@@ -77,5 +81,5 @@ fn rank_of_bit(bits: u64, i: u32) -> Option<usize> {
         return None;
     }
     let below = if i == 0 { 0 } else { bits & ((1u64 << i) - 1) };
-    Some((below.count_ones() + 1) as usize)
+    Some(below.count_ones() as usize)
 }

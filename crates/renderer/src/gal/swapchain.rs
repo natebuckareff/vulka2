@@ -7,16 +7,18 @@ use crate::gal::{
     device::{Device, DeviceResource},
     image::{Image, SampleCount},
     image_view::ImageView,
-    queue::Queue,
+    queue::{Lane, Queue},
     semaphore_resource::SemaphoreResource,
     surface::Surface,
     swapchain_image::AcquiredImage,
     swapchain_resource::SwapchainResource,
+    usage_token::UsageToken,
 };
 
 struct SwapchainSlot {
     image_available: Arc<SemaphoreResource>,
     render_finished: Arc<SemaphoreResource>,
+    usage: UsageToken,
 }
 
 pub enum AcquireError {
@@ -36,12 +38,14 @@ pub enum PresentError {
     RecreateSurface,
     RegainFullScreen,
     GenerationMismatch,
+    OwnershipTransferUnsupported,
     Code(vk::ErrorCode),
 }
 
 pub struct Swapchain {
     device: Arc<Device>,
     surface: Arc<Surface>,
+    lane: Lane,
     generation: u64,
     state: SwapchainState,
     slots: Vec<SwapchainSlot>,
@@ -50,17 +54,23 @@ pub struct Swapchain {
 }
 
 impl Swapchain {
-    pub fn new(device: Arc<Device>, surface: Arc<Surface>, extent: vk::Extent2D) -> Result<Self> {
+    pub fn new(
+        device: Arc<Device>,
+        surface: Arc<Surface>,
+        lane: Lane,
+        extent: vk::Extent2D,
+    ) -> Result<Self> {
         if extent.width == 0 || extent.height == 0 {
             bail!("extent is zero");
         }
 
         let state = SwapchainState::new(&device, &surface, extent, None)?;
-        let slots = create_slots(device.resource().clone(), state.images.len())?;
+        let slots = create_slots(device.resource().clone(), lane, state.images.len())?;
 
         Ok(Self {
             device,
             surface,
+            lane,
             generation: 0,
             state,
             slots,
@@ -111,9 +121,21 @@ impl Swapchain {
                 .queue_wait_idle(queue.resource().handle())?;
         }
 
+        for slot in &self.slots {
+            // TODO: should wait until timelines progress, instead of polling
+            // and erroring; recreate should be a safe operation
+            if !slot.usage.is_reclaimable(&self.device)? {
+                bail!("swapchain slot is still in use on another queue");
+            }
+        }
+
         let old = Some(&self.state);
         self.state = SwapchainState::new(&self.device, &self.surface, extent, old)?;
-        self.slots = create_slots(self.device.resource().clone(), self.state.images.len())?;
+        self.slots = create_slots(
+            self.device.resource().clone(),
+            self.lane,
+            self.state.images.len(),
+        )?;
         self.generation += 1;
         self.slot_index = 0;
         self.should_recreate = false;
@@ -125,6 +147,14 @@ impl Swapchain {
         use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
 
         let slot = &self.slots[self.slot_index];
+        if !slot
+            .usage
+            .is_reclaimable(&self.device)
+            .map_err(AcquireError::Other)?
+        {
+            return Err(AcquireError::NotReady);
+        }
+
         let result = unsafe {
             self.device.resource().handle().acquire_next_image_khr(
                 self.state.swapchain.handle(),
@@ -146,6 +176,7 @@ impl Swapchain {
                     Ok(AcquiredImage::new(
                         self.generation,
                         index,
+                        self.lane.family(),
                         self.state.images[index as usize].clone(),
                         self.state.views[index as usize].clone(),
                         self.state.extent,
@@ -171,7 +202,11 @@ impl Swapchain {
     }
 }
 
-fn create_slots(device: Arc<DeviceResource>, count: usize) -> Result<Vec<SwapchainSlot>> {
+fn create_slots(
+    device: Arc<DeviceResource>,
+    lane: Lane,
+    count: usize,
+) -> Result<Vec<SwapchainSlot>> {
     let mut slots = Vec::with_capacity(count);
 
     for _ in 0..count {
@@ -180,6 +215,7 @@ fn create_slots(device: Arc<DeviceResource>, count: usize) -> Result<Vec<Swapcha
         slots.push(SwapchainSlot {
             image_available,
             render_finished,
+            usage: UsageToken::exclusive(lane),
         });
     }
 

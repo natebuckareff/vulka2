@@ -45,6 +45,10 @@ impl Queue {
         &self.semaphore
     }
 
+    pub(crate) fn device(&self) -> &Arc<DeviceResource> {
+        &self.device
+    }
+
     pub(crate) fn resource(&self) -> &QueueResource {
         &self.resource
     }
@@ -57,7 +61,7 @@ impl Queue {
         self.present
     }
 
-    fn lane(&self) -> Lane {
+    pub(crate) fn lane(&self) -> Lane {
         self.lane
     }
 
@@ -75,6 +79,10 @@ impl Queue {
 
         if token.generation() != swapchain.generation() {
             return Err(PresentError::GenerationMismatch);
+        }
+
+        if token.family() != self.resource.family() {
+            return Err(PresentError::OwnershipTransferUnsupported);
         }
 
         let wait_semaphores = [unsafe { token.render_finished().handle() }];

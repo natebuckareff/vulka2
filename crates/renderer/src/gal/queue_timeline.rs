@@ -3,21 +3,30 @@ use std::sync::Arc;
 use anyhow::Result;
 use vulkanalia::vk;
 
+use crate::gal::device::DeviceResource;
 use crate::gal::semaphore_resource::SemaphoreResource;
 
 pub struct QueueTimeline {
+    device: Arc<DeviceResource>,
     semaphore: Arc<SemaphoreResource>,
     handle: vk::Semaphore,
 }
 
 impl QueueTimeline {
-    pub(crate) fn new(semaphore: Arc<SemaphoreResource>) -> Self {
+    pub(crate) fn new(device: Arc<DeviceResource>, semaphore: Arc<SemaphoreResource>) -> Self {
         let handle = unsafe { semaphore.handle() };
-        Self { semaphore, handle }
+        Self {
+            device,
+            semaphore,
+            handle,
+        }
     }
 
     pub(crate) fn poll(&self) -> Result<TimelineValue> {
-        todo!()
+        use vulkanalia::prelude::v1_2::*;
+
+        let value = unsafe { self.device.handle().get_semaphore_counter_value(self.handle)? };
+        Ok(TimelineValue::new(value))
     }
 }
 
