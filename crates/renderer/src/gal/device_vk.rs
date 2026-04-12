@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use anyhow::anyhow;
+use anyhow::bail;
 use vulkanalia::Version;
 use vulkanalia::vk;
 
@@ -223,9 +223,7 @@ fn ensure_device_extensions_supported(
         .collect::<Vec<_>>()
         .join(", ");
 
-    Err(anyhow!(
-        "required device extensions are not supported: {missing}"
-    ))
+    bail!("required device extensions are not supported: {missing}")
 }
 
 fn ensure_device_features_supported(
@@ -257,10 +255,10 @@ fn ensure_device_features_supported(
         return Ok(());
     }
 
-    Err(anyhow!(
+    bail!(
         "required device features are not supported: {}",
         missing_features.join(", ")
-    ))
+    )
 }
 
 fn device_kind(device_type: vk::PhysicalDeviceType) -> Option<DeviceKind> {

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, bail};
 use vulkanalia::vk;
 use vulkanalia_vma as vma;
 
@@ -100,7 +100,7 @@ impl Image {
             vk::ImageType::_1D => 1,
             vk::ImageType::_2D => 2,
             vk::ImageType::_3D => 3,
-            _ => return Err(anyhow!("invalid view type")),
+            _ => bail!("invalid view type"),
         };
         Ok(value)
     }
@@ -150,7 +150,7 @@ impl SampleCount {
             16 => vk::SampleCountFlags::_16,
             32 => vk::SampleCountFlags::_32,
             64 => vk::SampleCountFlags::_64,
-            _ => return Err(anyhow!("invalid sample count")),
+            _ => bail!("invalid sample count"),
         };
         Ok(Self { flags, count })
     }

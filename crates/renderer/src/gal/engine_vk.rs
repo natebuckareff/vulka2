@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::ffi::{CStr, CString, c_void};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use vulkanalia::Version;
 use vulkanalia::loader::{LIBRARY, LibloadingLoader};
 use vulkanalia::prelude::v1_0::*;
@@ -42,9 +42,7 @@ pub(crate) fn load_entry() -> Result<vulkanalia::Entry> {
         let major = vk::version_major(version);
         let minor = vk::version_minor(version);
         let patch = vk::version_patch(version);
-        return Err(anyhow!(
-            "vulkan 1.3 or newer is required, found {major}.{minor}.{patch}"
-        ));
+        bail!("vulkan 1.3 or newer is required, found {major}.{minor}.{patch}");
     }
 
     Ok(entry)
@@ -162,7 +160,7 @@ fn ensure_instance_extensions_supported(
         .collect::<Vec<_>>()
         .join(", ");
 
-    Err(anyhow!("required instance extensions are not supported: {missing}"))
+    bail!("required instance extensions are not supported: {missing}")
 }
 
 fn collect_extension_names(
@@ -250,9 +248,7 @@ impl<'a> ValidationConfig<'a> {
         self.enable_validation_layer()?;
 
         if features.debug_printf && features.gpu_assisted {
-            return Err(anyhow!(
-                "debug printf and gpu assisted validation cannot be enabled together"
-            ));
+            bail!("debug printf and gpu assisted validation cannot be enabled together");
         }
 
         if features.best_practices {
@@ -290,7 +286,7 @@ impl<'a> ValidationConfig<'a> {
             .collect::<HashSet<_>>();
 
         if !available_layers.contains(&VALIDATION_LAYER) {
-            return Err(anyhow!("validation layers are not supported"));
+            bail!("validation layers are not supported");
         }
 
         self.layer_names.push(VALIDATION_LAYER.as_ptr());
@@ -333,9 +329,8 @@ impl<'a> ValidationConfig<'a> {
                 .map(|extension| extension.to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            return Err(anyhow!(
-                "required validation layer extensions are not supported: {missing}"
-            ));
+
+            bail!("required validation layer extensions are not supported: {missing}");
         }
 
         Ok(self

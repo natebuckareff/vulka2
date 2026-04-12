@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, bail};
 use vulkanalia::vk;
 
 use crate::gal::{
@@ -67,7 +67,7 @@ impl ImageView {
             vk::ImageViewType::_3D => 3,
             vk::ImageViewType::CUBE => 3,
             vk::ImageViewType::CUBE_ARRAY => 4,
-            _ => return Err(anyhow!("invalid view type")),
+            _ => bail!("invalid view type"),
         };
         Ok(value)
     }
