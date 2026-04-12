@@ -10,7 +10,7 @@ use crate::gal::{
     queue::Queue,
     semaphore_resource::SemaphoreResource,
     surface::Surface,
-    swapchain_image::{AcquiredImage, PresentToken},
+    swapchain_image::AcquiredImage,
     swapchain_resource::SwapchainResource,
 };
 
@@ -31,6 +31,7 @@ pub enum AcquireError {
 }
 
 pub enum PresentError {
+    QueueNotPresentable,
     RecreateSwapchain,
     RecreateSurface,
     RegainFullScreen,
@@ -41,7 +42,6 @@ pub enum PresentError {
 pub struct Swapchain {
     device: Arc<Device>,
     surface: Arc<Surface>,
-    present_queue: vk::Queue,
     generation: u64,
     state: SwapchainState,
     slots: Vec<SwapchainSlot>,
@@ -50,17 +50,9 @@ pub struct Swapchain {
 }
 
 impl Swapchain {
-    pub fn new(
-        device: Arc<Device>,
-        surface: Arc<Surface>,
-        present_queue: &Queue,
-        extent: vk::Extent2D,
-    ) -> Result<Self> {
+    pub fn new(device: Arc<Device>, surface: Arc<Surface>, extent: vk::Extent2D) -> Result<Self> {
         if extent.width == 0 || extent.height == 0 {
             bail!("extent is zero");
-        }
-        if !present_queue.presentable() {
-            bail!("queue does not support present");
         }
 
         let state = SwapchainState::new(&device, &surface, extent, None)?;
@@ -69,13 +61,24 @@ impl Swapchain {
         Ok(Self {
             device,
             surface,
-            present_queue: unsafe { present_queue.resource().handle() },
             generation: 0,
             state,
             slots,
             slot_index: 0,
             should_recreate: false,
         })
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(crate) unsafe fn current_handle(&self) -> vk::SwapchainKHR {
+        unsafe { self.state.swapchain.handle() }
+    }
+
+    pub(crate) fn set_should_recreate(&mut self) {
+        self.should_recreate = true;
     }
 
     pub fn should_recreate(&self) -> bool {
@@ -90,18 +93,22 @@ impl Swapchain {
         self.state.extent
     }
 
-    pub fn recreate(&mut self, extent: vk::Extent2D) -> Result<()> {
+    pub fn recreate(&mut self, queue: &Queue, extent: vk::Extent2D) -> Result<()> {
         use vulkanalia::prelude::v1_0::*;
 
         if extent.width == 0 || extent.height == 0 {
             bail!("extent is zero");
         }
 
+        if !queue.presentable() {
+            bail!("queue does not support present");
+        }
+
         unsafe {
             self.device
                 .resource()
                 .handle()
-                .queue_wait_idle(self.present_queue)?;
+                .queue_wait_idle(queue.resource().handle())?;
         }
 
         let old = Some(&self.state);
@@ -160,44 +167,6 @@ impl Swapchain {
                 Err(AcquireError::RegainFullScreen)
             }
             Err(error) => Err(AcquireError::Code(error)),
-        }
-    }
-
-    pub fn present(&mut self, token: PresentToken) -> Result<(), PresentError> {
-        use vulkanalia::prelude::v1_0::*;
-        use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
-
-        if token.generation() != self.generation {
-            return Err(PresentError::GenerationMismatch);
-        }
-
-        let wait_semaphores = [unsafe { token.render_finished().handle() }];
-        let swapchains = [unsafe { self.state.swapchain.handle() }];
-        let indices = [token.index()];
-        let present_info = vk::PresentInfoKHR::builder()
-            .wait_semaphores(&wait_semaphores)
-            .swapchains(&swapchains)
-            .image_indices(&indices);
-        let result = unsafe {
-            self.device
-                .resource()
-                .handle()
-                .queue_present_khr(self.present_queue, &present_info)
-        };
-
-        match result {
-            Ok(code) => {
-                if code == vk::SuccessCode::SUBOPTIMAL_KHR {
-                    self.should_recreate = true;
-                }
-                Ok(())
-            }
-            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => Err(PresentError::RecreateSwapchain),
-            Err(vk::ErrorCode::SURFACE_LOST_KHR) => Err(PresentError::RecreateSurface),
-            Err(vk::ErrorCode::FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) => {
-                Err(PresentError::RegainFullScreen)
-            }
-            Err(error) => Err(PresentError::Code(error)),
         }
     }
 }

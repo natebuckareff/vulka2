@@ -4,8 +4,13 @@ use anyhow::Result;
 use bitflags::bitflags;
 
 use crate::gal::{
-    command_pool::Submission, device::DeviceResource, device_builder::QueueKind,
-    queue_resource::QueueResource, semaphore_resource::SemaphoreResource,
+    command_pool::Submission,
+    device::DeviceResource,
+    device_builder::QueueKind,
+    queue_resource::QueueResource,
+    semaphore_resource::SemaphoreResource,
+    swapchain::{PresentError, Swapchain},
+    swapchain_image::PresentToken,
 };
 
 pub struct Queue {
@@ -54,6 +59,52 @@ impl Queue {
 
     fn lane(&self) -> Lane {
         self.lane
+    }
+
+    pub fn present(
+        &self,
+        swapchain: &mut Swapchain,
+        token: PresentToken,
+    ) -> Result<(), PresentError> {
+        use vulkanalia::prelude::v1_0::*;
+        use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
+
+        if !self.presentable() {
+            return Err(PresentError::QueueNotPresentable);
+        }
+
+        if token.generation() != swapchain.generation() {
+            return Err(PresentError::GenerationMismatch);
+        }
+
+        let wait_semaphores = [unsafe { token.render_finished().handle() }];
+        let swapchains = [unsafe { swapchain.current_handle() }];
+        let indices = [token.index()];
+        let present_info = vk::PresentInfoKHR::builder()
+            .wait_semaphores(&wait_semaphores)
+            .swapchains(&swapchains)
+            .image_indices(&indices);
+
+        let result = unsafe {
+            self.device
+                .handle()
+                .queue_present_khr(self.resource.handle(), &present_info)
+        };
+
+        match result {
+            Ok(code) => {
+                if code == vk::SuccessCode::SUBOPTIMAL_KHR {
+                    swapchain.set_should_recreate();
+                }
+                Ok(())
+            }
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => Err(PresentError::RecreateSwapchain),
+            Err(vk::ErrorCode::SURFACE_LOST_KHR) => Err(PresentError::RecreateSurface),
+            Err(vk::ErrorCode::FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) => {
+                Err(PresentError::RegainFullScreen)
+            }
+            Err(error) => Err(PresentError::Code(error)),
+        }
     }
 
     fn submit(&mut self, submission: Submission) -> Result<()> {
