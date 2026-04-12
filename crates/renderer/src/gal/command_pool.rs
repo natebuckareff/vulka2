@@ -1,73 +1,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use smallvec::SmallVec;
 
 use crate::gal::command_pool_resource::CommandPoolResource;
 use crate::gal::queue::Lane;
-use crate::gal::{device::Device, queue::Queue, usage_token::UsageToken};
-
-pub struct CommandAllocator {
-    device: Arc<Device>,
-    lane: Lane,
-    capacity: usize,
-    pools: Vec<PoolEntry>,
-}
-
-impl CommandAllocator {
-    pub fn new(device: Arc<Device>, lane: Lane, capacity: usize) -> Self {
-        Self {
-            device,
-            lane,
-            capacity,
-            pools: Vec::with_capacity(capacity),
-        }
-    }
-
-    pub fn acquire(&mut self) -> Result<Option<CommandPool>> {
-        for i in 0..self.pools.len() {
-            let entry = &self.pools[i];
-            if entry.usage.is_reclaimable(&self.device)? {
-                let entry = self.pools.swap_remove(i);
-                return Ok(Some(entry.pool));
-            }
-        }
-        self.allocate_pool()
-    }
-
-    fn allocate_pool(&mut self) -> Result<Option<CommandPool>> {
-        if self.pools.len() == self.capacity {
-            return Ok(None);
-        }
-        let device = self.device.resource();
-        let resource = CommandPoolResource::new(device)?;
-        let pool = CommandPool::new(resource, self.lane);
-        Ok(Some(pool))
-    }
-
-    pub fn retire(&mut self, pool: CommandPool) -> Result<()> {
-        if pool.lane.family() != self.lane.family() {
-            bail!("command pool queue family does not match allocator");
-        }
-        let entry = PoolEntry::new(pool);
-        self.pools.push(entry);
-        Ok(())
-    }
-}
-
-struct PoolEntry {
-    pool: CommandPool,
-    usage: UsageToken,
-}
-
-impl PoolEntry {
-    fn new(pool: CommandPool) -> Self {
-        let usage = pool.usage.replace_with(|_| UsageToken::exclusive(pool.lane));
-        Self { pool, usage }
-    }
-}
+use crate::gal::usage_token::UsageToken;
 
 pub struct CommandPool {
     resource: CommandPoolResource,
@@ -76,13 +15,22 @@ pub struct CommandPool {
 }
 
 impl CommandPool {
-    fn new(resource: CommandPoolResource, lane: Lane) -> Self {
+    pub(crate) fn new(resource: CommandPoolResource, lane: Lane) -> Self {
         let usage = UsageToken::exclusive(lane);
         Self {
             resource,
             lane,
             usage: Rc::new(RefCell::new(usage)),
         }
+    }
+
+    pub fn lane(&self) -> Lane {
+        self.lane
+    }
+
+    pub(crate) fn swap_usage(&mut self) -> UsageToken {
+        self.usage
+            .replace_with(|_| UsageToken::exclusive(self.lane))
     }
 
     fn allocate(&mut self) -> Result<CommandBuffer> {

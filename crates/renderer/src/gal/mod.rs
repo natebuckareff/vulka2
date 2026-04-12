@@ -1,3 +1,4 @@
+mod command_allocator;
 mod command_pool;
 mod command_pool_resource;
 mod device;
