@@ -60,6 +60,15 @@ impl UsageToken {
         Ok(true)
     }
 
+    pub(crate) fn wait_until_reclaimable(&self, device: &Device) -> Result<()> {
+        // TODO: add support for bulk multi-semaphore wait
+        for index in self.iter() {
+            let current = self.inner.lanes[self.index_of_lane(index)].load(Ordering::Relaxed);
+            device.timeline(index).wait(TimelineValue::new(current))?;
+        }
+        Ok(())
+    }
+
     fn iter(&self) -> impl Iterator<Item = LaneIndex> {
         (0..64)
             .into_iter()

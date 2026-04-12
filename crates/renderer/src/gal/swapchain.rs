@@ -122,11 +122,7 @@ impl Swapchain {
         }
 
         for slot in &self.slots {
-            // TODO: should wait until timelines progress, instead of polling
-            // and erroring; recreate should be a safe operation
-            if !slot.usage.is_reclaimable(&self.device)? {
-                bail!("swapchain slot is still in use on another queue");
-            }
+            slot.usage.wait_until_reclaimable(&self.device)?;
         }
 
         let old = Some(&self.state);

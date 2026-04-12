@@ -28,6 +28,22 @@ impl QueueTimeline {
         let value = unsafe { self.device.handle().get_semaphore_counter_value(self.handle)? };
         Ok(TimelineValue::new(value))
     }
+
+    pub(crate) fn wait(&self, value: TimelineValue) -> Result<()> {
+        use vulkanalia::prelude::v1_2::*;
+
+        let semaphores = [self.handle];
+        let values = [u64::from(value)];
+        let info = vk::SemaphoreWaitInfo::builder()
+            .semaphores(&semaphores)
+            .values(&values);
+
+        unsafe {
+            self.device.handle().wait_semaphores(&info, u64::MAX)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
