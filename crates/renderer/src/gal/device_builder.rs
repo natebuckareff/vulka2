@@ -73,7 +73,7 @@ impl DeviceBuilder {
             .collect::<Vec<_>>();
         let queue_resources = load_queues(resource.as_ref(), &queue_handles)?;
         let queues = build_queues(resource.clone(), queue_resources, &plan)?;
-        let device = Device::new(self.engine, resource, &queues);
+        let device = Device::new(self.engine, info.physical_device, resource, &queues);
         Ok((queues, device))
     }
 }

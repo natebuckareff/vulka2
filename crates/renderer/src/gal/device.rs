@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use vulkanalia::vk;
+
 use crate::gal::{
     Engine,
     queue::{LaneIndex, Queue},
@@ -8,6 +10,7 @@ use crate::gal::{
 
 pub struct Device {
     engine: Arc<Engine>,
+    physical_device: vk::PhysicalDevice,
     resource: Arc<DeviceResource>,
     timelines: Vec<QueueTimeline>,
 }
@@ -15,6 +18,7 @@ pub struct Device {
 impl Device {
     pub(crate) fn new(
         engine: Arc<Engine>,
+        physical_device: vk::PhysicalDevice,
         resource: Arc<DeviceResource>,
         queues: &[Queue],
     ) -> Self {
@@ -27,9 +31,14 @@ impl Device {
             .collect();
         Self {
             engine,
+            physical_device,
             resource,
             timelines,
         }
+    }
+
+    pub(crate) fn physical_device(&self) -> vk::PhysicalDevice {
+        self.physical_device
     }
 
     pub(crate) fn resource(&self) -> &DeviceResource {
