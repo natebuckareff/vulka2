@@ -2,9 +2,10 @@
 - maximize mantainability of code
 - maximize composable primitives
 - minimize nesting
-- reference spec files
 - if an API design decision is unclear, don't guess, stop and ask
 - if a change deviates from the spec, always stop coding and have a discussion
 - specs may reference docs in the `vendors` folder in the project root
 - run cargo check yourself after finish a large chunk of work
 - need to source the `source-me.sh` script to correctly setup vulkan PATHs
+- import Vulkanalia preludes inside the narrowest scope that needs them; prefer function-local prelude imports over module-level trait imports
+- prefer flat imports over nested grouped imports when a single-line use statement is sufficient *for std only*; prefer the default structured imports for other crates
