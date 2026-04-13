@@ -36,6 +36,10 @@ impl SemaphoreResource {
     pub(crate) unsafe fn handle(&self) -> vk::Semaphore {
         self.handle
     }
+
+    pub(crate) fn device(&self) -> &Arc<DeviceResource> {
+        &self.device
+    }
 }
 
 impl Drop for SemaphoreResource {

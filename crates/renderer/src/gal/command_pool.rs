@@ -1,131 +1,76 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use anyhow::Result;
-use smallvec::SmallVec;
+use vulkanalia::vk;
 
+use crate::gal::command_buffer::CommandBuffer;
 use crate::gal::command_pool_resource::CommandPoolResource;
 use crate::gal::queue::Lane;
 use crate::gal::usage_token::UsageToken;
 
 pub struct CommandPool {
+    frame: u32,
     resource: CommandPoolResource,
-    lane: Lane,
-    usage: Rc<RefCell<UsageToken>>,
+    usage: UsageToken,
+    handles: Vec<vk::CommandBuffer>,
+    index: usize,
 }
 
 impl CommandPool {
-    pub(crate) fn new(resource: CommandPoolResource, lane: Lane) -> Self {
-        let usage = UsageToken::exclusive(lane);
+    pub(crate) fn new(frame: u32, resource: CommandPoolResource) -> Self {
         Self {
+            frame,
             resource,
-            lane,
-            usage: Rc::new(RefCell::new(usage)),
+            usage: UsageToken::new(),
+            handles: Vec::new(),
+            index: 0,
         }
     }
 
-    pub fn lane(&self) -> Lane {
-        self.lane
+    pub(crate) fn resource(&self) -> &CommandPoolResource {
+        &self.resource
     }
 
     pub(crate) fn swap_usage(&mut self) -> UsageToken {
-        self.usage
-            .replace_with(|_| UsageToken::exclusive(self.lane))
+        std::mem::replace(&mut self.usage, UsageToken::new())
     }
 
-    fn allocate(&mut self) -> Result<CommandBuffer> {
-        todo!()
-    }
-}
-
-pub struct CommandBuffer {
-    lane: Lane,
-    usage: Rc<RefCell<UsageToken>>,
-}
-
-impl CommandBuffer {
-    fn into_packet(self) -> CommandPacket {
-        todo!()
-    }
-}
-
-const DEFAULT_SUBMISSION_SIZE: usize = 4;
-
-pub struct Submission<const N: usize = DEFAULT_SUBMISSION_SIZE> {
-    lane: Lane,
-    usage: Rc<RefCell<UsageToken>>,
-    packets: SmallVec<[CommandPacket; N]>,
-}
-
-impl<const N: usize> Submission<N> {
-    fn new(factory: &impl SubmissionFactory) -> Self {
-        Self {
-            lane: factory.lane(),
-            usage: factory.usage().clone(),
-            packets: SmallVec::new(),
+    pub(crate) fn reset(&mut self, frame: u32) -> Result<()> {
+        use vulkanalia::prelude::v1_0::*;
+        unsafe {
+            self.resource
+                .device()
+                .handle()
+                .reset_command_pool(self.resource.handle(), vk::CommandPoolResetFlags::empty())?;
         }
+        self.frame = frame;
+        self.index = 0;
+        Ok(())
     }
 
-    fn with_capacity(factory: &impl SubmissionFactory, capacity: usize) -> Self {
-        Self {
-            lane: factory.lane(),
-            usage: factory.usage().clone(),
-            packets: SmallVec::with_capacity(capacity),
+    pub fn allocate(&mut self, lane: Lane) -> Result<CommandBuffer<'_>> {
+        let handle = self.allocate_handle()?;
+        self.usage.touch(self.frame, lane);
+        return Ok(CommandBuffer::new(self.frame, lane, handle));
+    }
+
+    fn allocate_handle(&mut self) -> Result<vk::CommandBuffer> {
+        use vulkanalia::prelude::v1_0::*;
+        if self.index < self.handles.len() {
+            let handle = self.handles[self.index];
+            self.index += 1;
+            return Ok(handle);
         }
-    }
-
-    fn push(&mut self, cmdbuf: CommandBuffer) {
-        if self.packets.len() == self.packets.capacity() {
-            println!("WARNING: submission allocation");
-        }
-        self.packets.push(cmdbuf.into_packet());
-    }
-}
-
-trait SubmissionFactory {
-    fn lane(&self) -> Lane;
-    fn usage(&self) -> &Rc<RefCell<UsageToken>>;
-}
-
-impl SubmissionFactory for CommandPool {
-    fn lane(&self) -> Lane {
-        self.lane
-    }
-
-    fn usage(&self) -> &Rc<RefCell<UsageToken>> {
-        &self.usage
+        let info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(unsafe { self.resource.handle() })
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1);
+        let handle = unsafe {
+            self.resource
+                .device()
+                .handle()
+                .allocate_command_buffers(&info)?[0]
+        };
+        self.handles.push(handle);
+        self.index += 1;
+        Ok(handle)
     }
 }
-
-impl SubmissionFactory for CommandBuffer {
-    fn lane(&self) -> Lane {
-        self.lane
-    }
-
-    fn usage(&self) -> &Rc<RefCell<UsageToken>> {
-        &self.usage
-    }
-}
-
-struct CommandPacket {
-    //
-}
-
-// fn test(mut device: Device) -> Result<()> {
-//     // use crate::gal::*;
-
-//     let request = GraphicsQueue::build();
-//     let mut queue = device.create_queue(request)?;
-//     let device = Arc::new(device);
-
-//     let mut allocator = CommandAllocator::new(device.clone(), queue.lane(), 3);
-//     let mut pool = allocator.acquire()?.unwrap();
-//     let cmdbuf = pool.allocate()?;
-
-//     let mut submission = Submission::new(&pool);
-//     submission.push(cmdbuf);
-
-//     queue.submit(submission)?;
-
-//     Ok(())
-// }

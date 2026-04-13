@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use vulkanalia::vk;
 
+use crate::gal::queue::QueueFamily;
 use crate::gal::{
     device::{Device, DeviceResource},
     image::{Image, SampleCount},
@@ -45,7 +46,7 @@ pub enum PresentError {
 pub struct Swapchain {
     device: Arc<Device>,
     surface: Arc<Surface>,
-    lane: Lane,
+    family: QueueFamily, // TODO: do we only need QueueFamily?
     generation: u64,
     state: SwapchainState,
     slots: Vec<SwapchainSlot>,
@@ -57,20 +58,18 @@ impl Swapchain {
     pub fn new(
         device: Arc<Device>,
         surface: Arc<Surface>,
-        lane: Lane,
+        family: QueueFamily,
         extent: vk::Extent2D,
     ) -> Result<Self> {
         if extent.width == 0 || extent.height == 0 {
             bail!("extent is zero");
         }
-
         let state = SwapchainState::new(&device, &surface, extent, None)?;
-        let slots = create_slots(device.resource().clone(), lane, state.images.len())?;
-
+        let slots = create_slots(device.resource().clone(), state.images.len())?;
         Ok(Self {
             device,
             surface,
-            lane,
+            family,
             generation: 0,
             state,
             slots,
@@ -127,11 +126,7 @@ impl Swapchain {
 
         let old = Some(&self.state);
         self.state = SwapchainState::new(&self.device, &self.surface, extent, old)?;
-        self.slots = create_slots(
-            self.device.resource().clone(),
-            self.lane,
-            self.state.images.len(),
-        )?;
+        self.slots = create_slots(self.device.resource().clone(), self.state.images.len())?;
         self.generation += 1;
         self.slot_index = 0;
         self.should_recreate = false;
@@ -172,7 +167,7 @@ impl Swapchain {
                     Ok(AcquiredImage::new(
                         self.generation,
                         index,
-                        self.lane.family(),
+                        self.family,
                         self.state.images[index as usize].clone(),
                         self.state.views[index as usize].clone(),
                         self.state.extent,
@@ -198,23 +193,17 @@ impl Swapchain {
     }
 }
 
-fn create_slots(
-    device: Arc<DeviceResource>,
-    lane: Lane,
-    count: usize,
-) -> Result<Vec<SwapchainSlot>> {
+fn create_slots(device: Arc<DeviceResource>, count: usize) -> Result<Vec<SwapchainSlot>> {
     let mut slots = Vec::with_capacity(count);
-
     for _ in 0..count {
         let image_available = Arc::new(SemaphoreResource::binary(device.clone())?);
         let render_finished = Arc::new(SemaphoreResource::binary(device.clone())?);
         slots.push(SwapchainSlot {
             image_available,
             render_finished,
-            usage: UsageToken::exclusive(lane),
+            usage: UsageToken::new(),
         });
     }
-
     Ok(slots)
 }
 

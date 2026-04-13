@@ -28,7 +28,7 @@ struct DemoApp {
     window: Option<Arc<Window>>,
     engine: Option<Arc<Engine>>,
     surface: Option<Arc<Surface>>,
-    device: Option<Device>,
+    device: Option<Arc<Device>>,
     queues: Vec<Queue>,
     next_frame: Instant,
     frame_dt: Duration,
@@ -84,7 +84,10 @@ impl DemoApp {
         Ok(Arc::new(Surface::new(engine)?))
     }
 
-    fn create_device(engine: Arc<Engine>, surface: Arc<Surface>) -> Result<(Vec<Queue>, Device)> {
+    fn create_device(
+        engine: Arc<Engine>,
+        surface: Arc<Surface>,
+    ) -> Result<(Vec<Queue>, Arc<Device>)> {
         let mut graphics = QueueRequest::new(QueueKind::Graphics);
         DeviceBuilder::new(engine)
             .allocate_queue(&mut graphics)?

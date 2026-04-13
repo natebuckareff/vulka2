@@ -3,18 +3,15 @@ use std::sync::Arc;
 use anyhow::Result;
 use vulkanalia::vk;
 
-use crate::gal::{
-    Engine,
-    device_allocator::DeviceAllocator,
-    queue::{LaneIndex, Queue},
-    queue_timeline::QueueTimeline,
-};
+use crate::gal::Engine;
+use crate::gal::device_allocator::DeviceAllocator;
+use crate::gal::device_timeline::DeviceTimeline;
 
 pub struct Device {
     engine: Arc<Engine>,
     physical_device: vk::PhysicalDevice,
     resource: Arc<DeviceResource>,
-    timelines: Vec<QueueTimeline>,
+    timeline: DeviceTimeline,
     allocator: DeviceAllocator,
 }
 
@@ -23,24 +20,16 @@ impl Device {
         engine: Arc<Engine>,
         physical_device: vk::PhysicalDevice,
         resource: Arc<DeviceResource>,
-        queues: &[Queue],
+        timeline: DeviceTimeline,
     ) -> Result<Self> {
-        let timelines = Self::create_timelines(resource.clone(), queues);
         let allocator = DeviceAllocator::new(&engine, &resource, physical_device)?;
         Ok(Self {
             engine,
             physical_device,
             resource,
-            timelines,
+            timeline,
             allocator,
         })
-    }
-
-    fn create_timelines(device: Arc<DeviceResource>, queues: &[Queue]) -> Vec<QueueTimeline> {
-        queues
-            .iter()
-            .map(|queue| QueueTimeline::new(device.clone(), queue.semaphore().clone()))
-            .collect()
     }
 
     pub(crate) fn engine(&self) -> &Arc<Engine> {
@@ -55,8 +44,8 @@ impl Device {
         &self.resource
     }
 
-    pub(crate) fn timeline(&self, index: LaneIndex) -> &QueueTimeline {
-        &self.timelines[usize::from(index)]
+    pub(crate) fn timeline(&self) -> &DeviceTimeline {
+        &self.timeline
     }
 
     pub(crate) fn allocator(&self) -> &DeviceAllocator {

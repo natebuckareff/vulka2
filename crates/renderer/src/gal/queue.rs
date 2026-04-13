@@ -1,30 +1,32 @@
+use std::hash::Hash;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use bitflags::bitflags;
 
-use crate::gal::{
-    command_pool::Submission,
-    device::DeviceResource,
-    device_builder::QueueKind,
-    queue_resource::QueueResource,
-    semaphore_resource::SemaphoreResource,
-    swapchain::{PresentError, Swapchain},
-    swapchain_image::PresentToken,
-};
+use crate::gal::Device;
+use crate::gal::QueueKind;
+use crate::gal::Swapchain;
+use crate::gal::queue_resource::QueueResource;
+use crate::gal::semaphore_resource::SemaphoreResource;
+use crate::gal::submission::Submission;
+use crate::gal::swapchain::PresentError;
+use crate::gal::swapchain_image::PresentToken;
 
 pub struct Queue {
-    device: Arc<DeviceResource>,
+    device: Arc<Device>,
     semaphore: Arc<SemaphoreResource>,
     resource: QueueResource,
     kind: QueueKind,
     present: bool,
+    frame: u32,
     lane: Lane,
+    submissions: u32,
 }
 
 impl Queue {
     pub(crate) fn new(
-        device: Arc<DeviceResource>,
+        device: Arc<Device>,
         semaphore: Arc<SemaphoreResource>,
         resource: QueueResource,
         kind: QueueKind,
@@ -37,7 +39,9 @@ impl Queue {
             semaphore,
             kind,
             present,
+            frame: 0,
             lane,
+            submissions: 0,
         }
     }
 
@@ -45,7 +49,7 @@ impl Queue {
         &self.semaphore
     }
 
-    pub(crate) fn device(&self) -> &Arc<DeviceResource> {
+    pub(crate) fn device(&self) -> &Arc<Device> {
         &self.device
     }
 
@@ -61,8 +65,16 @@ impl Queue {
         self.present
     }
 
-    pub(crate) fn lane(&self) -> Lane {
+    pub fn frame(&self) -> u32 {
+        self.frame
+    }
+
+    pub fn lane(&self) -> Lane {
         self.lane
+    }
+
+    pub fn submissions(&self) -> u32 {
+        self.submissions
     }
 
     pub fn present(
@@ -95,6 +107,7 @@ impl Queue {
 
         let result = unsafe {
             self.device
+                .resource()
                 .handle()
                 .queue_present_khr(self.resource.handle(), &present_info)
         };
@@ -115,8 +128,23 @@ impl Queue {
         }
     }
 
-    fn submit(&mut self, submission: Submission) -> Result<()> {
+    pub fn submit(&mut self, submission: Submission) -> Result<()> {
         todo!()
+    }
+
+    fn increment(&mut self, frame: u32) -> Result<()> {
+        if frame == self.frame + 1 {
+            // if the frame advanced, update the timeline with the final
+            // submission count for the last frame
+            self.device
+                .timeline()
+                .update(self.frame, self.lane.index(), self.submissions);
+        } else if self.frame != frame {
+            bail!("frame number out-of-order")
+        }
+        self.frame = frame;
+        self.submissions += 1;
+        Ok(())
     }
 }
 
@@ -140,7 +168,7 @@ impl Lane {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LaneIndex(u32);
 
 impl LaneIndex {

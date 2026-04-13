@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 
-use crate::gal::{
-    Engine, Surface,
-    device::{Device, DeviceResource},
-    device_solver::{Allocation, get_ranked_devices},
-    device_vk::{create_device, get_device_infos, load_queues},
-    queue::{Lane, LaneIndex, Queue, QueueCapFlags, QueueFamily},
-    semaphore_resource::SemaphoreResource,
-};
+use crate::gal::device::{Device, DeviceResource};
+use crate::gal::device_solver::{Allocation, get_ranked_devices};
+use crate::gal::device_timeline::DeviceTimeline;
+use crate::gal::device_vk::{create_device, get_device_infos, load_queues};
+use crate::gal::queue::{Lane, LaneIndex, Queue, QueueCapFlags, QueueFamily};
+use crate::gal::queue_resource::QueueResource;
+use crate::gal::semaphore_resource::SemaphoreResource;
+use crate::gal::{Engine, Surface};
 
 pub struct DeviceBuilder {
     engine: Arc<Engine>,
@@ -48,7 +48,7 @@ impl DeviceBuilder {
         self
     }
 
-    pub fn build(self) -> Result<(Vec<Queue>, Device)> {
+    pub fn build(self) -> Result<(Vec<Queue>, Arc<Device>)> {
         if self.request.queues.is_empty() {
             bail!("at least one queue must be requested before building a device");
         }
@@ -72,8 +72,15 @@ impl DeviceBuilder {
             .map(|queue| (queue.family, queue.queue))
             .collect::<Vec<_>>();
         let queue_resources = load_queues(resource.as_ref(), &queue_handles)?;
-        let queues = build_queues(resource.clone(), queue_resources, &plan)?;
-        let device = Device::new(self.engine, info.physical_device, resource, &queues)?;
+        let semaphores = build_semaphores(resource.clone(), &plan)?;
+        let timeline = DeviceTimeline::new(&semaphores);
+        let device = Arc::new(Device::new(
+            self.engine,
+            info.physical_device,
+            resource.clone(),
+            timeline,
+        )?);
+        let queues = build_queues(&device, semaphores, queue_resources, &plan)?;
         Ok((queues, device))
     }
 }
@@ -107,14 +114,19 @@ fn push_family_count(families: &mut Vec<(QueueFamily, u32)>, family: QueueFamily
 }
 
 fn build_queues(
-    device: Arc<DeviceResource>,
-    resources: Vec<crate::gal::queue_resource::QueueResource>,
+    device: &Arc<Device>,
+    semaphores: Vec<Arc<SemaphoreResource>>,
+    resources: Vec<QueueResource>,
     plan: &BuildPlan,
 ) -> Result<Vec<Queue>> {
     let mut queues = Vec::with_capacity(resources.len());
+    let inputs = resources
+        .into_iter()
+        .zip(semaphores)
+        .zip(plan.queues.iter())
+        .enumerate();
 
-    for (index, (resource, plan)) in resources.into_iter().zip(plan.queues.iter()).enumerate() {
-        let semaphore = Arc::new(SemaphoreResource::timeline(device.clone(), 0)?);
+    for (index, ((resource, semaphore), plan)) in inputs {
         let lane = Lane::new(LaneIndex::new(index as u32), resource.family());
         let queue = Queue::new(
             device.clone(),
@@ -128,6 +140,17 @@ fn build_queues(
     }
 
     Ok(queues)
+}
+
+fn build_semaphores(
+    device: Arc<DeviceResource>,
+    plan: &BuildPlan,
+) -> Result<Vec<Arc<SemaphoreResource>>> {
+    let mut semaphores = Vec::with_capacity(plan.queues.len());
+    for _ in &plan.queues {
+        semaphores.push(Arc::new(SemaphoreResource::timeline(device.clone(), 0)?));
+    }
+    Ok(semaphores)
 }
 
 #[derive(Default)]

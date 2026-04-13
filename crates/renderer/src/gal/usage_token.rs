@@ -1,94 +1,86 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use anyhow::Result;
 
-use anyhow::{Result, bail};
-
-use crate::gal::device::Device;
+use crate::gal::Device;
 use crate::gal::queue::{Lane, LaneIndex};
-use crate::gal::queue_timeline::TimelineValue;
 
-#[derive(Clone)]
 pub struct UsageToken {
-    inner: Arc<UsageInner<[AtomicU64]>>,
-}
-
-struct UsageInner<Lanes: ?Sized> {
-    mask: u64,
-    lanes: Lanes,
+    frame: u32,
+    mask: LaneMask,
 }
 
 impl UsageToken {
-    fn new<const N: usize>(mask: u64) -> Self {
-        assert_eq!(mask.count_ones() as usize, N);
-        let lanes: [AtomicU64; N] = [const { AtomicU64::new(0) }; N];
-        let inner = Arc::new(UsageInner { mask, lanes });
-        UsageToken { inner }
+    pub fn new() -> Self {
+        UsageToken {
+            frame: 0,
+            mask: LaneMask::new(),
+        }
     }
 
-    pub(crate) fn exclusive(lane: Lane) -> Self {
-        Self::new::<1>(1u64 << u32::from(lane.index()))
-    }
-
-    fn len(&self) -> usize {
-        self.inner.lanes.len()
-    }
-
-    fn get(&self, lane: Lane) -> Option<TimelineValue> {
-        let Some(index) = self.index_of(lane) else {
-            return None;
+    pub fn swap(&mut self) -> Self {
+        let old = Self {
+            frame: self.frame,
+            mask: self.mask,
         };
-        let value = self.inner.lanes[index].load(Ordering::Relaxed);
-        Some(TimelineValue::new(value))
+        self.frame = 0;
+        self.mask = LaneMask::new();
+        old
     }
 
-    fn set_max(&mut self, lane: Lane, value: TimelineValue) -> Result<()> {
-        let Some(index) = self.index_of(lane) else {
-            bail!("lane key out-of-bounds")
-        };
-        self.inner.lanes[index].fetch_max(value.into(), Ordering::Relaxed);
-        Ok(())
+    pub fn frame(&self) -> u32 {
+        self.frame
     }
 
-    pub(crate) fn is_reclaimable(&self, device: &Device) -> Result<bool> {
-        for index in self.iter() {
-            let timeline = device.timeline(index);
-            let current = self.inner.lanes[self.index_of_lane(index)].load(Ordering::Relaxed);
-            if current > timeline.poll()?.into() {
+    pub fn mask(&self) -> LaneMask {
+        self.mask
+    }
+
+    pub fn touch(&mut self, frame: u32, lane: Lane) {
+        self.mask.set(lane);
+        self.frame = self.frame.max(frame);
+    }
+
+    pub fn is_reclaimable(&self, device: &Device) -> Result<bool> {
+        let timeline = device.timeline();
+        for lane in self.mask.iter() {
+            if !timeline.poll(self.frame, lane)? {
                 return Ok(false);
             }
         }
         Ok(true)
     }
 
-    pub(crate) fn wait_until_reclaimable(&self, device: &Device) -> Result<()> {
-        // TODO: add support for bulk multi-semaphore wait
-        for index in self.iter() {
-            let current = self.inner.lanes[self.index_of_lane(index)].load(Ordering::Relaxed);
-            device.timeline(index).wait(TimelineValue::new(current))?;
-        }
-        Ok(())
-    }
-
-    fn iter(&self) -> impl Iterator<Item = LaneIndex> {
-        (0..64)
-            .into_iter()
-            .filter(|i| (self.inner.mask & (1u64 << i)) != 0)
-            .map(LaneIndex::new)
-    }
-
-    fn index_of(&self, lane: Lane) -> Option<usize> {
-        rank_of_bit(self.inner.mask, lane.index().into())
-    }
-
-    fn index_of_lane(&self, lane: LaneIndex) -> usize {
-        rank_of_bit(self.inner.mask, lane.into()).expect("lane index missing from usage token mask")
+    pub fn wait_until_reclaimable(&self, device: &Device) -> Result<bool> {
+        device.timeline().wait_many(self.frame, self.mask)
     }
 }
 
-fn rank_of_bit(bits: u64, i: u32) -> Option<usize> {
-    if i >= 64 || (bits & (1u64 << i)) == 0 {
-        return None;
+#[derive(Clone, Copy)]
+pub struct LaneMask {
+    mask: u64,
+}
+
+impl LaneMask {
+    pub fn new() -> Self {
+        Self { mask: 0 }
     }
-    let below = if i == 0 { 0 } else { bits & ((1u64 << i) - 1) };
-    Some(below.count_ones() as usize)
+
+    pub fn get(&self, lane: Lane) -> bool {
+        (self.mask & Self::bit(lane)) != 0
+    }
+
+    pub fn set(&mut self, lane: Lane) {
+        self.mask |= Self::bit(lane);
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = LaneIndex> {
+        // TODO: can we do better than always iterating 64 times?
+        (0..64)
+            .into_iter()
+            .filter(|i| (self.mask & (1u64 << i)) != 0)
+            .map(LaneIndex::new)
+    }
+
+    fn bit(lane: Lane) -> u64 {
+        1u64 << u64::from(u32::from(lane.index()))
+    }
 }
