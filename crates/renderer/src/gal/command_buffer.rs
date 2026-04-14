@@ -54,6 +54,7 @@ impl<'pool> CommandBuffer<'pool> {
 }
 
 pub struct CommandPacket {
+    // TODO: will need more info for owership transfers
     handle: vk::CommandBuffer,
 }
 

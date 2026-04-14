@@ -3,6 +3,7 @@ use std::sync::{Arc, OnceLock};
 use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 
+use crate::gal::bound_render_targets::BoundRenderTargetsBuilder;
 use crate::gal::image::SampleCount;
 use crate::gal::image_view::ImageView;
 
@@ -67,6 +68,10 @@ impl RenderTargets {
     pub fn rendering_info(&self) -> &vk::RenderingInfo {
         let info = self.info.get_or_init(|| RenderTargetsInfo::new(self));
         info.rendering_info(self)
+    }
+
+    pub fn bind(&self) -> BoundRenderTargetsBuilder<'_> {
+        BoundRenderTargetsBuilder::new(self)
     }
 }
 
@@ -367,14 +372,17 @@ impl RenderingLayout {
         if view.dimensions()? > 2 {
             return Err(anyhow!("invalid {} target shape", kind));
         }
-        if view.subresource_range().layer_count != 1 {
+
+        let range = view.subresource().range();
+
+        if range.layer_count != 1 {
             // multi-view rendering not supported
             return Err(anyhow!("invalid {} target layer count", kind));
         }
-        if view.subresource_range().level_count != 1 {
+        if range.level_count != 1 {
             return Err(anyhow!("invalid {} target mip count", kind));
         }
-        if !view.subresource_range().aspect_mask.contains(aspect) {
+        if !range.aspect_mask.contains(aspect) {
             return Err(anyhow!("{} target does not have {} aspect", kind, kind));
         }
         if view.format() != format {

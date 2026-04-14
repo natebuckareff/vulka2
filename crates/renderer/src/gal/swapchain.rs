@@ -283,6 +283,7 @@ impl SwapchainState {
 
         for handle in swapchain_images {
             let image = Arc::new(Image::from_swapchain(
+                device.clone(),
                 swapchain.clone(),
                 handle,
                 vk::ImageType::_2D,
@@ -294,14 +295,8 @@ impl SwapchainState {
                 vk::ImageTiling::OPTIMAL,
                 vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_DST,
             ));
-            let view = Arc::new(ImageView::new(
-                device.clone(),
-                image.clone(),
-                vk::ImageViewType::_2D,
-                format,
-                components,
-                range,
-            )?);
+            let span = image.span(range)?;
+            let view = Arc::new(span.view(vk::ImageViewType::_2D, format, components)?);
             images.push(image);
             views.push(view);
         }

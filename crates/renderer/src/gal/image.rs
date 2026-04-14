@@ -4,9 +4,11 @@ use anyhow::{Result, bail};
 use vulkanalia::vk;
 use vulkanalia_vma as vma;
 
+use crate::gal::image_span::ImageSpan;
 use crate::gal::{Device, image_storage::ImageStorage, swapchain_resource::SwapchainResource};
 
 pub struct Image {
+    device: Arc<Device>,
     storage: ImageStorage,
     image_type: vk::ImageType,
     format: vk::Format,
@@ -46,9 +48,10 @@ impl Image {
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(initial_layout);
 
-        let storage = ImageStorage::from_device(device, info, flags)?;
+        let storage = ImageStorage::from_device(device.clone(), info, flags)?;
 
         Ok(Self {
+            device,
             storage,
             image_type,
             format,
@@ -62,6 +65,7 @@ impl Image {
     }
 
     pub(crate) fn from_swapchain(
+        device: Arc<Device>,
         resource: Arc<SwapchainResource>,
         image: vk::Image,
         image_type: vk::ImageType,
@@ -75,6 +79,7 @@ impl Image {
     ) -> Self {
         let storage = ImageStorage::from_swapchain(resource, image);
         Self {
+            device,
             storage,
             image_type,
             format,
@@ -89,6 +94,10 @@ impl Image {
 
     pub(crate) unsafe fn storage(&self) -> &ImageStorage {
         &self.storage
+    }
+
+    pub(crate) fn device(&self) -> &Arc<Device> {
+        &self.device
     }
 
     pub fn image_type(&self) -> vk::ImageType {
@@ -131,6 +140,13 @@ impl Image {
 
     pub fn usage(&self) -> vk::ImageUsageFlags {
         self.usage
+    }
+
+    pub fn span(
+        self: &Arc<Self>,
+        subresource_range: vk::ImageSubresourceRange,
+    ) -> Result<ImageSpan> {
+        ImageSpan::new(self.clone(), subresource_range)
     }
 }
 

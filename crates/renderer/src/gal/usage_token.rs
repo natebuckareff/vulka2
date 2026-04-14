@@ -52,6 +52,14 @@ impl UsageToken {
     pub fn wait_until_reclaimable(&self, device: &Device) -> Result<bool> {
         device.timeline().wait_many(self.frame, self.mask)
     }
+
+    pub fn is_reclaimable_poll_or_wait(&self, device: &Device, poll: bool) -> Result<bool> {
+        if poll {
+            self.is_reclaimable(device)
+        } else {
+            self.wait_until_reclaimable(device)
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
