@@ -29,8 +29,6 @@ mod submission;
 mod surface;
 mod surface_info;
 mod surface_resource;
-mod swapchain;
-mod swapchain_image;
 mod swapchain_resource;
 mod swapchain_v2;
 mod usage_token;
