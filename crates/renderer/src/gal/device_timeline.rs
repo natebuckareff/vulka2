@@ -18,7 +18,7 @@ impl DeviceTimeline {
     pub(crate) fn new(queue_semaphores: &[Arc<SemaphoreResource>]) -> Self {
         let mut lanes = Vec::with_capacity(queue_semaphores.len());
         let mut semaphores = Vec::with_capacity(queue_semaphores.len());
-        lanes.extend(semaphores.iter().map(|_| AtomicU64::new(u64::MAX)));
+        lanes.extend(queue_semaphores.iter().map(|_| AtomicU64::new(u64::MAX)));
         semaphores.extend(queue_semaphores.iter().cloned());
         Self { lanes, semaphores }
     }
