@@ -48,8 +48,13 @@ impl CommandPool {
 
     pub fn allocate(&mut self, lane: Lane) -> Result<CommandBuffer<'_>> {
         let handle = self.allocate_handle()?;
-        self.usage.touch(self.frame, lane);
-        return Ok(CommandBuffer::new(self.frame, lane, handle));
+        CommandBuffer::new(
+            &mut self.usage,
+            &self.resource.device(),
+            self.frame,
+            lane,
+            handle,
+        )
     }
 
     fn allocate_handle(&mut self) -> Result<vk::CommandBuffer> {

@@ -11,12 +11,12 @@ use crate::gal::queue_resource::QueueResource;
 use crate::gal::semaphore_resource::SemaphoreResource;
 use crate::gal::{Engine, Surface};
 
-pub struct DeviceBuilder {
+pub struct DeviceBuilder<'a> {
     engine: Arc<Engine>,
-    request: DeviceRequest,
+    request: DeviceRequest<'a>,
 }
 
-impl DeviceBuilder {
+impl<'a> DeviceBuilder<'a> {
     pub fn new(engine: Arc<Engine>) -> Self {
         Self {
             engine,
@@ -43,7 +43,7 @@ impl DeviceBuilder {
         Ok(self)
     }
 
-    pub fn present(mut self, surface: Arc<Surface>) -> Self {
+    pub fn present(mut self, surface: &'a Surface) -> Self {
         self.request.surface = Some(surface);
         self
     }
@@ -61,7 +61,7 @@ impl DeviceBuilder {
         let (info, solution) = best.into_parts();
         let plan = BuildPlan::new(solution.allocations());
         let resource = Arc::new(create_device(
-            unsafe { self.engine.instance() },
+            self.engine.clone(),
             info.physical_device,
             surface,
             &plan.family_counts,
@@ -154,11 +154,11 @@ fn build_semaphores(
 }
 
 #[derive(Default)]
-pub struct DeviceRequest {
+pub struct DeviceRequest<'a> {
     pub name: Option<String>,
     pub kind: Option<DeviceKind>,
     pub queues: Vec<QueueKind>,
-    pub surface: Option<Arc<Surface>>,
+    pub surface: Option<&'a Surface>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

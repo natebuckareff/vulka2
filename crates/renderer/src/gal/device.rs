@@ -6,6 +6,7 @@ use vulkanalia::vk;
 use crate::gal::Engine;
 use crate::gal::device_allocator::DeviceAllocator;
 use crate::gal::device_timeline::DeviceTimeline;
+use crate::gal::engine;
 
 pub struct Device {
     engine: Arc<Engine>,
@@ -51,15 +52,26 @@ impl Device {
     pub(crate) fn allocator(&self) -> &DeviceAllocator {
         &self.allocator
     }
+
+    pub fn wait_idle(&self) -> Result<()> {
+        use vulkanalia::prelude::v1_0::*;
+
+        unsafe {
+            self.resource.handle().device_wait_idle()?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct DeviceResource {
+    engine: Arc<Engine>,
     handle: vulkanalia::Device,
 }
 
 impl DeviceResource {
-    pub(crate) fn new(handle: vulkanalia::Device) -> Self {
-        Self { handle }
+    pub(crate) fn new(engine: Arc<Engine>, handle: vulkanalia::Device) -> Self {
+        Self { engine, handle }
     }
 
     pub(crate) unsafe fn handle(&self) -> &vulkanalia::Device {

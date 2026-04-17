@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use anyhow::Result;
+use anyhow::anyhow;
 use anyhow::bail;
 use vulkanalia::vk;
 
@@ -18,16 +19,16 @@ use crate::gal::swapchain_resource::SwapchainResource;
 
 pub struct Swapchain {
     device: Arc<Device>,
-    surface: Arc<Surface>,
-    state: Option<Box<SwapchainState>>,
+    surface: Arc<Surface>,              // TODO: can probably be an Rc
+    state: Option<Box<SwapchainState>>, // TODO: why is this Option?
     should_recreate: bool,
 }
 
 impl Swapchain {
-    pub fn new(device: Arc<Device>, surface: Arc<Surface>, extent: vk::Extent2D) -> Result<Self> {
+    pub fn new(device: Arc<Device>, surface: Surface, extent: vk::Extent2D) -> Result<Self> {
         let mut swapchain = Self {
             device,
-            surface,
+            surface: Arc::new(surface),
             state: None,
             should_recreate: false,
         };
@@ -35,10 +36,23 @@ impl Swapchain {
         Ok(swapchain)
     }
 
+    pub fn format(&self) -> vk::Format {
+        self.state().swapchain.format()
+    }
+
+    pub fn extent(&self) -> vk::Extent2D {
+        self.state().swapchain.extent()
+    }
+
+    pub fn will_recreate(&self) -> bool {
+        self.should_recreate
+    }
+
     pub fn recreate(&mut self, extent: vk::Extent2D) -> Result<()> {
         let old = self.state.take();
         let device = self.device.clone();
-        let mut new = SwapchainState::new(device, &self.surface, extent, old.as_deref())?;
+        let surface = self.surface.clone();
+        let mut new = SwapchainState::new(device, surface, extent, old.as_deref())?;
         new.set_old(old);
         self.state = Some(Box::new(new));
         Ok(())
@@ -52,15 +66,30 @@ impl Swapchain {
                 }
                 Ok(token)
             }
-            Err(e @ (AcquireError::RecreateSwapchain | AcquireError::RecreateSurface)) => {
-                if matches!(e, AcquireError::RecreateSurface) {
-                    // TODO: how to recreate the surface?
-                    todo!()
+            Err(cause @ (AcquireError::RecreateSwapchain | AcquireError::RecreateSurface)) => {
+                if matches!(cause, AcquireError::RecreateSurface) {
+                    if let Err(error) = self.device.wait_idle() {
+                        return Err(AcquireError::RecreateError {
+                            cause: Box::new(cause),
+                            error,
+                        });
+                    }
+                    let engine = self.device.engine().clone();
+                    let surface = match Surface::new(engine) {
+                        Ok(surface) => surface,
+                        Err(error) => {
+                            return Err(AcquireError::RecreateError {
+                                cause: Box::new(cause),
+                                error,
+                            });
+                        }
+                    };
+                    self.surface = Arc::new(surface);
                 }
                 match self.recreate(self.state().swapchain.extent()) {
-                    Ok(_) => Err(e),
+                    Ok(_) => Err(cause),
                     Err(error) => Err(AcquireError::RecreateError {
-                        cause: Box::new(e),
+                        cause: Box::new(cause),
                         error,
                     }),
                 }
@@ -81,6 +110,40 @@ impl Swapchain {
         Ok(())
     }
 
+    pub(crate) fn generation(&self) -> u64 {
+        self.state().generation
+    }
+
+    pub(crate) unsafe fn resource(&self) -> &Arc<SwapchainResource> {
+        &self.state().swapchain
+    }
+
+    // TODO: not sure about this api where where we force the user to falliably
+    // query the swapchain for its view using a token...like it kinda makes
+    // sense, but feels awkward
+    //
+    // see TODO for a possible PresentToken type
+    pub fn color_view(&self, token: &SwapchainToken) -> Result<Arc<ImageView>> {
+        let Some((image_index, _)) = token.target() else {
+            bail!("swapchain token missing image index");
+        };
+        Ok(self.state().images[image_index as usize].view.clone())
+    }
+
+    // TODO: why is this not just a SwapchainToken like the color_view() getter?
+    // TODO XXX: I bet wherever this image_index comes from is flaky and
+    // falliable
+    pub(crate) fn render_finished(&self, image_index: u32) -> &SemaphoreResource {
+        &self.state().images[image_index as usize].render_finished
+    }
+
+    // TODO: Queue::present() should instead set a flag on the SwapchainToken
+    // and when we retire that, then set should_recreate, so we have a coherent
+    // data flow
+    pub(crate) fn set_should_recreate(&mut self) {
+        self.should_recreate = true;
+    }
+
     fn state(&self) -> &SwapchainState {
         // SAFETY: new() immediately calls recreate() which exits with
         // self.state set
@@ -95,7 +158,6 @@ impl Swapchain {
 }
 
 struct SwapchainState {
-    device: Arc<Device>,
     generation: u64,
     swapchain: Arc<SwapchainResource>,
     tokens: Vec<Option<SwapchainToken>>,
@@ -110,23 +172,22 @@ struct SwapchainState {
 impl SwapchainState {
     fn new(
         device: Arc<Device>,
-        surface: &Surface,
+        surface: Arc<Surface>,
         extent: vk::Extent2D,
         old: Option<&SwapchainState>,
     ) -> Result<Self> {
         let generation = old.as_ref().map(|state| state.generation + 1).unwrap_or(0);
         let old_swapchain = old.as_ref().map(|state| state.swapchain.as_ref());
-        let swapchain = create_swapchain(&device, surface, extent, old_swapchain)?;
-        let images = create_images(&device, &swapchain)?;
+        let swapchain = create_swapchain(device, surface, extent, old_swapchain)?;
+        let images = create_images(&swapchain)?;
         let image_count = images.len();
         let mut tokens = Vec::with_capacity(image_count);
         for token_index in 0..image_count {
-            let device = device.resource().clone();
+            let device = swapchain.device().resource().clone();
             let token = SwapchainToken::new(device, generation, token_index)?;
             tokens.push(Some(token))
         }
         Ok(Self {
-            device,
             generation,
             swapchain,
             tokens,
@@ -167,7 +228,7 @@ impl SwapchainState {
         let mut fence = self.history.get_fence();
 
         let result = unsafe {
-            let device = self.device.resource();
+            let device = self.swapchain.device().resource();
             let swapchain = self.swapchain.handle();
             let semaphore = token.state.image_available.handle();
             let fence = fence
@@ -287,6 +348,11 @@ impl SwapchainState {
     }
 }
 
+// TODO: dedicated SwapchainTarget=(u32,ImageToken) type
+
+// TODO: should we have a different type PresentToken or something that only
+// Acquired through Presenting, then all the target getters
+
 pub struct SwapchainToken {
     state: Box<TokenState>,
 }
@@ -295,6 +361,38 @@ impl SwapchainToken {
     fn new(device: Arc<DeviceResource>, generation: u64, token_index: usize) -> Result<Self> {
         let state = Box::new(TokenState::new(device, generation, token_index)?);
         Ok(Self { state })
+    }
+
+    // TODO: could replace with infalliable PresentToken instead
+    pub(crate) fn target(&self) -> Option<(u32, &ImageToken)> {
+        match &self.state.status {
+            TokenStatus::Acquired((index, token)) => Some((*index, token)),
+            TokenStatus::Bound((index, token)) => Some((*index, token)),
+            TokenStatus::Recorded((index, token)) => Some((*index, token)),
+            TokenStatus::Rendering((index, token)) => Some((*index, token)),
+            TokenStatus::Presenting((index, token)) => Some((*index, token)),
+            _ => None,
+        }
+    }
+
+    // TODO: could replace with infalliable PresentToken instead
+    pub(crate) fn target_mut(&mut self) -> Option<(u32, &mut ImageToken)> {
+        match &mut self.state.status {
+            TokenStatus::Acquired((index, token)) => Some((*index, token)),
+            TokenStatus::Bound((index, token)) => Some((*index, token)),
+            TokenStatus::Recorded((index, token)) => Some((*index, token)),
+            TokenStatus::Rendering((index, token)) => Some((*index, token)),
+            TokenStatus::Presenting((index, token)) => Some((*index, token)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.state.generation
+    }
+
+    pub(crate) fn image_available(&self) -> &SemaphoreResource {
+        &self.state.image_available
     }
 
     fn acquire(&mut self, image: &mut SwapchainImage) -> Result<()> {
@@ -307,6 +405,70 @@ impl SwapchainToken {
         };
         state.status = TokenStatus::Acquired(target);
         Ok(())
+    }
+
+    pub(crate) fn bind(&mut self) -> Result<(u32, &mut ImageToken)> {
+        let state = self.state.as_mut();
+        let status = std::mem::replace(&mut state.status, TokenStatus::Retired);
+        match status {
+            TokenStatus::Acquired(target) => {
+                state.status = TokenStatus::Bound(target);
+            }
+            other => {
+                state.status = other;
+                bail!("swapchain token invalid status for render target binding");
+            }
+        }
+        // TOOD: maybe move bind, record, etc to PresentToken so they're
+        // infalliable when reading target...just an idea!
+        self.target_mut()
+            .ok_or_else(|| anyhow!("swapchain token missing image token after binding"))
+    }
+
+    pub(crate) fn record(&mut self) -> Result<(u32, &mut ImageToken)> {
+        let state = self.state.as_mut();
+        let status = std::mem::replace(&mut state.status, TokenStatus::Retired);
+        match status {
+            TokenStatus::Bound(target) => {
+                state.status = TokenStatus::Recorded(target);
+            }
+            other => {
+                state.status = other;
+                bail!("swapchain token invalid status for recording");
+            }
+        }
+        self.target_mut()
+            .ok_or_else(|| anyhow!("swapchain token missing image token after recording"))
+    }
+
+    pub(crate) fn submit(&mut self) -> Result<()> {
+        let state = self.state.as_mut();
+        let status = std::mem::replace(&mut state.status, TokenStatus::Retired);
+        match status {
+            TokenStatus::Recorded(target) => {
+                state.status = TokenStatus::Rendering(target);
+                Ok(())
+            }
+            other => {
+                state.status = other;
+                bail!("swapchain token invalid status for submit");
+            }
+        }
+    }
+
+    pub(crate) fn present(&mut self) -> Result<u32> {
+        let state = self.state.as_mut();
+        let status = std::mem::replace(&mut state.status, TokenStatus::Retired);
+        match status {
+            TokenStatus::Rendering((image_index, token)) => {
+                state.status = TokenStatus::Presenting((image_index, token));
+                Ok(image_index)
+            }
+            other => {
+                state.status = other;
+                bail!("swapchain token invalid status for present");
+            }
+        }
     }
 
     fn retire(&mut self, image: &mut SwapchainImage, generation: u64) -> Result<()> {
@@ -332,23 +494,22 @@ struct TokenState {
     token_index: usize,
     status: TokenStatus,
     image_available: SemaphoreResource,
-    render_finished: SemaphoreResource,
 }
 
 impl TokenState {
     fn new(device: Arc<DeviceResource>, generation: u64, token_index: usize) -> Result<Self> {
         let image_available = SemaphoreResource::binary(device.clone())?;
-        let render_finished = SemaphoreResource::binary(device)?;
         Ok(Self {
             generation,
             token_index,
             status: TokenStatus::Initial,
             image_available,
-            render_finished,
         })
     }
 }
 
+// TokenStatus state transitions
+//
 // Initial|Retired -> Acquired      Swapchain::acquire()
 // Acquired        -> Bound         CommandBuffer::render()
 // Bound           -> Recorded      Rendering::present()
@@ -384,7 +545,8 @@ impl PartialEq for TokenStatus {
 
 struct SwapchainImage {
     target: Option<(u32, ImageToken)>,
-    view: ImageView,
+    view: Arc<ImageView>,
+    render_finished: SemaphoreResource,
 }
 
 struct SwapchainHistory {
@@ -445,21 +607,34 @@ pub enum AcquireError {
     },
 }
 
+// TODO: forgot about this...move to queue.rs?
+pub enum PresentError {
+    QueueNotPresentable,
+    RecreateSwapchain,
+    RecreateSurface,
+    RegainFullScreen,
+    GenerationMismatch,
+    Other(anyhow::Error),
+    Code(vk::ErrorCode),
+}
+
+// TODO: move these to swapchain_state_vk.rs
+
 fn create_swapchain(
-    device: &Device,
-    surface: &Surface,
+    device: Arc<Device>,
+    surface: Arc<Surface>,
     extent: vk::Extent2D,
     old: Option<&SwapchainResource>,
 ) -> Result<Arc<SwapchainResource>> {
     use vulkanalia::prelude::v1_0::*;
 
-    let surface_info = surface.info(device)?;
+    let surface_info = surface.info(&device)?;
     let surface_format = surface_info.get_best_surface_format();
     let format = surface_format.format;
     let extent = surface_info.get_clamped_extent(extent);
 
     let mut create_info = vk::SwapchainCreateInfoKHR::builder()
-        .surface(unsafe { surface.handle() })
+        .surface(unsafe { surface.resource().handle() })
         .min_image_count(surface_info.get_min_image_count())
         .image_format(format)
         .image_color_space(surface_format.color_space)
@@ -469,23 +644,19 @@ fn create_swapchain(
         .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
         .pre_transform(surface_info.pre_transform())
         .composite_alpha(surface_info.composite_alpha()?)
-        .present_mode(surface_info.get_present_modeKHR::FIFO)
+        .present_mode(vk::PresentModeKHR::FIFO)
         .clipped(true);
 
     if let Some(old) = old {
         create_info = create_info.old_swapchain(unsafe { old.handle() });
     }
 
-    let device = device.resource().clone();
-    let swapchain = SwapchainResource::new(device, format, extent, &create_info)?;
+    let swapchain = SwapchainResource::new(device, surface, format, extent, &create_info)?;
 
     Ok(Arc::new(swapchain))
 }
 
-fn create_images(
-    device: &Arc<Device>,
-    swapchain: &Arc<SwapchainResource>,
-) -> Result<Vec<SwapchainImage>> {
+fn create_images(swapchain: &Arc<SwapchainResource>) -> Result<Vec<SwapchainImage>> {
     use vulkanalia::prelude::v1_0::*;
     use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
 
@@ -511,6 +682,8 @@ fn create_images(
         height: swapchain.extent().height,
         depth: 1,
     };
+
+    let device = swapchain.device();
 
     let swapchain_images = unsafe {
         device
@@ -539,10 +712,11 @@ fn create_images(
         let token = span.acquire()?;
         let view_type = vk::ImageViewType::_2D;
         let format = swapchain.format();
-        let view = span.view(view_type, format, components)?;
+        let view = Arc::new(span.view(view_type, format, components)?);
         let swapchain_image = SwapchainImage {
             target: token.map(|token| (i as u32, token)),
             view,
+            render_finished: SemaphoreResource::binary(device.resource().clone())?,
         };
         images.push(swapchain_image);
     }

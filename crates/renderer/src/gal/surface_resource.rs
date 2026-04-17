@@ -4,9 +4,12 @@ use anyhow::{Result, anyhow};
 use vulkanalia::vk;
 use vulkanalia::vk::KhrSurfaceExtensionInstanceCommands;
 
-use crate::gal::engine::Engine;
+use crate::gal::Engine;
 
 pub struct SurfaceResource {
+    // NOTE: stores engine instead of device because surface needs to be created
+    // _before_ the device+queues; the queues need a surface to query
+    // compatibility
     engine: Arc<Engine>,
     handle: vk::SurfaceKHR,
 }
@@ -19,7 +22,6 @@ impl SurfaceResource {
         let handle = unsafe {
             vulkanalia::window::create_surface(engine.instance(), window.as_ref(), window.as_ref())?
         };
-
         Ok(Self { engine, handle })
     }
 
@@ -35,7 +37,7 @@ impl SurfaceResource {
 impl Drop for SurfaceResource {
     fn drop(&mut self) {
         unsafe {
-            self.engine
+            self.engine()
                 .instance()
                 .destroy_surface_khr(self.handle, None);
         }

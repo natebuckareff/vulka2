@@ -1,17 +1,17 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use bitflags::bitflags;
 
 use crate::gal::Device;
 use crate::gal::QueueKind;
-use crate::gal::Swapchain;
 use crate::gal::queue_resource::QueueResource;
 use crate::gal::semaphore_resource::SemaphoreResource;
 use crate::gal::submission::Submission;
-use crate::gal::swapchain::PresentError;
-use crate::gal::swapchain_image::PresentToken;
+use crate::gal::swapchain_v2::PresentError;
+use crate::gal::swapchain_v2::Swapchain;
+use crate::gal::swapchain_v2::SwapchainToken;
 
 pub struct Queue {
     device: Arc<Device>,
@@ -73,14 +73,19 @@ impl Queue {
         self.lane
     }
 
+    pub fn family(&self) -> QueueFamily {
+        self.resource.family()
+    }
+
     pub fn submissions(&self) -> u32 {
         self.submissions
     }
 
+    // TODO: possibly a PresentQueue created with a specific Swapchain?
     pub fn present(
         &self,
         swapchain: &mut Swapchain,
-        token: PresentToken,
+        token: &mut SwapchainToken,
     ) -> Result<(), PresentError> {
         use vulkanalia::prelude::v1_0::*;
         use vulkanalia::vk::KhrSwapchainExtensionDeviceCommands;
@@ -93,13 +98,18 @@ impl Queue {
             return Err(PresentError::GenerationMismatch);
         }
 
-        if token.family() != self.resource.family() {
-            return Err(PresentError::OwnershipTransferUnsupported);
-        }
+        // TODO: validate whether presenting token on this queue requires an
+        // ownership transfer
 
-        let wait_semaphores = [unsafe { token.render_finished().handle() }];
-        let swapchains = [unsafe { swapchain.current_handle() }];
-        let indices = [token.index()];
+        // TODO: improve SwapchainToken design to make this infalliable
+        let (image_index, _) = token.target().ok_or_else(|| {
+            PresentError::Other(anyhow!("swapchain token missing image index for present"))
+        })?;
+
+        let render_finished = swapchain.render_finished(image_index);
+        let wait_semaphores = [unsafe { render_finished.handle() }];
+        let swapchains = [unsafe { swapchain.resource().handle() }];
+        let indices = [image_index];
         let present_info = vk::PresentInfoKHR::builder()
             .wait_semaphores(&wait_semaphores)
             .swapchains(&swapchains)
@@ -114,11 +124,16 @@ impl Queue {
 
         match result {
             Ok(code) => {
+                token.present().map_err(PresentError::Other)?;
                 if code == vk::SuccessCode::SUBOPTIMAL_KHR {
+                    // TODO XXX: quick hack, later encode this into token and
+                    // defer recreate on retire because it feels cleaner
                     swapchain.set_should_recreate();
                 }
                 Ok(())
             }
+            // TODO XXX: feel like all of these should be handled in Swapchain
+            // by setting flags on the token and inspecting on retire
             Err(vk::ErrorCode::OUT_OF_DATE_KHR) => Err(PresentError::RecreateSwapchain),
             Err(vk::ErrorCode::SURFACE_LOST_KHR) => Err(PresentError::RecreateSurface),
             Err(vk::ErrorCode::FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) => {
@@ -128,8 +143,115 @@ impl Queue {
         }
     }
 
-    pub fn submit(&mut self, submission: Submission) -> Result<()> {
-        todo!()
+    pub fn submit(
+        &mut self,
+        swapchain: &mut Swapchain, // TODO: why the hell do we need this
+        submission: Submission,
+        token: &mut SwapchainToken,
+    ) -> Result<()> {
+        use vulkanalia::prelude::v1_3::*;
+
+        // TODO: why not roll waits and signals into packets?
+        let (frame, lane, packets, waits, signals) = submission.into_parts();
+
+        if lane != self.lane {
+            bail!("lane mismatch");
+        }
+
+        if packets.is_empty() {
+            return Ok(());
+        }
+
+        // TODO: right, so this makes me think that PresentQueue is a good idea
+        // even more
+        let (image_index, _) = token
+            .target()
+            .ok_or_else(|| anyhow!("swapchain token missing image index for present"))?;
+
+        let render_finished = swapchain.render_finished(image_index);
+
+        self.increment(frame)?;
+
+        // TODO: inter_into()?
+        // TODO: can we cache and mutate the info somehow? or just rebuild every
+        // time? either way, should have some helpers for these maybe
+        let cmdbuf_infos = packets
+            .iter()
+            .map(|packet| {
+                vk::CommandBufferSubmitInfo::builder()
+                    .command_buffer(packet.handle())
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
+        // XXX: how are DeviceTimeline and Swapchain semas ending up here anyways??
+
+        let mut wait_infos = waits
+            .iter()
+            .map(|wait| {
+                vk::SemaphoreSubmitInfo::builder()
+                    .semaphore(unsafe { wait.semaphore().handle() })
+                    .stage_mask(wait.stage_mask())
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
+        // TODO: ALL_COMMANDS feels overly broad
+        wait_infos.push(
+            vk::SemaphoreSubmitInfo::builder()
+                .semaphore(unsafe { token.image_available().handle() })
+                .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                .build(),
+        );
+
+        let mut signal_infos = signals
+            .iter()
+            .map(|signal| {
+                vk::SemaphoreSubmitInfo::builder()
+                    .semaphore(unsafe { signal.semaphore().handle() })
+                    .stage_mask(signal.stage_mask())
+                    .build()
+            })
+            .collect::<Vec<_>>();
+
+        // TODO: are these stage masks correct?
+        signal_infos.push(
+            vk::SemaphoreSubmitInfo::builder()
+                .semaphore(unsafe { render_finished.handle() })
+                .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                .build(),
+        );
+
+        // TODO: ARE THESE STAGE MASKS CORRECT?
+        signal_infos.push(
+            vk::SemaphoreSubmitInfo::builder()
+                .semaphore(unsafe { self.semaphore.handle() })
+                .value(u64::from(self.submissions))
+                .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)
+                .build(),
+        );
+
+        let submit_infos = [vk::SubmitInfo2::builder()
+            .wait_semaphore_infos(&wait_infos)
+            .command_buffer_infos(&cmdbuf_infos)
+            .signal_semaphore_infos(&signal_infos)
+            .build()];
+
+        unsafe {
+            self.device.resource().handle().queue_submit2(
+                self.resource.handle(),
+                &submit_infos,
+                vk::Fence::null(),
+            )?;
+        }
+
+        token.submit()?;
+
+        self.device
+            .timeline()
+            .update(self.frame, self.lane.index(), self.submissions);
+
+        Ok(())
     }
 
     fn increment(&mut self, frame: u32) -> Result<()> {

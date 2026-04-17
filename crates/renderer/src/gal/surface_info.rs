@@ -15,7 +15,7 @@ impl SurfaceInfo {
 
         let instance = unsafe { device.engine().instance() };
         let physical_device = device.physical_device();
-        let surface = unsafe { surface.handle() };
+        let surface = unsafe { surface.resource().handle() };
 
         let capabilities = unsafe {
             instance.get_physical_device_surface_capabilities_khr(physical_device, surface)?

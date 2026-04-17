@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use anyhow::Result;
 use anyhow::bail;
@@ -57,12 +58,14 @@ pub(crate) fn ensure_required_device_features_supported(
 }
 
 pub(crate) fn create_device(
-    instance: &vulkanalia::Instance,
+    engine: Arc<Engine>,
     physical_device: vk::PhysicalDevice,
     surface: Option<&Surface>,
     queue_families: &[(QueueFamily, u32)],
 ) -> Result<DeviceResource> {
     use vulkanalia::prelude::v1_1::*;
+
+    let instance = unsafe { engine.instance() };
 
     ensure_required_device_extensions_supported(instance, physical_device, surface)?;
     ensure_required_device_features_supported(instance, physical_device)?;
@@ -103,7 +106,7 @@ pub(crate) fn create_device(
         .push_next(&mut enabled_v13);
 
     let handle = unsafe { instance.create_device(physical_device, &create_info, None)? };
-    Ok(DeviceResource::new(handle))
+    Ok(DeviceResource::new(engine, handle))
 }
 
 pub(crate) fn load_queues(
@@ -128,7 +131,7 @@ fn query_device_info(
     let family_properties =
         unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
 
-    let surface_handle = surface.map(|surface| unsafe { surface.handle() });
+    let surface_handle = surface.map(|surface| unsafe { surface.resource().handle() });
     let mut families = Vec::with_capacity(family_properties.len());
 
     for (family_index, properties) in family_properties.into_iter().enumerate() {

@@ -6,21 +6,21 @@ use crate::gal::{
     queue::QueueFamily,
 };
 
-pub struct RankedDevice<'a> {
+pub struct RankedDevice<'a, 'surface> {
     info: &'a DeviceInfo,
-    solution: Solution<'a>,
+    solution: Solution<'a, 'surface>,
 }
 
-impl<'a> RankedDevice<'a> {
-    pub(crate) fn into_parts(self) -> (&'a DeviceInfo, Solution<'a>) {
+impl<'a, 'surface> RankedDevice<'a, 'surface> {
+    pub(crate) fn into_parts(self) -> (&'a DeviceInfo, Solution<'a, 'surface>) {
         (self.info, self.solution)
     }
 }
 
-pub(crate) fn get_ranked_devices<'a>(
-    request: &'a DeviceRequest,
+pub(crate) fn get_ranked_devices<'a, 'surface>(
+    request: &'surface DeviceRequest,
     infos: &'a Vec<DeviceInfo>,
-) -> Vec<RankedDevice<'a>> {
+) -> Vec<RankedDevice<'a, 'surface>> {
     let mut ranking = vec![];
     for info in infos {
         if let Some(name) = &request.name {
@@ -43,14 +43,14 @@ pub(crate) fn get_ranked_devices<'a>(
 }
 
 #[derive(Clone)]
-pub struct Solution<'a> {
-    state: State<'a>,
+pub struct Solution<'a, 'surface> {
+    state: State<'a, 'surface>,
     allocations: Vec<Allocation>,
     score: OnceCell<f32>,
 }
 
-impl<'a> Solution<'a> {
-    fn new(state: State<'a>) -> Self {
+impl<'a, 'surface> Solution<'a, 'surface> {
+    fn new(state: State<'a, 'surface>) -> Self {
         Self {
             state,
             allocations: Default::default(),
@@ -62,7 +62,7 @@ impl<'a> Solution<'a> {
         &self.allocations
     }
 
-    fn solve(self, index: usize) -> Option<Solution<'a>> {
+    fn solve(self, index: usize) -> Option<Solution<'a, 'surface>> {
         if index >= self.state.request.queues.len() {
             // in the base case, return None if the full solution does actually
             // fullfill the full request
@@ -216,9 +216,9 @@ impl<'a> Solution<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct State<'a> {
+struct State<'a, 'surface> {
     info: &'a DeviceInfo,
-    request: &'a DeviceRequest,
+    request: &'a DeviceRequest<'surface>,
 }
 
 #[derive(Debug, Clone, Copy)]
