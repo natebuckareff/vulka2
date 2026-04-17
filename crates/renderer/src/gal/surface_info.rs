@@ -96,16 +96,6 @@ impl SurfaceInfo {
         }
     }
 
-    pub fn get_present_mode(&self) -> Result<vk::PresentModeKHR> {
-        if self.present_modes.contains(&vk::PresentModeKHR::FIFO) {
-            Ok(vk::PresentModeKHR::FIFO)
-        } else if self.present_modes.is_empty() {
-            bail!("no present modes available");
-        } else {
-            Ok(self.present_modes[0])
-        }
-    }
-
     pub fn composite_alpha(&self) -> Result<vk::CompositeAlphaFlagsKHR> {
         if self
             .capabilities

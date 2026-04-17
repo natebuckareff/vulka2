@@ -469,7 +469,7 @@ fn create_swapchain(
         .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
         .pre_transform(surface_info.pre_transform())
         .composite_alpha(surface_info.composite_alpha()?)
-        .present_mode(surface_info.get_present_mode()?)
+        .present_mode(surface_info.get_present_modeKHR::FIFO)
         .clipped(true);
 
     if let Some(old) = old {
