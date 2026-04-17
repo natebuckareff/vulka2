@@ -1,6 +1,8 @@
 #![feature(once_cell_try)]
 #![feature(once_cell_get_mut)]
 #![feature(associated_type_defaults)]
+#![feature(generic_const_exprs)]
+#![feature(adt_const_params)]
 
 use anyhow::Result;
 use winit::event_loop::EventLoop;
@@ -8,6 +10,7 @@ use winit::event_loop::EventLoop;
 use crate::test_renderer_v2::TestRendererV2;
 
 mod app;
+mod gal;
 mod gpu;
 mod renderer;
 mod test_renderer_v2;
