@@ -90,8 +90,11 @@ pub(crate) fn create_device(
     let mut enabled_v12 = vk::PhysicalDeviceVulkan12Features::default();
     enabled_v12.timeline_semaphore = vk::TRUE;
 
+    // TODO: unify this and enabling features so feature support and enable is
+    // driven by a single source of truth
     let mut enabled_v13 = vk::PhysicalDeviceVulkan13Features::default();
     enabled_v13.synchronization2 = vk::TRUE;
+    enabled_v13.dynamic_rendering = vk::TRUE;
 
     let create_info = vk::DeviceCreateInfo::builder()
         .queue_create_infos(&queue_create_infos)
@@ -243,12 +246,17 @@ fn ensure_device_features_supported(
         instance.get_physical_device_features2(physical_device, &mut supported_features);
     }
 
+    // TODO: unify this and enabling features so feature support and enable is
+    // driven by a single source of truth
     let mut missing_features = Vec::new();
     if supported_v12.timeline_semaphore != vk::TRUE {
         missing_features.push("timelineSemaphore");
     }
     if supported_v13.synchronization2 != vk::TRUE {
         missing_features.push("synchronization2");
+    }
+    if supported_v13.dynamic_rendering != vk::TRUE {
+        missing_features.push("dynamicRendering");
     }
 
     if missing_features.is_empty() {
