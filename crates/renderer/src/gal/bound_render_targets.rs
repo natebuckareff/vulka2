@@ -6,6 +6,7 @@ use anyhow::{Result, anyhow};
 use crate::gal::image_token::ImageToken;
 use crate::gal::image_view::ImageView;
 use crate::gal::render_targets::{ColorTarget, DepthTarget, RenderTargets, StencilTarget};
+use crate::gal::swapchain_v2::SwapchainToken;
 
 pub struct BoundRenderTargets<'a> {
     targets: &'a RenderTargets,
@@ -83,6 +84,16 @@ impl<'a> BoundRenderTargetsBuilder<'a> {
         };
         validate_binding(target, token)?;
         self.colors[index] = Some(token);
+        Ok(self)
+    }
+
+    pub fn swapchain_color(mut self, index: usize, token: &'a mut SwapchainToken) -> Result<Self> {
+        let Some(target) = self.targets.colors().get(index) else {
+            return Err(anyhow!("invalid color target index"));
+        };
+        let (_, image_token) = token.bind()?;
+        validate_binding(target, image_token)?;
+        self.colors[index] = Some(image_token);
         Ok(self)
     }
 
